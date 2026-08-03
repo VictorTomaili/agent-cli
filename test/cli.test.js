@@ -159,3 +159,82 @@ test("identity apply + set round-trip clears the identity gap", () => {
 	const j = parseJson(r.stdout);
 	assert.deepEqual(j.onboarding.gaps.identity || [], []);
 });
+
+test("models: set then list + resolve round-trip", () => {
+	const r0 = run([
+		"models", "set", "coding-model", "openai/gpt-5", "--thinking", "high",
+	]);
+	ok(r0);
+	const home = r0.home;
+	const list = parseJson(run(["models", "list", "--json"], { envHome: home }).stdout);
+	assert.ok(list.aliases["coding-model"]);
+	assert.equal(list.aliases["coding-model"].model, "openai/gpt-5");
+	const res = parseJson(
+		run(["models", "resolve", "coding-model", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(res.resolved.model, "openai/gpt-5");
+});
+
+test("models seed writes the default aliases", () => {
+	const j = parseJson(run(["models", "seed", "--json"]).stdout);
+	assert.ok(Object.keys(j.aliases).length >= 6);
+});
+
+test("agents: new scaffolds, list shows it, validate flags placeholders", () => {
+	const home = run(["init"]).home;
+	const newr = parseJson(
+		run(["agents", "new", "tester", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(newr.created, true);
+	const list = parseJson(
+		run(["agents", "list", "--json"], { envHome: home }).stdout,
+	);
+	assert.ok(list.agents.some((a) => a.name === "tester"));
+	const v = parseJson(
+		run(["agents", "validate", "tester", "--json"], { envHome: home }).stdout,
+	);
+	const t = v.results.find((x) => x.name === "tester");
+	assert.ok(t);
+	assert.equal(t.valid, false); // fresh scaffold has placeholders
+});
+
+test("agents show for an unknown name errors (exit 1)", () => {
+	bad(run(["agents", "show", "nope"]));
+});
+
+test("lessons: add then list + show round-trip", () => {
+	const home = run(["init"]).home;
+	run(["lessons", "add", "git/test-lesson", "--body", "lesson body", "-p"], {
+		envHome: home,
+	});
+	const list = parseJson(
+		run(["lessons", "list", "--json"], { envHome: home }).stdout,
+	);
+	assert.ok(list.lessons.some((l) => l.path.endsWith("git/test-lesson")));
+	const show = run(["lessons", "show", "git/test-lesson", "-p"], { envHome: home });
+	ok(show);
+	assert.ok(show.stdout.includes("lesson body"));
+});
+
+test("lessons show for a missing lesson errors (exit 1)", () => {
+	const home = run(["init"]).home;
+	bad(run(["lessons", "show", "nope/missing", "-p"], { envHome: home }));
+});
+
+test("update: stage then list + clear round-trip", () => {
+	const home = run(["init"]).home;
+	const stage = parseJson(
+		run(["update", "stage", "--json"], { envHome: home }).stdout,
+	);
+	assert.ok(stage.staged.length >= 1);
+	const list = parseJson(
+		run(["update", "list", "--json"], { envHome: home }).stdout,
+	);
+	assert.ok(list.staged.length >= 1);
+	const ver = list.staged[0].version;
+	ok(run(["update", "clear", ver, "--json"], { envHome: home }));
+	const after = parseJson(
+		run(["update", "list", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(after.staged.length, 0);
+});

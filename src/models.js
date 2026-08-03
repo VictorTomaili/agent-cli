@@ -53,14 +53,21 @@ export function setAlias(name, { model, category, thinking, fallbacks }) {
 		...(category != null ? { category } : {}),
 		...(model != null ? { model } : {}),
 		...(thinking != null ? { thinking } : {}),
-		...(fallbacks != null ? { fallbacks: [...new Set(fallbacks.filter(Boolean))] } : {}),
+		...(fallbacks != null
+			? { fallbacks: [...new Set(fallbacks.filter(Boolean))] }
+			: {}),
 	};
 	writeConfig(cfg);
 	return cfg.models.aliases[name];
 }
 export function writeModelsMd() {
 	const a = getAliases();
-	const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+	const esc = (v) =>
+		String(v ?? "")
+			.replace(/&/g, "&amp;")
+			.replace(/"/g, "&quot;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;");
 	const lines = [
 		"# MODELS.md — model aliases",
 		"",

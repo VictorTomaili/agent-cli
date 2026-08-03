@@ -281,10 +281,20 @@ test("brief manifest includes global models and project overrides", () => {
 	const project = mkdtempSync(path.join(tmpdir(), "agent-cli-project-"));
 	mkdirSync(path.join(project, ".agents"), { recursive: true });
 	writeFileSync(path.join(project, ".agents", "USER.md"), "# project user\n");
-	const j = parseJson(run(["brief", "--json"], { envHome: home, cwd: project }).stdout);
-	assert.ok(j.sessionStart.load.some((f) => f.kind === "models" && f.scope === "global"));
-	assert.ok(j.sessionStart.load.some((f) => f.kind === "user" && f.scope === "global"));
-	assert.ok(j.sessionStart.load.some((f) => f.kind === "user" && f.scope === "project"));
+	const j = parseJson(
+		run(["brief", "--json"], { envHome: home, cwd: project }).stdout,
+	);
+	assert.ok(
+		j.sessionStart.load.some(
+			(f) => f.kind === "models" && f.scope === "global",
+		),
+	);
+	assert.ok(
+		j.sessionStart.load.some((f) => f.kind === "user" && f.scope === "global"),
+	);
+	assert.ok(
+		j.sessionStart.load.some((f) => f.kind === "user" && f.scope === "project"),
+	);
 });
 
 test("brief surfaces lesson summaries in the index", () => {
@@ -361,7 +371,9 @@ test("command help advertises the actual AX command surface", () => {
 test("update diff reports no differences without dumping files", () => {
 	const home = run(["init"]).home;
 	run(["update", "stage"], { envHome: home });
-	const list = parseJson(run(["update", "list", "--json"], { envHome: home }).stdout);
+	const list = parseJson(
+		run(["update", "list", "--json"], { envHome: home }).stdout,
+	);
 	const ver = list.staged[0].version;
 	const staged = readFileSync(
 		path.join(home, ".agents", `update-${ver}`, "agents", "scout.md"),
@@ -383,8 +395,12 @@ test("update diff reports no differences without dumping files", () => {
 
 test("status summarizes targets by default and --all expands the catalog", () => {
 	const home = run(["init"]).home;
-	const summary = parseJson(run(["status", "--json"], { envHome: home }).stdout);
-	const full = parseJson(run(["status", "--all", "--json"], { envHome: home }).stdout);
+	const summary = parseJson(
+		run(["status", "--json"], { envHome: home }).stdout,
+	);
+	const full = parseJson(
+		run(["status", "--all", "--json"], { envHome: home }).stdout,
+	);
 	assert.equal(summary.all, false);
 	assert.equal(full.all, true);
 	assert.equal(full.targets.length, full.targetCount);
@@ -440,10 +456,6 @@ test("F1 doctor flags missing required files", () => {
 	const j = parseJson(r.stdout);
 	assert.ok(j.issues.some((i) => i.includes("SOUL")));
 	assert.ok(j.issues.some((i) => i.includes("MODELS.md")));
-	assert.ok(
-		j.checks.some((c) => c.check === "file-exists:soul" && !c.ok),
-	);
-	assert.ok(
-		j.checks.some((c) => c.check === "file-exists:models" && !c.ok),
-	);
+	assert.ok(j.checks.some((c) => c.check === "file-exists:soul" && !c.ok));
+	assert.ok(j.checks.some((c) => c.check === "file-exists:models" && !c.ok));
 });

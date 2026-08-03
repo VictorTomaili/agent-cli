@@ -93,7 +93,8 @@ function emit(obj) {
 }
 
 function fail(message, details = {}) {
-	if (JSON_MODE) console.log(JSON.stringify({ ok: false, error: message, ...details }));
+	if (JSON_MODE)
+		console.log(JSON.stringify({ ok: false, error: message, ...details }));
 	else log.error(message);
 	process.exit(1);
 }
@@ -811,7 +812,10 @@ program
 	)
 	.option("--category <c>", "category for set")
 	.option("--thinking <lvl>", "thinking level for set")
-	.option("--fallback <models...>", "ordered fallback provider/model values for API/rate/usage failures")
+	.option(
+		"--fallback <models...>",
+		"ordered fallback provider/model values for API/rate/usage failures",
+	)
 	.action(async (action, rest, opts) => {
 		const m = await import("./models.js");
 		action = action || "list";

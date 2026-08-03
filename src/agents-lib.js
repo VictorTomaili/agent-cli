@@ -337,7 +337,6 @@ export function computeOnboarding(inv) {
 	const archetypeNeeded =
 		ARCHETYPE_FIELDS.some((t) => identityGaps.includes(t)) ||
 		!identityFile?.exists;
-	const gapRecommended =
-		Object.keys(gapReport).length > 0 || archetypeNeeded;
+	const gapRecommended = Object.keys(gapReport).length > 0 || archetypeNeeded;
 	return { gapReport, archetypeNeeded, gapRecommended };
 }

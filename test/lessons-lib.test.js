@@ -127,7 +127,9 @@ test("deleteInboxItem removes an inbox item", async () => {
 });
 
 test("parseFM treats a missing closing fence as body (no fm)", () => {
-	const { fm, body } = parseFM("---\noccurrences: 3\nno closing fence\njust body");
+	const { fm, body } = parseFM(
+		"---\noccurrences: 3\nno closing fence\njust body",
+	);
 	assert.deepEqual(fm, {});
 	assert.ok(body.includes("no closing fence"));
 });

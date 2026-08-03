@@ -688,6 +688,40 @@ program
 	});
 
 program
+	.command("user [action] [rest...]")
+	.description(
+		"USER.md: apply (write template) | set <field> <value...>. -p project.",
+	)
+	.option("-p, --project", "project scope")
+	.action(async (action, rest, opts) => {
+		const id = await import("./identity.js");
+		const arc = await import("./archetypes.js");
+		action = action || "apply";
+		const scope = opts.project ? "project" : "global";
+		const cwd = process.cwd();
+		const file = identityFilePath("user", scope, cwd);
+		if (action === "apply") {
+			await writeFile(file, arc.userContent());
+			emit({ command: "user", action, file });
+			if (!JSON_MODE) log.success(`USER.md template → ${pretty(file)}`);
+			return;
+		}
+		if (action === "set") {
+			const [section, ...val] = rest;
+			if (!section) {
+				log.error("Usage: agent user set <field> <value...>");
+				process.exit(1);
+			}
+			const f = await id.setSection(file, section, val.join(" "));
+			emit({ command: "user", action, file: f });
+			if (!JSON_MODE) log.success(`Updated ${pretty(f)}`);
+			return;
+		}
+		log.error(`Unknown action: ${action}. Use apply|set`);
+		process.exit(1);
+	});
+
+program
 	.command("onboard [action]")
 	.description(
 		"Identity onboarding: suggest (the one question + options for the agent to ask the user).",
@@ -1430,6 +1464,18 @@ program
 			gaps: gapReport,
 			...(archetypeNeeded ? idMod.onboardSuggest() : {}),
 		};
+		// AX: surface the lesson index (filenames ARE the summaries) + inbox so the agent
+		// actually loads memory at session start instead of only seeing a score.
+		const { listLessons } = await import("./lessons-lib.js");
+		const lessonsIndex = (await listLessons({ includeProject: false }))
+			.map((l) => ({
+				path: l.path,
+				occurrences: l.occurrences,
+				marked: l.marked,
+			}))
+			.sort((a, b) => a.path.localeCompare(b.path));
+		const inboxCount =
+			(consG.metrics.inbox || 0) + (consP.metrics.inbox || 0);
 		const pointerTargets = [];
 		const drift = [];
 		for (const id of cfg.global) {
@@ -1454,6 +1500,7 @@ program
 		if (upd.latest && !upd.upToDate)
 			suggested.push(`npm i -g ${PKG_NAME}@latest`);
 		if (stagedUpdates.length) suggested.push("agent update list");
+		if (inboxCount >= 10) suggested.push("agent lessons inbox (triage)");
 
 		const out = {
 			tool: "agent-cli",
@@ -1496,6 +1543,20 @@ program
 				stagedUpdates,
 			},
 			onboarding,
+			sessionStart: {
+				load: inv.files.map((f) => ({
+					kind: f.kind,
+					path: f.path,
+					exists: f.exists,
+					filled: f.filled,
+					gaps: f.gaps,
+				})),
+			},
+			lessons: {
+				count: lessonsIndex.length,
+				index: lessonsIndex,
+				inbox: inboxCount,
+			},
 		};
 		emit(out);
 		if (!JSON_MODE) {
@@ -1553,6 +1614,31 @@ program
 				log.kv(
 					"staged",
 					c.yellow(`${stagedUpdates.length} payload(s) — agent update list`),
+				);
+			// AX: tell the agent exactly what to read now, and surface the lesson index.
+			log.raw(c.bold("\nLoad at session start:"));
+			for (const f of out.sessionStart.load) {
+				let tag;
+				if (!f.exists) tag = c.gray("(missing)");
+				else if (f.filled === false || (f.gaps && f.gaps.length))
+					tag = c.yellow(
+						`(gap: ${(f.gaps || []).join(", ") || "unfilled"})`,
+					);
+				else tag = c.green("✓");
+				log.raw(`  ${f.kind.padEnd(12)} ${pretty(f.path)}  ${tag}`);
+			}
+			if (lessonsIndex.length) {
+				log.raw(
+					c.bold("\nLessons (filenames = summaries; read only relevant):"),
+				);
+				for (const l of lessonsIndex)
+					log.raw(
+						`  ${c.gray("×" + l.occurrences)} ${l.path}${l.marked ? c.yellow(" ⚠marked") : ""}`,
+					);
+			}
+			if (inboxCount)
+				log.dim(
+					`inbox: ${inboxCount} raw capture(s) — triage: agent lessons inbox`,
 				);
 			if (suggested.length) log.raw(c.bold("\nSuggested:"));
 			for (const s of suggested) log.raw(`  ${c.cyan(s)}`);

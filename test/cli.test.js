@@ -162,15 +162,23 @@ test("identity apply + set round-trip clears the identity gap", () => {
 
 test("models: set then list + resolve round-trip", () => {
 	const r0 = run([
-		"models", "set", "coding-model", "openai/gpt-5", "--thinking", "high",
+		"models",
+		"set",
+		"coding-model",
+		"openai/gpt-5",
+		"--thinking",
+		"high",
 	]);
 	ok(r0);
 	const home = r0.home;
-	const list = parseJson(run(["models", "list", "--json"], { envHome: home }).stdout);
+	const list = parseJson(
+		run(["models", "list", "--json"], { envHome: home }).stdout,
+	);
 	assert.ok(list.aliases["coding-model"]);
 	assert.equal(list.aliases["coding-model"].model, "openai/gpt-5");
 	const res = parseJson(
-		run(["models", "resolve", "coding-model", "--json"], { envHome: home }).stdout,
+		run(["models", "resolve", "coding-model", "--json"], { envHome: home })
+			.stdout,
 	);
 	assert.equal(res.resolved.model, "openai/gpt-5");
 });
@@ -211,7 +219,9 @@ test("lessons: add then list + show round-trip", () => {
 		run(["lessons", "list", "--json"], { envHome: home }).stdout,
 	);
 	assert.ok(list.lessons.some((l) => l.path.endsWith("git/test-lesson")));
-	const show = run(["lessons", "show", "git/test-lesson", "-p"], { envHome: home });
+	const show = run(["lessons", "show", "git/test-lesson", "-p"], {
+		envHome: home,
+	});
 	ok(show);
 	assert.ok(show.stdout.includes("lesson body"));
 });
@@ -237,4 +247,32 @@ test("update: stage then list + clear round-trip", () => {
 		run(["update", "list", "--json"], { envHome: home }).stdout,
 	);
 	assert.equal(after.staged.length, 0);
+});
+
+test("brief --json includes sessionStart.load + lessons (index + inbox)", () => {
+	const home = run(["init"]).home;
+	const j = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
+	assert.ok(Array.isArray(j.sessionStart.load));
+	assert.ok(j.sessionStart.load.some((f) => f.kind === "identity"));
+	assert.ok(j.lessons);
+	assert.equal(typeof j.lessons.inbox, "number");
+	assert.ok(Array.isArray(j.lessons.index));
+});
+
+test("brief surfaces lesson summaries in the index", () => {
+	const home = run(["init"]).home;
+	run(["lessons", "add", "git/global-lesson", "--body", "x"], { envHome: home });
+	const j = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
+	assert.ok(
+		j.lessons.index.some((l) => l.path.endsWith("git/global-lesson")),
+	);
+});
+
+test("user: apply writes USER.md; set goals succeeds; bad inputs error", () => {
+	const r0 = run(["user", "apply"]);
+	ok(r0);
+	const home = r0.home;
+	ok(run(["user", "set", "goals", "ship it"], { envHome: home }));
+	bad(run(["user", "set"], { envHome: home }));
+	bad(run(["user", "bogus-action"], { envHome: home }));
 });

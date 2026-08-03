@@ -9,7 +9,7 @@ process.env.AGENT_CLI_HOME = HOME_TMP;
 
 const { assess, consolidate } = await import("../src/consolidate.js");
 const { addLesson, listLessons, coreFile, parseFM } = await import(
-	"../src/lessons-lib.js",
+	"../src/lessons-lib.js"
 );
 
 test("assess on empty project dir → low score, not recommend", async () => {

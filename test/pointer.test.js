@@ -125,5 +125,8 @@ test("classify reports pointer-stale when the expected master path changed", asy
 	const cls = await pointer.classify(qwen, "global");
 	assert.equal(cls.state, "pointer-stale");
 	// restore ctx for any downstream tests
-	pointer.setExpectedCtx({ masterAbs: MASTER_ABS, masterTilde: "~/.agents/AGENTS.md" });
+	pointer.setExpectedCtx({
+		masterAbs: MASTER_ABS,
+		masterTilde: "~/.agents/AGENTS.md",
+	});
 });

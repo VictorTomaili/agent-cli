@@ -1646,7 +1646,7 @@ program
 				drift.length ? c.yellow(drift.join(", ")) : c.green("none"),
 			);
 			log.kv(
-				"lessons",
+				"consolidation",
 				`score ${consG.score}${consG.recommend ? " ⚠" : ""} (global)${consP.recommend ? `, ${consP.score} ⚠ (project)` : ""}`,
 			);
 			log.kv(

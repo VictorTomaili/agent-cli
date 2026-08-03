@@ -1,0 +1,3 @@
+[submodule "vendor/skill-cli"]
+	path = vendor/skill-cli
+	url = https://github.com/victortomaili/skill-cli.git

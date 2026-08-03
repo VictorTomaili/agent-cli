@@ -1,0 +1,186 @@
+// src/lessons-lib.js — agent-driven lessons primitives. NO heuristics: the agent chooses
+// every path/topic/filename. Supports global (~/.agents/lessons) and project ([cwd]/.agents/lessons).
+
+import path from "node:path";
+import fsp from "node:fs/promises";
+import { exists, readFile, writeFile, ensureDir, HOME } from "./util.js";
+
+export function lessonsRoot(scope = "global", cwd = process.cwd()) {
+	return scope === "project"
+		? path.join(cwd, ".agents", "lessons")
+		: path.join(HOME, ".agents", "lessons");
+}
+export function coreFile(scope = "global", cwd = process.cwd()) {
+	return scope === "project"
+		? path.join(cwd, ".agents", "LESSONS.md")
+		: path.join(HOME, ".agents", "LESSONS.md");
+}
+
+export function parseFM(content) {
+	const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+	if (!m) return { fm: {}, body: content };
+	const fm = {};
+	for (const line of m[1].split(/\r?\n/)) {
+		const i = line.indexOf(":");
+		if (i > 0) fm[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+	}
+	return { fm, body: m[2] };
+}
+function buildFM(fm) {
+	return (
+		"---\n" +
+		Object.entries(fm)
+			.map(([k, v]) => `${k}: ${v}`)
+			.join("\n") +
+		"\n---\n"
+	);
+}
+
+/** Recursively list .md files (relative to root), excluding dotfiles/.inbox. */
+async function walk(dir) {
+	const out = [];
+	let entries = [];
+	try {
+		entries = await fsp.readdir(dir, { withFileTypes: true });
+	} catch {
+		return out;
+	}
+	for (const e of entries) {
+		if (e.name.startsWith(".")) continue;
+		const p = path.join(dir, e.name);
+		if (e.isDirectory())
+			out.push(...(await walk(p)).map((r) => `${e.name}/${r}`));
+		else if (e.name.endsWith(".md")) out.push(e.name);
+	}
+	return out;
+}
+
+/** List lessons across scopes. Each entry's `path` (no .md) IS the lesson summary. */
+export async function listLessons({
+	includeProject = true,
+	cwd = process.cwd(),
+} = {}) {
+	const out = [];
+	const seen = new Set();
+	const scopes = ["global", ...(includeProject ? ["project"] : [])];
+	for (const scope of scopes) {
+		const root = lessonsRoot(scope, cwd);
+		if (seen.has(root) || !(await exists(root))) {
+			seen.add(root);
+			continue;
+		}
+		seen.add(root);
+		const rels = await walk(root);
+		for (const rel of rels) {
+			const fp = path.join(root, rel);
+			const { fm } = parseFM(await readFile(fp));
+			out.push({
+				scope,
+				path: rel.replace(/\.md$/, ""),
+				file: fp,
+				occurrences: parseInt(fm.occurrences || "1", 10) || 1,
+				marked: String(fm.marked || "false") === "true",
+				firstSeen: fm.firstSeen || null,
+				lastSeen: fm.lastSeen || null,
+			});
+		}
+	}
+	return out;
+}
+
+/** List raw inbox captures (from the optional pi extension) for the agent to review/file. */
+export async function inboxLessons({
+	includeProject = true,
+	cwd = process.cwd(),
+} = {}) {
+	const out = [];
+	const seen = new Set();
+	const scopes = ["global", ...(includeProject ? ["project"] : [])];
+	for (const scope of scopes) {
+		const root = lessonsRoot(scope, cwd);
+		if (seen.has(root)) continue;
+		seen.add(root);
+		const dir = path.join(root, ".inbox");
+		if (!(await exists(dir))) continue;
+		let entries = [];
+		try {
+			entries = await fsp.readdir(dir);
+		} catch {
+			continue;
+		}
+		for (const name of entries)
+			if (name.endsWith(".md"))
+				out.push({ scope, name, file: path.join(dir, name) });
+	}
+	return out;
+}
+
+/**
+ * Write/refresh a lesson at an agent-chosen relative path (may include subfolders).
+ * Re-capturing the same path increments `occurrences` (recurrence) and clears the grace mark.
+ */
+export async function addLesson(
+	relpath,
+	{ body = null, scope = "global", cwd = process.cwd() } = {},
+) {
+	const root = lessonsRoot(scope, cwd);
+	const clean = relpath.replace(/\.md$/, "").trim() || "untitled";
+	const fp = path.join(root, `${clean}.md`);
+	const now = new Date().toISOString();
+	if (await exists(fp)) {
+		const { fm, body: oldBody } = parseFM(await readFile(fp));
+		const occ = (parseInt(fm.occurrences || "1", 10) || 1) + 1;
+		const newFm = {
+			...fm,
+			occurrences: String(occ),
+			lastSeen: now,
+			marked: "false",
+		}; // recurrence clears grace
+		await writeFile(fp, buildFM(newFm) + (body ? body : oldBody));
+		return { file: fp, created: false, occurrences: occ };
+	}
+	await ensureDir(path.dirname(fp));
+	const fm = {
+		occurrences: "1",
+		firstSeen: now,
+		lastSeen: now,
+		marked: "false",
+	};
+	const tmpl =
+		body ??
+		`- **Lesson:** ${clean.split("/").pop()}\n  - What:\n  - When: ${now}\n  - How:\n  - Who:\n  - Why:\n  - Fix/avoid:\n  - Worth remembering:\n`;
+	await writeFile(fp, `${buildFM(fm)}\n${tmpl}\n`);
+	return { file: fp, created: true, occurrences: 1 };
+}
+
+export async function removeInbox(file) {
+	try {
+		await fsp.unlink(file);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** File inbox item <index> as a lesson at <relpath>, then delete the inbox file. */
+export async function fileInboxItem(
+	index,
+	relpath,
+	{ cwd = process.cwd() } = {},
+) {
+	const inbox = await inboxLessons({ includeProject: true, cwd });
+	const item = inbox[index];
+	if (!item) return { ok: false, reason: "no such inbox index" };
+	const content = await readFile(item.file);
+	const r = await addLesson(relpath, { body: content, scope: item.scope, cwd });
+	await removeInbox(item.file);
+	return { ok: true, filedTo: r.file, from: item.file };
+}
+/** Delete inbox item <index>. */
+export async function deleteInboxItem(index, { cwd = process.cwd() } = {}) {
+	const inbox = await inboxLessons({ includeProject: true, cwd });
+	const item = inbox[index];
+	if (!item) return { ok: false, reason: "no such inbox index" };
+	await removeInbox(item.file);
+	return { ok: true, deleted: item.file };
+}

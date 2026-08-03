@@ -175,8 +175,8 @@ program
 
 		await saveConfig(cfg);
 
-		// 4b. seed the full identity/memory file set (NON-DESTRUCTIVE) + model aliases.
-		//     Skips any file the user already has; ensures fresh installs have the full
+		// 4b. seed the full identity/memory file set (NON-DESTRUCTIVE) + empty model document.
+		//     Model mappings are agent-owned; init never invents provider choices.
 		//     required set so brief/doctor don't report missing files.
 		const arc = await import("./archetypes.js");
 		const models = await import("./models.js");
@@ -199,7 +199,6 @@ program
 			await writeFile(fp, content);
 			idCreated.push(name);
 		}
-		const aliases = models.ensureDefaultAliases();
 		const modelsMdPath = models.MODELS_MD;
 		let modelsMdCreated = false;
 		if (!(await exists(modelsMdPath))) {
@@ -208,7 +207,6 @@ program
 		}
 		result.steps.identityFiles = { created: idCreated, skipped: idSkipped };
 		result.steps.models = {
-			aliases: Object.keys(aliases).length,
 			modelsMdCreated,
 		};
 
@@ -809,10 +807,11 @@ program
 program
 	.command("models [action] [rest...]")
 	.description(
-		"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | set <alias> <provider/model> [--category c] [--thinking lvl] | resolve <alias> | seed | write.",
+		"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | set <alias> <provider/model> [--category c] [--thinking lvl] [--fallback <models...>] | resolve <alias> | write. The using agent chooses mappings; this tool does not seed recommendations.",
 	)
 	.option("--category <c>", "category for set")
 	.option("--thinking <lvl>", "thinking level for set")
+	.option("--fallback <models...>", "ordered fallback provider/model values for API/rate/usage failures")
 	.action(async (action, rest, opts) => {
 		const m = await import("./models.js");
 		action = action || "list";
@@ -840,8 +839,8 @@ program
 				model,
 				category: opts.category,
 				thinking: opts.thinking,
+				fallbacks: opts.fallback,
 			});
-			m.writeModelsMd();
 			emit({ command: "models", action, alias, ...r });
 			if (!JSON_MODE)
 				log.success(
@@ -861,21 +860,13 @@ program
 				);
 			return;
 		}
-		if (action === "seed") {
-			const a = m.ensureDefaultAliases();
-			m.writeModelsMd();
-			emit({ command: "models", action, aliases: a });
-			if (!JSON_MODE)
-				log.success(`Seeded ${Object.keys(a).length} default aliases`);
-			return;
-		}
 		if (action === "write") {
 			const f = m.writeModelsMd();
 			emit({ command: "models", action, file: f });
 			if (!JSON_MODE) log.success(`Wrote ${pretty(f)}`);
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use list|set|resolve|seed|write`);
+		log.error(`Unknown action: ${action}. Use list|set|resolve|write`);
 		process.exit(1);
 	});
 

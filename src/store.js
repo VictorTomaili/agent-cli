@@ -59,6 +59,12 @@ const STARTER = `# AGENTS.md — canonical source (managed by agent-cli)
 ## Conventions
 - (describe your stack, structure, and conventions here)
 
+## Sub-agents & delegation
+- Prefer specialized sub-agents by default. Discover an existing role, reuse it; otherwise author a reusable role, then delegate. The main agent plans, orchestrates, and verifies.
+
+## Model aliases
+- Personalities use aliases (\`model: coding-model\`), not provider IDs. \`MODELS.md\` stores tagged <ALIAS> entries with ordered fallbacks for transient API outage, rate limits, and usage limits. The using agent decides when to fail over; avoid infinite retries.
+
 ## Build & test
 - Build:
 - Test:

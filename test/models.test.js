@@ -50,19 +50,24 @@ test("setAlias with no provided fields preserves the entry unchanged", () => {
 	assert.deepEqual(models.getAlias("fast-model"), before);
 });
 
-test("ensureDefaultAliases seeds defaults without overwriting user aliases", () => {
-	models.setAlias("my-custom", { model: "custom/1" });
-	const a = models.ensureDefaultAliases();
-	assert.ok(a["fast-model"]);
-	assert.ok(a["my-custom"]);
-	assert.equal(a["my-custom"].model, "custom/1");
+test("setAlias stores ordered fallback models", () => {
+	const a = models.setAlias("coding-model", {
+		fallbacks: ["zai/glm-5.2", "zai/glm-5.2", "openai/fallback"],
+	});
+	assert.deepEqual(a.fallbacks, ["zai/glm-5.2", "openai/fallback"]);
 });
 
-test("writeModelsMd writes a table incl. all aliases + categories", () => {
+test("model mappings are not seeded by agent-cli", () => {
+	assert.equal(models.DEFAULT_ALIASES, undefined);
+	assert.equal(models.ensureDefaultAliases, undefined);
+});
+
+test("writeModelsMd writes a tagged XML alias document", () => {
 	const f = models.writeModelsMd();
 	assert.ok(existsSync(f));
 	const md = readFileSync(f, "utf8");
-	assert.ok(md.includes("fast-model"));
+	assert.ok(md.includes("<ALIAS "));
+	assert.ok(md.includes('fallbacks="'));
 	assert.ok(md.includes("## Categories"));
 });
 

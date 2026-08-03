@@ -25,35 +25,6 @@ const CAT_DESC = {
 	vision: "image-capable",
 };
 
-export const DEFAULT_ALIASES = {
-	"fast-model": { category: "fast", model: "minimax/MiniMax-M3", thinking: "" },
-	"cheap-model": {
-		category: "cheap",
-		model: "minimax/MiniMax-M3",
-		thinking: "",
-	},
-	"smart-model": {
-		category: "smart",
-		model: "zai/glm-5.2",
-		thinking: "medium",
-	},
-	"coding-model": {
-		category: "coding",
-		model: "openai-codex/gpt-5.6-sol",
-		thinking: "high",
-	},
-	"review-model": {
-		category: "smart",
-		model: "openai-codex/gpt-5.6-sol",
-		thinking: "max",
-	},
-	"deep-model": {
-		category: "deepsearch",
-		model: "zai/glm-5.2",
-		thinking: "high",
-	},
-};
-
 function readConfig() {
 	try {
 		return JSON.parse(fs.readFileSync(CONFIG, "utf8"));
@@ -72,7 +43,7 @@ export function getAliases() {
 export function getAlias(name) {
 	return getAliases()[name] ?? null;
 }
-export function setAlias(name, { model, category, thinking }) {
+export function setAlias(name, { model, category, thinking, fallbacks }) {
 	const cfg = readConfig();
 	cfg.models = cfg.models || {};
 	cfg.models.aliases = cfg.models.aliases || {};
@@ -82,32 +53,26 @@ export function setAlias(name, { model, category, thinking }) {
 		...(category != null ? { category } : {}),
 		...(model != null ? { model } : {}),
 		...(thinking != null ? { thinking } : {}),
+		...(fallbacks != null ? { fallbacks: [...new Set(fallbacks.filter(Boolean))] } : {}),
 	};
 	writeConfig(cfg);
 	return cfg.models.aliases[name];
 }
-/** Seed defaults without overwriting user-defined aliases. */
-export function ensureDefaultAliases() {
-	const cfg = readConfig();
-	cfg.models = cfg.models || {};
-	const existing = cfg.models.aliases || {};
-	cfg.models.aliases = { ...DEFAULT_ALIASES, ...existing };
-	writeConfig(cfg);
-	return cfg.models.aliases;
-}
 export function writeModelsMd() {
 	const a = getAliases();
+	const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 	const lines = [
 		"# MODELS.md — model aliases",
 		"",
-		"> Semantic model roles (category → alias → concrete model). Sub-agents reference aliases in frontmatter (`model: <alias>`); the subagent extension resolves them. Change an alias: `agent models set <alias> <provider/model>`.",
+		"> Semantic model roles. Each ALIAS is machine-readable XML so agents and tooling can inspect the primary model and ordered fallbacks. The using agent decides when to fail over (API down, rate limit, or usage limit).",
+		"> Edit with `agent models set <alias> <provider/model> --fallback <provider/model>...`.",
 		"",
-		"| Alias | Category | Model | Thinking | Use |",
-		"|------|----------|-------|----------|-----|",
+		"## Aliases",
+		"",
 	];
 	for (const [name, v] of Object.entries(a))
 		lines.push(
-			`| \`${name}\` | ${v.category} | \`${v.model}\` | ${v.thinking || "—"} | ${CAT_DESC[v.category] || ""} |`,
+			`<ALIAS name="${esc(name)}" category="${esc(v.category)}" thinking="${esc(v.thinking)}" fallbacks="${esc((v.fallbacks || []).join(","))}">${esc(v.model)}</ALIAS>`,
 		);
 	lines.push(
 		"",
@@ -115,6 +80,7 @@ export function writeModelsMd() {
 		...CATEGORIES.map((c) => `- **${c}** — ${CAT_DESC[c]}`),
 		"",
 	);
+	fs.mkdirSync(path.dirname(MODELS_MD), { recursive: true });
 	fs.writeFileSync(MODELS_MD, lines.join("\n"), "utf8");
 	return MODELS_MD;
 }

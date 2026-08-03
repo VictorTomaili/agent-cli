@@ -175,6 +175,9 @@ test("models: set then list + resolve round-trip", () => {
 		"openai/gpt-5",
 		"--thinking",
 		"high",
+		"--fallback",
+		"zai/glm-5.2",
+		"openai/fallback",
 	]);
 	ok(r0);
 	const home = r0.home;
@@ -183,6 +186,10 @@ test("models: set then list + resolve round-trip", () => {
 	);
 	assert.ok(list.aliases["coding-model"]);
 	assert.equal(list.aliases["coding-model"].model, "openai/gpt-5");
+	assert.deepEqual(list.aliases["coding-model"].fallbacks, [
+		"zai/glm-5.2",
+		"openai/fallback",
+	]);
 	const res = parseJson(
 		run(["models", "resolve", "coding-model", "--json"], { envHome: home })
 			.stdout,
@@ -190,9 +197,12 @@ test("models: set then list + resolve round-trip", () => {
 	assert.equal(res.resolved.model, "openai/gpt-5");
 });
 
-test("models seed writes the default aliases", () => {
-	const j = parseJson(run(["models", "seed", "--json"]).stdout);
-	assert.ok(Object.keys(j.aliases).length >= 6);
+test("models write creates the XML MODELS.md document", () => {
+	const home = run(["--json", "models", "write"]).home;
+	const j = parseJson(
+		run(["--json", "models", "write"], { envHome: home }).stdout,
+	);
+	assert.equal(j.action, "write");
 });
 
 test("agents: new scaffolds, list shows it, validate flags placeholders", () => {

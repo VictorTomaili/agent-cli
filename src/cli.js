@@ -61,8 +61,6 @@ import {
 	isSkillAvailable,
 	skillVersion,
 	runSkill,
-	submodulePresent,
-	globalSkillBin,
 } from "./skill.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
@@ -1278,12 +1276,12 @@ program
 	});
 
 // ---------------------------------------------------------------------------
-// agent skill — skill-cli integration (bundled submodule)
+// agent skill — integrated skill manager
 // ---------------------------------------------------------------------------
 program
 	.command("skill [args...]")
 	.description(
-		"skill-cli: setup|refresh|status, or pass any args through to skill.",
+		"Integrated skill manager: setup|refresh|status, or pass skill commands through.",
 	)
 	.action(async (args) => {
 		const sub = args[0];
@@ -1317,19 +1315,17 @@ program
 				command: "skill",
 				sub: "status",
 				available: isSkillAvailable(),
+				backend: "integrated",
 				...v,
-				submodulePresent: submodulePresent(),
-				globalBin: globalSkillBin(),
+				source: v.source,
+				version: v.version,
+				integrated: isSkillAvailable(),
 			});
 			if (!JSON_MODE) {
 				log.kv("available", isSkillAvailable() ? c.green("yes") : c.red("no"));
 				log.kv("version", v.version ?? "none");
 				log.kv("source", v.source);
-				log.kv("global bin", globalSkillBin() || c.gray("—"));
-				log.kv(
-					"submodule",
-					submodulePresent() ? c.green("present") : c.red("missing"),
-				);
+				log.kv("backend", "integrated");
 			}
 			return;
 		}

@@ -1,7 +1,6 @@
-// src/skill.js — skill-cli integration via the vendored submodule.
-// Prefers a globally-installed `skill` bin; falls back to running the submodule's
-// cli.js with node (after ensuring its deps). agent-cli owns the skill-cli
-// instruction BLOCK inside the master, so we never inject into the pointer stubs.
+// src/skill.js — integrated skill manager adapter.
+// The implementation lives in src/skills; no global binary, submodule, or
+// runtime dependency installation is used.
 
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -10,9 +9,10 @@ import { fileURLToPath } from "node:url";
 import { HOME, exists, ensureDir, writeFile } from "./util.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const SUBMODULE_ROOT = path.resolve(__dirname, "../vendor/skill-cli");
-const SUBMODULE_CLI = path.join(SUBMODULE_ROOT, "src/cli.js");
-const SUBMODULE_PKG = path.join(SUBMODULE_ROOT, "package.json");
+export const SKILL_ROOT = path.resolve(__dirname, "skills");
+export const SUBMODULE_ROOT = SKILL_ROOT;
+export const SUBMODULE_CLI = path.join(SKILL_ROOT, "cli.js");
+export const SUBMODULE_PKG = path.join(SKILL_ROOT, "package.json");
 
 const SKILL_HOME = path.join(HOME, ".skill-cli");
 const SKILL_STORE = path.join(SKILL_HOME, "store");
@@ -23,66 +23,31 @@ export function submodulePresent() {
 }
 
 export function submoduleHasDeps() {
-	return fs.existsSync(path.join(SUBMODULE_ROOT, "node_modules"));
+	return submodulePresent();
 }
 
 export function readSubmodulePkg() {
-	try {
-		return JSON.parse(fs.readFileSync(SUBMODULE_PKG, "utf8"));
-	} catch {
-		return null;
-	}
+	return { version: skillVersion().version };
 }
 
 export function submoduleVersion() {
-	return readSubmodulePkg()?.version ?? null;
+	return skillVersion().version;
 }
 
-/** Resolve the global `skill` bin on PATH (or null). */
+/** Integrated implementation is always the only executable skill backend. */
 export function globalSkillBin() {
-	try {
-		const r = spawnSync("skill", ["--version"], {
-			encoding: "utf8",
-			shell: true,
-			stdio: "pipe",
-		});
-		if (r.status === 0 && /skill-cli/i.test(r.stdout)) {
-			const w = spawnSync(
-				process.platform === "win32" ? "where" : "which",
-				["skill"],
-				{
-					encoding: "utf8",
-					shell: true,
-				},
-			);
-			const line = (w.stdout || "").split(/\r?\n/).find((l) => l.trim());
-			return line ? line.trim() : "skill";
-		}
-	} catch {
-		/* ignore */
-	}
 	return null;
 }
 
 export function isSkillAvailable() {
-	return !!globalSkillBin() || (submodulePresent() && submoduleHasDeps());
+	return submodulePresent();
 }
 
-/** Ensure the submodule's deps are installed so it can run. Idempotent. */
+/** Compatibility no-op: dependencies are declared by the parent package. */
 export function ensureSubmoduleDeps() {
-	if (!submodulePresent()) return { ok: false, reason: "no-submodule" };
-	if (submoduleHasDeps()) return { ok: true, reason: "present" };
-	const r = spawnSync("npm", ["install", "--omit=dev"], {
-		cwd: SUBMODULE_ROOT,
-		encoding: "utf8",
-		shell: true,
-		stdio: "pipe",
-	});
-	return {
-		ok: r.status === 0,
-		reason: r.status === 0 ? "installed" : "failed",
-		stderr: r.stderr,
-	};
+	return submodulePresent()
+		? { ok: true, reason: "integrated" }
+		: { ok: false, reason: "missing-integrated-skill" };
 }
 
 function normalize(r) {
@@ -95,42 +60,32 @@ function normalize(r) {
 	};
 }
 
-/** Run skill-cli: prefer the global bin, else run the submodule via node. */
+/** Run the integrated skill CLI with the agent home explicitly injected. */
 export function runSkill(args, opts = {}) {
-	const bin = globalSkillBin();
-	const stdio = opts.stdio || "pipe";
-	if (bin) {
-		return normalize(
-			spawnSync(bin, args, {
-				encoding: "utf8",
-				cwd: opts.cwd || process.cwd(),
-				env: process.env,
-				shell: true,
-				stdio,
-			}),
-		);
-	}
-	const deps = ensureSubmoduleDeps();
-	if (!deps.ok) {
+	if (!submodulePresent()) {
 		return {
 			code: 1,
 			stdout: "",
-			stderr: "skill-cli submodule deps missing",
+			stderr: "integrated skill implementation missing",
 			ok: false,
-			error: deps.reason,
+			error: "missing-integrated-skill",
 		};
 	}
+	const env = {
+		...process.env,
+		SKILL_CLI_HOME: HOME,
+	};
 	return normalize(
 		spawnSync(process.execPath, [SUBMODULE_CLI, ...args], {
 			encoding: "utf8",
 			cwd: opts.cwd || process.cwd(),
-			env: process.env,
-			stdio,
+			env,
+			stdio: opts.stdio || "pipe",
 		}),
 	);
 }
 
-/** Create ~/.skill-cli/{store,config.yaml} if missing so skill-cli commands work. */
+/** Create ~/.skill-cli/{store,config.yaml} if missing. */
 export async function ensureSkillStore() {
 	const actions = [];
 	if (!(await exists(SKILL_STORE))) {
@@ -138,7 +93,6 @@ export async function ensureSkillStore() {
 		actions.push("created-store");
 	}
 	if (!(await exists(SKILL_CONFIG))) {
-		// Raw backslashes are literal in YAML plain scalars — matches skill-cli's own output.
 		const yaml = `version: 1\nstore: ${SKILL_STORE}\ndefaults: []\n`;
 		await writeFile(SKILL_CONFIG, yaml);
 		actions.push("created-config");
@@ -146,21 +100,19 @@ export async function ensureSkillStore() {
 	return { ok: true, actions, store: SKILL_STORE, config: SKILL_CONFIG };
 }
 
-/** Best-effort skill-cli version (global bin first, then submodule package.json). */
+/** Report the integrated skill implementation as part of this app. */
 export function skillVersion() {
-	const bin = globalSkillBin();
-	if (bin) {
+	try {
 		const r = runSkill(["--version"]);
-		if (r.ok) {
-			const m = r.stdout.match(/(\d+\.\d+\.\d+)/);
-			if (m) return { version: m[1], source: "global", bin };
-		}
+		const m = r.stdout.match(/(\d+\.\d+\.\d+)/);
+		return {
+			version: m?.[1] ?? null,
+			source: "integrated",
+			bin: null,
+		};
+	} catch {
+		return { version: null, source: "integrated", bin: null };
 	}
-	return {
-		version: submoduleVersion(),
-		source: submodulePresent() ? "submodule" : "none",
-		bin: null,
-	};
 }
 
 export const PATHS = {

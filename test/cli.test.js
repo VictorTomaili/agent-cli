@@ -167,6 +167,15 @@ test("identity apply + set round-trip clears the identity gap", () => {
 	assert.deepEqual(j.onboarding.gaps.identity || [], []);
 });
 
+test("skill status reports the integrated backend", () => {
+	const r = run(["skill", "status", "--json"]);
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.backend, "integrated");
+	assert.equal(j.source, "integrated");
+	assert.equal(j.globalBin, undefined);
+});
+
 test("models: set then list + resolve round-trip", () => {
 	const r0 = run([
 		"models",

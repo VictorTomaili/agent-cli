@@ -1,8 +1,8 @@
 // src/blocks.js — managed instruction blocks inside the master AGENTS.md.
-// Reuses skill-cli's exact block text + injector from the vendored submodule,
-// so the skill-cli section stays in sync with the installed skill-cli version.
+// The skill manager is integrated under src/skills; it is not a runtime or
+// submodule dependency.
 
-import { injectBlock as skillInjectBlock } from "../vendor/skill-cli/src/lib/agents-md.js";
+import { injectBlock as skillInjectBlock } from "./skills/lib/agents-md.js";
 
 export const BEGIN_AGENT_CLI = "<!-- BEGIN agent-cli -->";
 export const END_AGENT_CLI = "<!-- END agent-cli -->";
@@ -20,7 +20,7 @@ Rules for any agent reading this:
 - To deploy/refresh pointer stubs to agents: \`agent link\`.
 - To enable a new agent target: \`agent target enable <id>\` then \`agent link\`.
 - Diagnostics: \`agent doctor\`. AI session brief: \`agent brief\`.
-- skill-cli is co-managed here; after changing skills run \`agent skill refresh\`.
+- skill is integrated here; after changing skills run \`agent skill refresh\`.
 
 Priority order: correctness > quality > cost > speed.`;
 
@@ -42,8 +42,8 @@ export function injectAgentCliBlock(content) {
 }
 
 /**
- * Ensure BOTH managed blocks (agent-cli + skill-cli) are present and fresh in the
- * master content. skill-cli's block text is imported from the submodule.
+ * Ensure BOTH managed blocks (agent-cli + integrated skill) are present and fresh in the
+ * master content. The integrated skill implementation owns its block text.
  */
 export function ensureBlocks(masterContent) {
 	let c = injectAgentCliBlock(masterContent ?? "");

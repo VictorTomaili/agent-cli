@@ -4,7 +4,14 @@
 import { test } from "node:test";
 import assert from "node:assert";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+	mkdtempSync,
+	writeFileSync,
+	mkdirSync,
+	readFileSync,
+	unlinkSync,
+	existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -325,4 +332,48 @@ test("lessons inbox --clear removes all captures", () => {
 	const j = parseJson(r.stdout);
 	assert.equal(j.op, "clear");
 	assert.ok(j.deleted >= 2);
+});
+
+test("F1 init seeds the full identity/memory file set", () => {
+	const home = run(["init"]).home;
+	for (const f of [
+		"IDENTITY.md",
+		"SOUL.md",
+		"USER.md",
+		"LESSONS.md",
+		"ENVIRONMENTS.md",
+		"MODELS.md",
+	]) {
+		assert.ok(
+			existsSync(path.join(home, ".agents", f)),
+			f + " should exist after init",
+		);
+	}
+});
+
+test("F1 init is non-destructive (skips existing files)", () => {
+	const home = run(["init"]).home;
+	writeFileSync(path.join(home, ".agents", "IDENTITY.md"), "USER OWNED\n");
+	run(["init", "--json"], { envHome: home });
+	assert.equal(
+		readFileSync(path.join(home, ".agents", "IDENTITY.md"), "utf8"),
+		"USER OWNED\n",
+	);
+});
+
+test("F1 doctor flags missing required files", () => {
+	const home = run(["init"]).home;
+	unlinkSync(path.join(home, ".agents", "SOUL.md"));
+	unlinkSync(path.join(home, ".agents", "MODELS.md"));
+	const r = run(["doctor", "--json"], { envHome: home });
+	// doctor exits 2 when issues exist; parse either way
+	const j = parseJson(r.stdout);
+	assert.ok(j.issues.some((i) => i.includes("SOUL")));
+	assert.ok(j.issues.some((i) => i.includes("MODELS.md")));
+	assert.ok(
+		j.checks.some((c) => c.check === "file-exists:soul" && !c.ok),
+	);
+	assert.ok(
+		j.checks.some((c) => c.check === "file-exists:models" && !c.ok),
+	);
 });

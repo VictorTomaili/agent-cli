@@ -169,6 +169,43 @@ program
 
 		await saveConfig(cfg);
 
+		// 4b. seed the full identity/memory file set (NON-DESTRUCTIVE) + model aliases.
+		//     Skips any file the user already has; ensures fresh installs have the full
+		//     required set so brief/doctor don't report missing files.
+		const arc = await import("./archetypes.js");
+		const models = await import("./models.js");
+		const home = AGENTS_DIR;
+		const identityFiles = [
+			["IDENTITY.md", arc.identityContent(arc.DEFAULT_IDENTITY)],
+			["SOUL.md", arc.soulContent(arc.DEFAULT_SOUL)],
+			["USER.md", arc.userContent()],
+			["LESSONS.md", arc.lessonsContent()],
+			["ENVIRONMENTS.md", arc.environmentsContent()],
+		];
+		const idCreated = [];
+		const idSkipped = [];
+		for (const [name, content] of identityFiles) {
+			const fp = path.join(home, name);
+			if (await exists(fp)) {
+				idSkipped.push(name);
+				continue;
+			}
+			await writeFile(fp, content);
+			idCreated.push(name);
+		}
+		const aliases = models.ensureDefaultAliases();
+		const modelsMdPath = models.MODELS_MD;
+		let modelsMdCreated = false;
+		if (!(await exists(modelsMdPath))) {
+			models.writeModelsMd();
+			modelsMdCreated = true;
+		}
+		result.steps.identityFiles = { created: idCreated, skipped: idSkipped };
+		result.steps.models = {
+			aliases: Object.keys(aliases).length,
+			modelsMdCreated,
+		};
+
 		// 5. deploy pointers (non-destructive; auto-convert the seed source)
 		const { masterAbs, masterTilde: mTilde } = ctxPaths();
 		const seedId = master.seed ? getTargetByFile(master.seed) : null;
@@ -1405,6 +1442,40 @@ program
 				);
 			}
 		}
+		// F1: required files must EXIST (false-green guard — doctor must not report
+		// healthy when the load manifest would show files as missing).
+		const REQUIRED = new Set([
+			"identity",
+			"soul",
+			"user",
+			"lessons",
+			"environments",
+		]);
+		const modelsMod = await import("./models.js");
+		const modelsMdPath = modelsMod.MODELS_MD;
+		const modelsMdExists = await exists(modelsMdPath);
+		for (const f of inv.files) {
+			if (!REQUIRED.has(f.kind)) continue;
+			if (!f.exists) {
+				checks.push({
+					check: "file-exists:" + f.kind,
+					ok: false,
+					detail: "missing",
+				});
+				issues.push(
+					`${f.kind} file missing (${pretty(f.path)}) — run \`agent init\` to seed it.`,
+				);
+			}
+		}
+		checks.push({
+			check: "file-exists:models",
+			ok: modelsMdExists,
+			detail: modelsMdExists ? pretty(modelsMdPath) : "missing",
+		});
+		if (!modelsMdExists)
+			issues.push(
+				`MODELS.md missing (${pretty(modelsMdPath)}) — run \`agent init\` to seed it.`,
+			);
 		// #2 integration: personalities discoverable + none stranded in old pi path
 		const subList = await listAgents({ includeProject: false });
 		checks.push({

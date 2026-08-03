@@ -153,6 +153,53 @@ export function userContent() {
 `;
 }
 
+export function environmentsContent() {
+	return `# ENVIRONMENTS.md — execution & connection environments
+
+> Where this agentic system **runs** or **connects to**: the local user environment plus
+> remote targets (SSH, containers). Keep this current — the agent uses it to choose where
+> and how to run commands. Update whenever an environment changes or a new one is added.
+
+## Local (primary)
+- User:
+- OS:
+- Shell:
+- Home:
+- agent-cli home: ~/.agents/  (canonical)
+- Key tools:
+
+## Remote connections (SSH)
+> Discover aliases from \`~/.ssh/config\`. Add one block per host.
+
+### <alias> — <purpose>
+- Host: <user@host> or \`~/.ssh/config\` alias
+- Connect: \`ssh <alias>\`
+- OS / shell:
+- Relevant dirs:
+- Notes / caveats:
+
+## Containers / other
+> Docker, devcontainers, remote dev boxes, etc.
+
+- (none yet)
+`;
+}
+
+export function lessonsContent() {
+	return `# LESSONS.md — always-on core (system-wide)
+
+> Critical-lesson POINTER index — loaded DIRECTLY every session (\`agent brief\` prints it).
+> Each line points to the full lesson file under \`lessons/\`. Keep this small (the ~10 most
+> critical); add a pointer the moment a lesson proves critical, demote stale ones yourself.
+> Full log: \`~/.agents/lessons/<topic>/<name>.md\` (progressive load).
+
+## Core
+<!-- add pointers here as you learn critical lessons; example:
+- <one-line summary> — \`lessons/<topic>/<descriptive-name>.md\`
+-->
+`;
+}
+
 export const ONBOARD_QUESTION = "What kind of agent do you want me to be?";
 export function onboardOptions() {
 	return Object.entries(IDENTITIES).map(([k, v]) => ({

@@ -336,6 +336,18 @@ test("update diff on an unknown version errors as JSON", () => {
 	assert.match(j.error, /No staged update/);
 });
 
+test("command help advertises the actual AX command surface", () => {
+	const update = run(["update", "--help"]);
+	const models = run(["models", "--help"]);
+	const edit = run(["edit", "--help"]);
+	ok(update);
+	ok(models);
+	ok(edit);
+	assert.match(update.stdout, /diff <version>/);
+	assert.match(models.stdout, /global .*MODELS\.md/i);
+	assert.match(edit.stdout, /environments/);
+});
+
 test("lessons inbox --clear removes all captures", () => {
 	const home = run(["init"]).home;
 	const inboxDir = path.join(home, ".agents", "lessons", ".inbox");

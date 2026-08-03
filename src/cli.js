@@ -500,7 +500,7 @@ program
 program
 	.command("edit [kind]")
 	.description(
-		"Open a unified home file in $EDITOR. kind: agents (default) | soul | identity | user | lessons",
+		"Open a unified home file in $EDITOR. kind: agents (default) | soul | identity | user | lessons | environments | models",
 	)
 	.option("--print-path", "Just print the resolved path (for agents) and exit")
 	.option("-p, --project", "Edit the project-local copy")
@@ -511,7 +511,7 @@ program
 			target = identityFilePath(kind, scope);
 			if (!target) {
 				log.error(
-					`Unknown kind: ${kind}. Use: agents|soul|identity|user|lessons`,
+					`Unknown kind: ${kind}. Use: agents|soul|identity|user|lessons|environments|models`,
 				);
 				process.exit(1);
 			}
@@ -793,7 +793,7 @@ program
 program
 	.command("models [action] [rest...]")
 	.description(
-		"Model aliases: list | set <alias> <provider/model> [--category c] [--thinking lvl] | resolve <alias> | seed | write.",
+		"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | set <alias> <provider/model> [--category c] [--thinking lvl] | resolve <alias> | seed | write.",
 	)
 	.option("--category <c>", "category for set")
 	.option("--thinking <lvl>", "thinking level for set")
@@ -1145,7 +1145,7 @@ program
 program
 	.command("update [action] [version]")
 	.description(
-		"Shipped-default updates: list staged payloads + npm latest version (default), stage the current version's seeds, or clear <version>.",
+		"Shipped-default updates: list staged payloads + npm latest version (default), stage seeds, diff <version> [--file <rel>], or clear <version>.",
 	)
 	.option("--force", "force a fresh npm version check")
 	.option(

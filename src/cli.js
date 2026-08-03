@@ -1579,18 +1579,62 @@ program
 		const seed = await import("./seed.js");
 		const stagedUpdates = await seed.listStagedUpdates({ home: AGENTS_DIR });
 		const idMod = await import("./identity.js");
-		const inv = await identityInventory({
+		const invG = await identityInventory({
 			scope: "global",
 			cwd: process.cwd(),
 		});
+		const projectBase = path.join(process.cwd(), ".agents");
+		const invP =
+			projectBase !== AGENTS_DIR
+				? await identityInventory({
+						scope: "project",
+						cwd: process.cwd(),
+					})
+				: null;
+		const modelsMod = await import("./models.js");
+		const modelsMdPath = modelsMod.MODELS_MD;
+		const modelsMdExists = await exists(modelsMdPath);
 		const { gapReport, archetypeNeeded, gapRecommended } =
-			computeOnboarding(inv);
+			computeOnboarding(invG);
 		const onboarding = {
 			recommended: gapRecommended,
 			archetypeNeeded,
 			gaps: gapReport,
 			...(archetypeNeeded ? idMod.onboardSuggest() : {}),
 		};
+		// F2: load manifest = global + project override + MODELS.md (precedence global → project).
+		const sessionLoad = [];
+		for (const gF of invG.files) {
+			sessionLoad.push({
+				kind: gF.kind,
+				scope: "global",
+				path: gF.path,
+				exists: gF.exists,
+				filled: gF.filled,
+				gaps: gF.gaps,
+			});
+			if (invP) {
+				const pF = invP.files.find((x) => x.kind === gF.kind);
+				if (pF) {
+					sessionLoad.push({
+						kind: pF.kind,
+						scope: "project",
+						path: pF.path,
+						exists: pF.exists,
+						filled: pF.filled,
+						gaps: pF.gaps,
+					});
+				}
+			}
+		}
+		sessionLoad.push({
+			kind: "models",
+			scope: "global",
+			path: modelsMdPath,
+			exists: modelsMdExists,
+			filled: null,
+			gaps: null,
+		});
 		// AX: surface the lesson index (filenames ARE the summaries) + inbox so the agent
 		// actually loads memory at session start instead of only seeing a score. Also load the
 		// LESSONS.md core DIRECTLY (critical-lesson pointer index) so it's never skipped.
@@ -1685,13 +1729,7 @@ program
 			},
 			onboarding,
 			sessionStart: {
-				load: inv.files.map((f) => ({
-					kind: f.kind,
-					path: f.path,
-					exists: f.exists,
-					filled: f.filled,
-					gaps: f.gaps,
-				})),
+				load: sessionLoad,
 			},
 			lessons: {
 				count: lessonsIndex.length,
@@ -1758,14 +1796,15 @@ program
 					c.yellow(`${stagedUpdates.length} payload(s) — agent update list`),
 				);
 			// AX: tell the agent exactly what to read now, and surface the lesson index.
-			log.raw(c.bold("\nLoad at session start:"));
+			log.raw(c.bold("\nLoad at session start (global → project override):"));
 			for (const f of out.sessionStart.load) {
 				let tag;
 				if (!f.exists) tag = c.gray("(missing)");
 				else if (f.filled === false || (f.gaps && f.gaps.length))
 					tag = c.yellow(`(gap: ${(f.gaps || []).join(", ") || "unfilled"})`);
 				else tag = c.green("✓");
-				log.raw(`  ${f.kind.padEnd(12)} ${pretty(f.path)}  ${tag}`);
+				const kindLabel = f.scope === "project" ? `${f.kind} (proj)` : f.kind;
+				log.raw(`  ${kindLabel.padEnd(18)} ${pretty(f.path)}  ${tag}`);
 			}
 			if (coreContent) {
 				log.raw(c.bold("\nCore lessons (always-on — LESSONS.md):"));

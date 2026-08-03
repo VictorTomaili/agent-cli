@@ -17,14 +17,14 @@ import path from "node:path";
 
 const CLI = path.resolve("src/cli.js");
 
-function run(args, { envHome } = {}) {
+function run(args, { envHome, cwd } = {}) {
 	const env = { ...process.env };
 	const home = envHome || mkdtempSync(path.join(tmpdir(), "agent-cli-"));
 	env.AGENT_CLI_HOME = home;
 	const r = spawnSync(process.execPath, [CLI, ...args], {
 		encoding: "utf8",
 		env,
-		cwd: home,
+		cwd: cwd || home,
 	});
 	return {
 		stdout: r.stdout ?? "",
@@ -264,6 +264,17 @@ test("brief --json includes sessionStart.load + lessons (index + inbox)", () => 
 	assert.ok(j.lessons);
 	assert.equal(typeof j.lessons.inbox, "number");
 	assert.ok(Array.isArray(j.lessons.index));
+});
+
+test("brief manifest includes global models and project overrides", () => {
+	const home = run(["init"]).home;
+	const project = mkdtempSync(path.join(tmpdir(), "agent-cli-project-"));
+	mkdirSync(path.join(project, ".agents"), { recursive: true });
+	writeFileSync(path.join(project, ".agents", "USER.md"), "# project user\n");
+	const j = parseJson(run(["brief", "--json"], { envHome: home, cwd: project }).stdout);
+	assert.ok(j.sessionStart.load.some((f) => f.kind === "models" && f.scope === "global"));
+	assert.ok(j.sessionStart.load.some((f) => f.kind === "user" && f.scope === "global"));
+	assert.ok(j.sessionStart.load.some((f) => f.kind === "user" && f.scope === "project"));
 });
 
 test("brief surfaces lesson summaries in the index", () => {

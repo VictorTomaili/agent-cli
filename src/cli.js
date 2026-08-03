@@ -858,6 +858,7 @@ program
 	.option("-b, --body <text>", "lesson body (for add)")
 	.option("--file <n>", "inbox index to file (triage)")
 	.option("--delete <n>", "inbox index to delete (triage)")
+	.option("--clear", "delete ALL inbox captures (with the inbox action)")
 	.action(async (action, name, opts) => {
 		const {
 			listLessons,
@@ -866,6 +867,7 @@ program
 			lessonsRoot,
 			fileInboxItem,
 			deleteInboxItem,
+			clearInbox,
 		} = await import("./lessons-lib.js");
 		action = action || "list";
 		const scope = opts.project ? "project" : "global";
@@ -919,6 +921,12 @@ program
 			return;
 		}
 		if (action === "inbox") {
+			if (opts.clear) {
+				const r = await clearInbox({ includeProject: true, cwd });
+				emit({ command: "lessons", action: "inbox", op: "clear", ...r });
+				if (!JSON_MODE) log.success(`Cleared ${r.deleted} inbox capture(s)`);
+				return;
+			}
 			const items = await inboxLessons({ includeProject: true, cwd });
 			emit({ command: "lessons", action, count: items.length, inbox: items });
 			if (!JSON_MODE) {

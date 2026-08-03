@@ -184,3 +184,33 @@ export async function deleteInboxItem(index, { cwd = process.cwd() } = {}) {
 	await removeInbox(item.file);
 	return { ok: true, deleted: item.file };
 }
+
+/** Delete ALL raw inbox captures across scopes. Returns { deleted, files }. */
+export async function clearInbox({
+	includeProject = true,
+	cwd = process.cwd(),
+} = {}) {
+	const files = [];
+	const seen = new Set();
+	const scopes = ["global", ...(includeProject ? ["project"] : [])];
+	for (const scope of scopes) {
+		const root = lessonsRoot(scope, cwd);
+		if (seen.has(root)) continue;
+		seen.add(root);
+		const dir = path.join(root, ".inbox");
+		if (!(await exists(dir))) continue;
+		let entries = [];
+		try {
+			entries = await fsp.readdir(dir);
+		} catch {
+			continue;
+		}
+		for (const name of entries) {
+			if (!name.endsWith(".md")) continue;
+			const fp = path.join(dir, name);
+			await removeInbox(fp);
+			files.push(fp);
+		}
+	}
+	return { deleted: files.length, files };
+}

@@ -14,6 +14,7 @@ const {
 	parseFM,
 	fileInboxItem,
 	deleteInboxItem,
+	clearInbox,
 	inboxLessons,
 } = await import("../src/lessons-lib.js");
 
@@ -124,6 +125,24 @@ test("deleteInboxItem removes an inbox item", async () => {
 	await fsp.writeFile(path.join(inboxDir, "a.md"), "x");
 	const r = await deleteInboxItem(0, { cwd });
 	assert.equal(r.ok, true);
+});
+
+test("clearInbox removes all .inbox captures", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-ll-clear-"));
+	const inboxDir = path.join(cwd, ".agents", "lessons", ".inbox");
+	await fsp.mkdir(inboxDir, { recursive: true });
+	await fsp.writeFile(path.join(inboxDir, "a.md"), "x");
+	await fsp.writeFile(path.join(inboxDir, "b.md"), "y");
+	await fsp.writeFile(path.join(inboxDir, "not-md.txt"), "keep");
+	const r = await clearInbox({ includeProject: true, cwd });
+	assert.equal(r.deleted, 2);
+	assert.equal((await inboxLessons({ includeProject: true, cwd })).length, 0);
+});
+
+test("clearInbox is a no-op when no .inbox exists", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-ll-clear2-"));
+	const r = await clearInbox({ includeProject: true, cwd });
+	assert.equal(r.deleted, 0);
 });
 
 test("parseFM treats a missing closing fence as body (no fm)", () => {

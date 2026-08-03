@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -301,4 +301,17 @@ test("update diff shows staged-vs-live changes", () => {
 test("update diff on an unknown version errors (exit 1)", () => {
 	const home = run(["init"]).home;
 	bad(run(["update", "diff", "9.9.9"], { envHome: home }));
+});
+
+test("lessons inbox --clear removes all captures", () => {
+	const home = run(["init"]).home;
+	const inboxDir = path.join(home, ".agents", "lessons", ".inbox");
+	mkdirSync(inboxDir, { recursive: true });
+	writeFileSync(path.join(inboxDir, "a.md"), "raw");
+	writeFileSync(path.join(inboxDir, "b.md"), "raw");
+	const r = run(["lessons", "inbox", "--clear", "--json"], { envHome: home });
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.op, "clear");
+	assert.ok(j.deleted >= 2);
 });

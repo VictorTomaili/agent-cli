@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -8,7 +8,9 @@ const HOME_TMP = mkdtempSync(path.join(tmpdir(), "agent-con-home-"));
 process.env.AGENT_CLI_HOME = HOME_TMP;
 
 const { assess, consolidate } = await import("../src/consolidate.js");
-const { addLesson, listLessons } = await import("../src/lessons-lib.js");
+const { addLesson, listLessons, coreFile, parseFM } = await import(
+	"../src/lessons-lib.js",
+);
 
 test("assess on empty project dir → low score, not recommend", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-"));
@@ -103,4 +105,34 @@ test("assess tolerates a corrupt config (falls back to defaults)", () => {
 	const a = assess({ scope: "project", cwd });
 	assert.equal(a.ok, true);
 	assert.equal(a.threshold, 70); // default scoreThreshold
+});
+
+test("consolidate promotes recurring lessons into the core file", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-promo-"));
+	await addLesson("git/rec", {
+		scope: "project",
+		cwd,
+		body: "- **Lesson:** promoted body",
+	});
+	await addLesson("git/rec", { scope: "project", cwd });
+	consolidate({ scope: "project", cwd });
+	const core = readFileSync(coreFile("project", cwd), "utf8");
+	assert.ok(core.includes("## Core"));
+	assert.ok(core.includes("promoted body"));
+});
+
+test("consolidate: a marked lesson reaching the threshold is promoted, not deleted", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-order-"));
+	await addLesson("git/x", { scope: "project", cwd, body: "- **Lesson:** x" });
+	consolidate({ scope: "project", cwd }); // pass 1: occ=1 -> marked
+	await addLesson("git/x", { scope: "project", cwd }); // occ=2, clears mark
+	const fp = path.join(cwd, ".agents", "lessons", "git", "x.md");
+	const fm = parseFM(readFileSync(fp, "utf8")).fm;
+	writeFileSync(
+		fp,
+		`---\noccurrences: ${fm.occurrences}\nfirstSeen: ${fm.firstSeen}\nlastSeen: ${fm.lastSeen}\nmarked: true\n---\n- **Lesson:** x`,
+	);
+	const r = consolidate({ scope: "project", cwd });
+	assert.equal(r.stats.promoted, 1);
+	assert.equal(r.stats.deleted, 0);
 });

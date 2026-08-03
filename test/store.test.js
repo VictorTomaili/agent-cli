@@ -30,6 +30,12 @@ test("findSeedSource is null when no candidate exists", async () => {
 	assert.equal(await store.findSeedSource(), null);
 });
 
+test("findSeedSource ignores a candidate with too little content (<20 chars)", async () => {
+	mkdirSync(path.join(TMP, ".claude"), { recursive: true });
+	writeFileSync(path.join(TMP, ".claude", "CLAUDE.md"), "short");
+	assert.equal(await store.findSeedSource(), null);
+});
+
 test("ensureMaster seeds a starter when no master and no candidates", async () => {
 	const r = await store.ensureMaster();
 	assert.equal(r.action, "starter");

@@ -125,3 +125,20 @@ test("deleteInboxItem removes an inbox item", async () => {
 	const r = await deleteInboxItem(0, { cwd });
 	assert.equal(r.ok, true);
 });
+
+test("parseFM treats a missing closing fence as body (no fm)", () => {
+	const { fm, body } = parseFM("---\noccurrences: 3\nno closing fence\njust body");
+	assert.deepEqual(fm, {});
+	assert.ok(body.includes("no closing fence"));
+});
+
+test("parseFM reads CRLF frontmatter", () => {
+	const { fm } = parseFM("---\r\noccurrences: 5\r\n---\r\nbody");
+	assert.equal(fm.occurrences, "5");
+});
+
+test("parseFM: a valueless key (idx 0) is ignored", () => {
+	const { fm } = parseFM("---\n: nokey\nname: x\n---\nbody");
+	assert.equal(fm.name, "x");
+	assert.ok(!fm[""]);
+});

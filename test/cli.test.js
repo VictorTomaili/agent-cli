@@ -268,6 +268,17 @@ test("brief surfaces lesson summaries in the index", () => {
 	assert.ok(j.lessons.index.some((l) => l.path.endsWith("git/global-lesson")));
 });
 
+test("brief loads the LESSONS.md core directly", () => {
+	const home = run(["init"]).home;
+	writeFileSync(
+		path.join(home, ".agents", "LESSONS.md"),
+		"# LESSONS.md\n\n## Core\n- critical lesson — `lessons/git/x.md`\n",
+	);
+	const j = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
+	assert.ok(j.lessons.core);
+	assert.ok(j.lessons.core.includes("critical lesson"));
+});
+
 test("user: apply writes USER.md; set goals succeeds; bad inputs error", () => {
 	const r0 = run(["user", "apply"]);
 	ok(r0);

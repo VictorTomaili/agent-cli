@@ -1521,8 +1521,9 @@ program
 			...(archetypeNeeded ? idMod.onboardSuggest() : {}),
 		};
 		// AX: surface the lesson index (filenames ARE the summaries) + inbox so the agent
-		// actually loads memory at session start instead of only seeing a score.
-		const { listLessons } = await import("./lessons-lib.js");
+		// actually loads memory at session start instead of only seeing a score. Also load the
+		// LESSONS.md core DIRECTLY (critical-lesson pointer index) so it's never skipped.
+		const { listLessons, coreFile } = await import("./lessons-lib.js");
 		const lessonsIndex = (await listLessons({ includeProject: false }))
 			.map((l) => ({
 				path: l.path,
@@ -1531,6 +1532,20 @@ program
 			}))
 			.sort((a, b) => a.path.localeCompare(b.path));
 		const inboxCount = (consG.metrics.inbox || 0) + (consP.metrics.inbox || 0);
+		let coreContent = null;
+		try {
+			const md = await readFile(coreFile("global", process.cwd()));
+			const idx = md.indexOf("## Core");
+			if (idx >= 0) {
+				const cleaned = md
+					.slice(idx + "## Core".length)
+					.replace(/<!--[\s\S]*?-->/g, "")
+					.trim();
+				if (cleaned) coreContent = cleaned;
+			}
+		} catch {
+			/* no core file */
+		}
 		const pointerTargets = [];
 		const drift = [];
 		for (const id of cfg.global) {
@@ -1611,6 +1626,7 @@ program
 				count: lessonsIndex.length,
 				index: lessonsIndex,
 				inbox: inboxCount,
+				core: coreContent,
 			},
 		};
 		emit(out);
@@ -1679,6 +1695,11 @@ program
 					tag = c.yellow(`(gap: ${(f.gaps || []).join(", ") || "unfilled"})`);
 				else tag = c.green("✓");
 				log.raw(`  ${f.kind.padEnd(12)} ${pretty(f.path)}  ${tag}`);
+			}
+			if (coreContent) {
+				log.raw(c.bold("\nCore lessons (always-on — LESSONS.md):"));
+				for (const line of coreContent.split("\n"))
+					if (line.trim()) log.raw(`  ${line}`);
 			}
 			if (lessonsIndex.length) {
 				log.raw(

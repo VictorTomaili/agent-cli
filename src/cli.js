@@ -205,7 +205,7 @@ program
 				}
 			}
 			log.dim(
-				`Edit the master: ${c.cyan("agent edit")}. AI brief: ${c.cyan("agent brief")}.`,
+				`Next: run ${c.cyan("agent brief")}, then read every file under "Load at session start". Edit the master: ${c.cyan("agent edit")}.`,
 			);
 		}
 	});

@@ -1105,7 +1105,10 @@ program
 		"Shipped-default updates: list staged payloads + npm latest version (default), stage the current version's seeds, or clear <version>.",
 	)
 	.option("--force", "force a fresh npm version check")
-	.option("--file <rel>", "restrict diff to one staged file (relative, e.g. agents/scout.md)")
+	.option(
+		"--file <rel>",
+		"restrict diff to one staged file (relative, e.g. agents/scout.md)",
+	)
 	.action(async (action, version, opts) => {
 		const seed = await import("./seed.js");
 		const npm = await import("./npm-check.js");
@@ -1207,9 +1210,7 @@ program
 			if (!JSON_MODE)
 				for (const d of diffs) {
 					log.raw(
-						c.bold(
-							`${d.rel}  ${d.liveExists ? "" : c.gray("(live missing)")}`,
-						),
+						c.bold(`${d.rel}  ${d.liveExists ? "" : c.gray("(live missing)")}`),
 					);
 					for (const line of d.diff.split("\n")) {
 						let colored;
@@ -1529,8 +1530,7 @@ program
 				marked: l.marked,
 			}))
 			.sort((a, b) => a.path.localeCompare(b.path));
-		const inboxCount =
-			(consG.metrics.inbox || 0) + (consP.metrics.inbox || 0);
+		const inboxCount = (consG.metrics.inbox || 0) + (consP.metrics.inbox || 0);
 		const pointerTargets = [];
 		const drift = [];
 		for (const id of cfg.global) {
@@ -1676,9 +1676,7 @@ program
 				let tag;
 				if (!f.exists) tag = c.gray("(missing)");
 				else if (f.filled === false || (f.gaps && f.gaps.length))
-					tag = c.yellow(
-						`(gap: ${(f.gaps || []).join(", ") || "unfilled"})`,
-					);
+					tag = c.yellow(`(gap: ${(f.gaps || []).join(", ") || "unfilled"})`);
 				else tag = c.green("✓");
 				log.raw(`  ${f.kind.padEnd(12)} ${pretty(f.path)}  ${tag}`);
 			}

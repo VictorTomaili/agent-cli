@@ -261,11 +261,11 @@ test("brief --json includes sessionStart.load + lessons (index + inbox)", () => 
 
 test("brief surfaces lesson summaries in the index", () => {
 	const home = run(["init"]).home;
-	run(["lessons", "add", "git/global-lesson", "--body", "x"], { envHome: home });
+	run(["lessons", "add", "git/global-lesson", "--body", "x"], {
+		envHome: home,
+	});
 	const j = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
-	assert.ok(
-		j.lessons.index.some((l) => l.path.endsWith("git/global-lesson")),
-	);
+	assert.ok(j.lessons.index.some((l) => l.path.endsWith("git/global-lesson")));
 });
 
 test("user: apply writes USER.md; set goals succeeds; bad inputs error", () => {

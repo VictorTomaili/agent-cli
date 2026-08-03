@@ -127,10 +127,7 @@ test("diffLines marks live-only with '-' and staged-only with '+'", () => {
 });
 
 test("diffLines: identical content is all context (no +/-)", () => {
-	assert.deepEqual(seed.diffLines("x\ny", "x\ny").split("\n"), [
-		" x",
-		" y",
-	]);
+	assert.deepEqual(seed.diffLines("x\ny", "x\ny").split("\n"), [" x", " y"]);
 });
 
 test("diffLines treats null inputs as empty", () => {

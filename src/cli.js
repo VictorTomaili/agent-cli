@@ -67,9 +67,8 @@ const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
 const PKG_NAME = PKG.name;
 
-// Silence Node's DEP0190 (spawn shell:true) deprecation — every arg we pass to a
-// shell is internal/trusted (skill-cli invocations). Correctness on pnpm POSIX-shim
-// setups requires shell:true, so we suppress only this one warning.
+// Silence Node's DEP0190 (spawn shell:true) deprecation — the editor command is
+// internal/trusted. Correctness on pnpm POSIX-shim setups requires shell:true.
 {
 	const origEmit = process.emit;
 	process.emit = (name, ...a) => {
@@ -1281,7 +1280,7 @@ program
 program
 	.command("skill [args...]")
 	.description(
-		"Integrated skill manager: setup|refresh|status, or pass skill commands through.",
+		"Integrated skill manager: setup|refresh|status, or pass commands such as list, active, show, cat, install, enable, disable, update, and remove.",
 	)
 	.action(async (args) => {
 		const sub = args[0];

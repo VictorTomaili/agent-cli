@@ -117,6 +117,7 @@ test("computeOnboarding: archetypeNeeded when IDENTITY.md is absent", () => {
 		files: [{ kind: "identity", exists: false, gaps: null }],
 	});
 	assert.equal(r.archetypeNeeded, true);
+	assert.equal(r.gapRecommended, true);
 });
 
 test("computeOnboarding: nothing recommended when there are no gaps", () => {

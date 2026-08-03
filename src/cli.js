@@ -1826,7 +1826,8 @@ program
 				);
 			if (suggested.length) log.raw(c.bold("\nSuggested:"));
 			for (const s of suggested) log.raw(`  ${c.cyan(s)}`);
-			if (!suggested.length) log.success("Everything in sync.");
+			if (!suggested.length && !gapRecommended)
+				log.success("Everything in sync.");
 		}
 	});
 

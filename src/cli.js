@@ -350,9 +350,14 @@ program
 program
 	.command("status")
 	.description(
-		"Show master state, per-target pointer health, and skill-cli state.",
+		"Show master state, per-target pointer health, and skill-cli state. Use --all for the full catalog.",
 	)
-	.action(async () => {
+	.option(
+		"--all",
+		"include every known target; default shows installed, enabled, or unhealthy targets",
+	)
+	.action(async (opts) => {
+		const showAll = !!opts.all;
 		const cfg = await loadConfig();
 		const masterContent = await readMaster();
 		const skill = skillVersion();
@@ -371,6 +376,15 @@ program
 				project: t.project ? pathFor(t, "project") : null,
 			});
 		}
+		const visibleTargets = showAll
+			? targets
+			: targets.filter(
+					(t) =>
+						t.installed ||
+						t.globalEnabled ||
+						t.projectEnabled ||
+						(t.global && t.global.state !== "pointer"),
+				);
 		const out = {
 			command: "status",
 			master: {
@@ -385,7 +399,9 @@ program
 				version: cfg.version,
 			},
 			skill: skill,
-			targets,
+			targets: visibleTargets,
+			targetCount: targets.length,
+			all: showAll,
 		};
 		emit(out);
 		if (!JSON_MODE) {
@@ -400,7 +416,7 @@ program
 				`${skill.version ?? "none"} ${c.gray("(" + skill.source + ")")}`,
 			);
 			log.raw(c.bold("\nTargets:"));
-			for (const t of targets) {
+			for (const t of visibleTargets) {
 				const tag =
 					t.global?.state === "pointer"
 						? c.green("●")
@@ -1246,6 +1262,13 @@ program
 					log.raw(
 						c.bold(`${d.rel}  ${d.liveExists ? "" : c.gray("(live missing)")}`),
 					);
+					const hasChanges = d.diff
+						.split("\n")
+						.some((line) => line.startsWith("+") || line.startsWith("-"));
+					if (!hasChanges) {
+						log.dim("  No differences.");
+						continue;
+					}
 					for (const line of d.diff.split("\n")) {
 						let colored;
 						if (line.startsWith("+")) colored = c.green(line);

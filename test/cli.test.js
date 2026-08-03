@@ -348,6 +348,39 @@ test("command help advertises the actual AX command surface", () => {
 	assert.match(edit.stdout, /environments/);
 });
 
+test("update diff reports no differences without dumping files", () => {
+	const home = run(["init"]).home;
+	run(["update", "stage"], { envHome: home });
+	const list = parseJson(run(["update", "list", "--json"], { envHome: home }).stdout);
+	const ver = list.staged[0].version;
+	const staged = readFileSync(
+		path.join(home, ".agents", `update-${ver}`, "agents", "scout.md"),
+		"utf8",
+	);
+	writeFileSync(path.join(home, ".agents", "agents", "scout.md"), staged);
+	const j = parseJson(
+		run(["update", "diff", ver, "--file", "agents/scout.md", "--json"], {
+			envHome: home,
+		}).stdout,
+	);
+	assert.equal(j.diffs.length, 1);
+	assert.ok(
+		!j.diffs[0].diff
+			.split("\n")
+			.some((line) => line.startsWith("+") || line.startsWith("-")),
+	);
+});
+
+test("status summarizes targets by default and --all expands the catalog", () => {
+	const home = run(["init"]).home;
+	const summary = parseJson(run(["status", "--json"], { envHome: home }).stdout);
+	const full = parseJson(run(["status", "--all", "--json"], { envHome: home }).stdout);
+	assert.equal(summary.all, false);
+	assert.equal(full.all, true);
+	assert.equal(full.targets.length, full.targetCount);
+	assert.ok(summary.targets.length <= full.targets.length);
+});
+
 test("lessons inbox --clear removes all captures", () => {
 	const home = run(["init"]).home;
 	const inboxDir = path.join(home, ".agents", "lessons", ".inbox");

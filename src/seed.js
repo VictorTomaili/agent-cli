@@ -136,6 +136,45 @@ export async function readStagedFile(version, rel, { home = AGENTS_DIR } = {}) {
 	return readFile(fp);
 }
 
+/** Minimal LCS line diff with unified-style prefixes:
+ *  ` ` common · `-` live-only · `+` staged-only. Pure (no I/O). */
+export function diffLines(live, staged) {
+	const split = (s) => {
+		const t = s ?? "";
+		return t === "" ? [] : t.split("\n");
+	};
+	const A = split(live);
+	const B = split(staged);
+	const m = A.length;
+	const n = B.length;
+	const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+	for (let i = m - 1; i >= 0; i--)
+		for (let j = n - 1; j >= 0; j--)
+			dp[i][j] =
+				A[i] === B[j]
+					? dp[i + 1][j + 1] + 1
+					: Math.max(dp[i + 1][j], dp[i][j + 1]);
+	const out = [];
+	let i = 0;
+	let j = 0;
+	while (i < m && j < n) {
+		if (A[i] === B[j]) {
+			out.push(" " + A[i]);
+			i++;
+			j++;
+		} else if (dp[i + 1][j] >= dp[i][j + 1]) {
+			out.push("-" + A[i]);
+			i++;
+		} else {
+			out.push("+" + B[j]);
+			j++;
+		}
+	}
+	while (i < m) out.push("-" + A[i++]);
+	while (j < n) out.push("+" + B[j++]);
+	return out.join("\n");
+}
+
 /** Remove a staged update payload dir once adopted or dismissed. */
 export async function clearStaged(version, { home = AGENTS_DIR } = {}) {
 	const dir = path.join(home, `${UPDATE_PREFIX}${version}`);

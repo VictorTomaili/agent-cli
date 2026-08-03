@@ -116,3 +116,24 @@ test("clearStaged removes a payload and reports not-found for others", async () 
 	const r2 = await seed.clearStaged("0.2.0", { home });
 	assert.equal(r2.ok, false);
 });
+
+test("diffLines marks live-only with '-' and staged-only with '+'", () => {
+	const d = seed.diffLines("a\nb\nc", "a\nx\nc");
+	const lines = d.split("\n");
+	assert.ok(lines.includes("-b"));
+	assert.ok(lines.includes("+x"));
+	assert.ok(lines.includes(" a"));
+	assert.ok(!lines.includes("-a"));
+});
+
+test("diffLines: identical content is all context (no +/-)", () => {
+	assert.deepEqual(seed.diffLines("x\ny", "x\ny").split("\n"), [
+		" x",
+		" y",
+	]);
+});
+
+test("diffLines treats null inputs as empty", () => {
+	assert.deepEqual(seed.diffLines(null, "a").split("\n"), ["+a"]);
+	assert.deepEqual(seed.diffLines("a", null).split("\n"), ["-a"]);
+});

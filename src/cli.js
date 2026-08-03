@@ -15,6 +15,7 @@ import {
 	MASTER_FILE,
 	AGENTS_DIR,
 	exists,
+	readFile,
 	writeFile,
 } from "./util.js";
 import { TARGETS, getTarget, targetsWithScope, pathFor } from "./targets.js";
@@ -1096,6 +1097,7 @@ program
 		"Shipped-default updates: list staged payloads + npm latest version (default), stage the current version's seeds, or clear <version>.",
 	)
 	.option("--force", "force a fresh npm version check")
+	.option("--file <rel>", "restrict diff to one staged file (relative, e.g. agents/scout.md)")
 	.action(async (action, version, opts) => {
 		const seed = await import("./seed.js");
 		const npm = await import("./npm-check.js");
@@ -1166,7 +1168,52 @@ program
 					: log.warn(`Not found: update-${version}`);
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use list|stage|clear <version>`);
+		if (action === "diff") {
+			if (!version) {
+				log.error("Usage: agent update diff <version> [--file <rel>]");
+				process.exit(1);
+			}
+			const stagedList = await seed.listStagedUpdates({ home: AGENTS_DIR });
+			const payload = stagedList.find((s) => s.version === version);
+			if (!payload) {
+				log.error(`No staged update for ${version}`);
+				process.exit(1);
+			}
+			const rels = opts.file ? [opts.file] : payload.files;
+			const diffs = [];
+			for (const rel of rels) {
+				const stagedContent = await seed.readStagedFile(version, rel, {
+					home: AGENTS_DIR,
+				});
+				const livePath = path.join(AGENTS_DIR, ...rel.split("/"));
+				let liveContent = null;
+				if (await exists(livePath)) liveContent = await readFile(livePath);
+				diffs.push({
+					rel,
+					livePath,
+					liveExists: liveContent != null,
+					diff: seed.diffLines(liveContent ?? "", stagedContent ?? ""),
+				});
+			}
+			emit({ command: "update", action: "diff", version, diffs });
+			if (!JSON_MODE)
+				for (const d of diffs) {
+					log.raw(
+						c.bold(
+							`${d.rel}  ${d.liveExists ? "" : c.gray("(live missing)")}`,
+						),
+					);
+					for (const line of d.diff.split("\n")) {
+						let colored;
+						if (line.startsWith("+")) colored = c.green(line);
+						else if (line.startsWith("-")) colored = c.red(line);
+						else colored = c.gray(line);
+						process.stdout.write(colored + "\n");
+					}
+				}
+			return;
+		}
+		log.error(`Unknown action: ${action}. Use list|diff|stage|clear <version>`);
 		process.exit(1);
 	});
 

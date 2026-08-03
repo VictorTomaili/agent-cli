@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -275,4 +275,30 @@ test("user: apply writes USER.md; set goals succeeds; bad inputs error", () => {
 	ok(run(["user", "set", "goals", "ship it"], { envHome: home }));
 	bad(run(["user", "set"], { envHome: home }));
 	bad(run(["user", "bogus-action"], { envHome: home }));
+});
+
+test("update diff shows staged-vs-live changes", () => {
+	const home = run(["init"]).home;
+	run(["update", "stage"], { envHome: home });
+	const ver = parseJson(
+		run(["update", "list", "--json"], { envHome: home }).stdout,
+	).staged[0].version;
+	// mutate the live file so the diff is non-empty
+	writeFileSync(
+		path.join(home, ".agents", "agents", "scout.md"),
+		"# changed by user\n",
+	);
+	const r = run(["update", "diff", ver, "--json"], { envHome: home });
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.action, "diff");
+	const scout = j.diffs.find((d) => d.rel.includes("scout.md"));
+	assert.ok(scout);
+	assert.ok(scout.diff.includes("-# changed by user"));
+	assert.ok(scout.diff.includes("+")); // staged content appears as additions
+});
+
+test("update diff on an unknown version errors (exit 1)", () => {
+	const home = run(["init"]).home;
+	bad(run(["update", "diff", "9.9.9"], { envHome: home }));
 });

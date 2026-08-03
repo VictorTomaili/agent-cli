@@ -92,6 +92,12 @@ function emit(obj) {
 	return obj;
 }
 
+function fail(message, details = {}) {
+	if (JSON_MODE) console.log(JSON.stringify({ ok: false, error: message, ...details }));
+	else log.error(message);
+	process.exit(1);
+}
+
 function ctxPaths() {
 	return { masterAbs: MASTER_FILE, masterTilde: masterTilde() };
 }
@@ -1204,10 +1210,7 @@ program
 			return;
 		}
 		if (action === "clear") {
-			if (!version) {
-				log.error("Usage: agent update clear <version>");
-				process.exit(1);
-			}
+			if (!version) fail("Usage: agent update clear <version>");
 			const r = await seed.clearStaged(version, { home: AGENTS_DIR });
 			emit({ command: "update", action: "clear", ...r });
 			if (!JSON_MODE)
@@ -1217,16 +1220,10 @@ program
 			return;
 		}
 		if (action === "diff") {
-			if (!version) {
-				log.error("Usage: agent update diff <version> [--file <rel>]");
-				process.exit(1);
-			}
+			if (!version) fail("Usage: agent update diff <version> [--file <rel>]");
 			const stagedList = await seed.listStagedUpdates({ home: AGENTS_DIR });
 			const payload = stagedList.find((s) => s.version === version);
-			if (!payload) {
-				log.error(`No staged update for ${version}`);
-				process.exit(1);
-			}
+			if (!payload) fail(`No staged update for ${version}`);
 			const rels = opts.file ? [opts.file] : payload.files;
 			const diffs = [];
 			for (const rel of rels) {
@@ -1259,8 +1256,7 @@ program
 				}
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use list|diff|stage|clear <version>`);
-		process.exit(1);
+		fail(`Unknown action: ${action}. Use list|diff|stage|clear <version>`);
 	});
 
 // ---------------------------------------------------------------------------
@@ -1832,7 +1828,7 @@ program
 	});
 
 program.parseAsync(process.argv).catch((e) => {
-	if (JSON_MODE) console.log(JSON.stringify({ error: e.message }));
+	if (JSON_MODE) console.log(JSON.stringify({ ok: false, error: e.message }));
 	else log.error(e.message);
 	process.exit(1);
 });

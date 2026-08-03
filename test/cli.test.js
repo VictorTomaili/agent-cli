@@ -327,9 +327,13 @@ test("update diff shows staged-vs-live changes", () => {
 	assert.ok(scout.diff.includes("+")); // staged content appears as additions
 });
 
-test("update diff on an unknown version errors (exit 1)", () => {
+test("update diff on an unknown version errors as JSON", () => {
 	const home = run(["init"]).home;
-	bad(run(["update", "diff", "9.9.9"], { envHome: home }));
+	const r = run(["update", "diff", "9.9.9", "--json"], { envHome: home });
+	bad(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.match(j.error, /No staged update/);
 });
 
 test("lessons inbox --clear removes all captures", () => {

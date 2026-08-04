@@ -1877,7 +1877,9 @@ program
 					`  ${pretty(spect.root)} — ${spect.counts.specs} specs, ${spect.counts.plans} plans, ${spect.counts.tasks} tasks`,
 				);
 			} else {
-				log.dim("\nSPECT: not initialized (run agent spect init when using spec-driven work)");
+				log.dim(
+					"\nSPECT: not initialized (run agent spect init when using spec-driven work)",
+				);
 			}
 			if (coreContent) {
 				log.raw(c.bold("\nCore lessons (always-on — LESSONS.md):"));

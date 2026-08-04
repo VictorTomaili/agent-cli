@@ -1275,6 +1275,47 @@ program
 	});
 
 // ---------------------------------------------------------------------------
+// agent spect — project-local specification-driven development
+// ---------------------------------------------------------------------------
+program
+	.command("spect [action]")
+	.description(
+		"Initialize or inspect project-local SPECT workflow (.spect): specs, plans, tasks, and templates.",
+	)
+	.action(async (action) => {
+		const spect = await import("./spect.js");
+		action = action || "status";
+		if (action === "init") {
+			const result = await spect.initSpect(process.cwd());
+			emit({ command: "spect", action, ...result });
+			if (!JSON_MODE) {
+				log.success(`SPECT initialized in ${pretty(result.root)}`);
+				if (result.created.length)
+					log.info(`Created: ${result.created.join(", ")}`);
+				if (result.skipped.length)
+					log.dim(`Preserved: ${result.skipped.join(", ")}`);
+				log.dim(
+					`Next: copy .spect/templates/spec.md into .spect/specs/ and define acceptance criteria before implementation.`,
+				);
+			}
+			return;
+		}
+		if (action === "status") {
+			const result = await spect.inspectSpect(process.cwd());
+			emit({ command: "spect", action, ...result });
+			if (!JSON_MODE)
+				log.kv(
+					"project",
+					result.initialized
+						? `${pretty(result.root)} (${result.counts.specs} specs, ${result.counts.plans} plans, ${result.counts.tasks} tasks)`
+						: "not initialized — run agent spect init",
+				);
+			return;
+		}
+		fail(`Unknown action: ${action}. Use init|status`);
+	});
+
+// ---------------------------------------------------------------------------
 // agent skill — integrated skill manager
 // ---------------------------------------------------------------------------
 program
@@ -1603,6 +1644,8 @@ program
 		const modelsMod = await import("./models.js");
 		const modelsMdPath = modelsMod.MODELS_MD;
 		const modelsMdExists = await exists(modelsMdPath);
+		const spectMod = await import("./spect.js");
+		const spect = await spectMod.inspectSpect(process.cwd());
 		const { gapReport, archetypeNeeded, gapRecommended } =
 			computeOnboarding(invG);
 		const onboarding = {
@@ -1644,6 +1687,16 @@ program
 			filled: null,
 			gaps: null,
 		});
+		if (spect.initialized)
+			for (const file of spect.load)
+				sessionLoad.push({
+					kind: "spect",
+					scope: "project",
+					path: file,
+					exists: true,
+					filled: true,
+					gaps: null,
+				});
 		// AX: surface the lesson index (filenames ARE the summaries) + inbox so the agent
 		// actually loads memory at session start instead of only seeing a score. Also load the
 		// LESSONS.md core DIRECTLY (critical-lesson pointer index) so it's never skipped.
@@ -1746,6 +1799,9 @@ program
 				inbox: inboxCount,
 				core: coreContent,
 			},
+			project: {
+				spect,
+			},
 		};
 		emit(out);
 		if (!JSON_MODE) {
@@ -1814,6 +1870,14 @@ program
 				else tag = c.green("✓");
 				const kindLabel = f.scope === "project" ? `${f.kind} (proj)` : f.kind;
 				log.raw(`  ${kindLabel.padEnd(18)} ${pretty(f.path)}  ${tag}`);
+			}
+			if (spect.initialized) {
+				log.raw(c.bold("\nSPECT project workflow:"));
+				log.raw(
+					`  ${pretty(spect.root)} — ${spect.counts.specs} specs, ${spect.counts.plans} plans, ${spect.counts.tasks} tasks`,
+				);
+			} else {
+				log.dim("\nSPECT: not initialized (run agent spect init when using spec-driven work)");
 			}
 			if (coreContent) {
 				log.raw(c.bold("\nCore lessons (always-on — LESSONS.md):"));

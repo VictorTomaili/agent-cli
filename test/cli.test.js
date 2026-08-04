@@ -285,6 +285,25 @@ test("brief --json includes sessionStart.load + lessons (index + inbox)", () => 
 	assert.ok(Array.isArray(j.lessons.index));
 });
 
+test("spect init is project-only and brief loads the project manifest", () => {
+	const home = run(["init"]).home;
+	const project = mkdtempSync(path.join(tmpdir(), "agent-spect-project-"));
+	const init = run(["--json", "spect", "init"], {
+		envHome: home,
+		cwd: project,
+	});
+	ok(init);
+	const result = parseJson(init.stdout);
+	assert.equal(result.command, "spect");
+	assert.ok(result.root.startsWith(project));
+	assert.equal(existsSync(path.join(home, ".spect")), false);
+	const brief = parseJson(
+		run(["brief", "--json"], { envHome: home, cwd: project }).stdout,
+	);
+	assert.equal(brief.project.spect.initialized, true);
+	assert.ok(brief.sessionStart.load.some((f) => f.kind === "spect"));
+});
+
 test("brief manifest includes global models and project overrides", () => {
 	const home = run(["init"]).home;
 	const project = mkdtempSync(path.join(tmpdir(), "agent-cli-project-"));

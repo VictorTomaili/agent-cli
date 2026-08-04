@@ -94,7 +94,7 @@ The single highest-leverage technical change: **make `brief` a versioned, execut
 - **Packaging/provenance (P1)**: `skill.lock` (exact source, revision, content hash, dependency graph), version constraints, provenance everywhere, trust levels (local / pinned commit / catalog / unsigned).
 - **Discovery (P2)**: non-interactive `skill search <query> --json --local|--remote`, `skill recommend --task`, trigger-collision diagnostics.
 - **Integration (P3)**: fold active/default/gate/recommended skills into `brief`; skill bundles; org policy (allow/deny sources, signed skills, pinned versions).
-- **Fix the gate's coverage and dead code**: the START GATE reaches only 4 of 8+ marketed agents (`AGENT_GLOBALS` covers claude/codex/gemini/pi only; `paths.js:17-24`), and `injectToAllAgents`/`injectToAgentGlobal` (`agents-md.js:79-101`) have zero call sites — a dead competing design. Single-source the gate text (one constant feeding master injection, `active` output, and any future per-agent adapter) so prose and protocol can't drift (a6).
+- **Fix the gate's coverage and dead code**: the START GATE reaches only 4 of the 16 targets in `TARGETS` (`AGENT_GLOBALS` covers claude/codex/gemini/pi only; `paths.js:17-24`), and `injectToAllAgents`/`injectToAgentGlobal` (`agents-md.js:79-101`) have zero call sites — a dead competing design. Single-source the gate text (one constant feeding master injection, `active` output, and any future per-agent adapter) so prose and protocol can't drift (a6).
 - **Lifecycle vocabulary cleanup**: `enable -g` ≡ `default` and `disable -g` ≡ `undefault` (same `defaults` list mutation), while `skill defaults` (plural) aliases the *active* catalog, not default-marked skills — six overlapping user-facing states. Merge to one canonical verb each (alias retained), make `defaults` list default-marked skills, and add a TTY "enable here / make default / leave passive" prompt at end of `install` (a6).
 - **Executable skills + skill↔lessons loop**: add `skill run <name> -- <args>` for bundled `SKILL.tool.js` with a declared tool allowlist; `skill capture <name>` appends a lesson about a skill; `skill update` bumps that lesson's `lastSeen`; `brief` surfaces "skill X changed since your lesson about it" (a6).
 
@@ -144,7 +144,7 @@ These are mostly UX/protocol correctness items verified live against a fresh ins
 
 ### First-run / help correctness (P0)
 - **Bare `agent`, `agent help`, `agent help <cmd>`: print help, exit 0, no stderr leak.** Today bare `agent` exits non-zero with `✗ (outputHelp)` (`src/cli.js:2108-2123`).
-- **Make `agent skill --help` and `agent help skill` surface the real skill surface** — commander intercepts `--help` at any position and shows a 4-line stub; the rich help is only reachable as `agent skill help`.
+- **Make `agent skill --help` and `agent help skill` surface the real skill surface** — commander intercepts `--help` at any position and shows a 7-line stub; the rich skill-cli help is only reachable as `agent skill help`.
 - **`init` human output must summarize work** — created identity files, MODELS.md, seeded personalities, skill store, detected targets; add "Next: agent targets / agent target enable <id> -g" when 0 targets are enabled.
 - **`agent` bare → guided quick start** in TTY (6-line primer), minimal primer in non-TTY; exit 0.
 

@@ -375,6 +375,18 @@ test("update diff shows staged-vs-live changes", () => {
 	assert.ok(scout.diff.includes("+")); // staged content appears as additions
 });
 
+test("update diff rejects files outside the staged payload", () => {
+	const home = run(["init"]).home;
+	run(["update", "stage"], { envHome: home });
+	const r = run(["update", "diff", "0.2.1", "--file", "../../secret.txt", "--json"], {
+		envHome: home,
+	});
+	bad(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.match(j.error, /not part of staged update/i);
+});
+
 test("update diff on an unknown version errors as JSON", () => {
 	const home = run(["init"]).home;
 	const r = run(["update", "diff", "9.9.9", "--json"], { envHome: home });

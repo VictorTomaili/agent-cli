@@ -17,6 +17,7 @@ import {
 	exists,
 	readFile,
 	writeFile,
+	resolveContained,
 } from "./util.js";
 import { TARGETS, getTarget, targetsWithScope, pathFor } from "./targets.js";
 import {
@@ -1232,13 +1233,19 @@ program
 			const stagedList = await seed.listStagedUpdates({ home: AGENTS_DIR });
 			const payload = stagedList.find((s) => s.version === version);
 			if (!payload) fail(`No staged update for ${version}`);
-			const rels = opts.file ? [opts.file] : payload.files;
+			const requested = opts.file
+				? opts.file.replace(/\\/g, "/")
+				: null;
+			if (requested && !payload.files.includes(requested))
+				fail(`File is not part of staged update: ${opts.file}`);
+			const rels = requested ? [requested] : payload.files;
 			const diffs = [];
 			for (const rel of rels) {
 				const stagedContent = await seed.readStagedFile(version, rel, {
 					home: AGENTS_DIR,
 				});
-				const livePath = path.join(AGENTS_DIR, ...rel.split("/"));
+				const livePath = resolveContained(AGENTS_DIR, rel);
+				if (!livePath) fail(`Invalid staged file path: ${rel}`);
 				let liveContent = null;
 				if (await exists(livePath)) liveContent = await readFile(livePath);
 				diffs.push({

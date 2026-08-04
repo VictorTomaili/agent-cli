@@ -13,7 +13,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { exists, readFile, ensureDir, AGENTS_DIR } from "./util.js";
+import {
+	exists,
+	readFile,
+	ensureDir,
+	AGENTS_DIR,
+	resolveContained,
+} from "./util.js";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 /** Bundled seed defaults: <pkg>/seed */
@@ -131,8 +137,9 @@ export async function listStagedUpdates({ home = AGENTS_DIR } = {}) {
 
 /** Read one staged file's content (primitive for the using-agent to inspect/diff). */
 export async function readStagedFile(version, rel, { home = AGENTS_DIR } = {}) {
-	const fp = path.join(home, `${UPDATE_PREFIX}${version}`, ...rel.split("/"));
-	if (!(await exists(fp))) return null;
+	const stageDir = path.join(home, `${UPDATE_PREFIX}${version}`);
+	const fp = resolveContained(stageDir, rel);
+	if (!fp || !(await exists(fp))) return null;
 	return readFile(fp);
 }
 

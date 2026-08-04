@@ -106,6 +106,16 @@ test("readStagedFile returns content or null", async () => {
 	);
 });
 
+test("readStagedFile rejects traversal paths", async () => {
+	const seedDir = makeSeedDir();
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-home-traversal-"));
+	await seed.stageSeeds({ home, seedDir, version: "0.2.0" });
+	assert.equal(
+		await seed.readStagedFile("0.2.0", "../../../outside", { home }),
+		null,
+	);
+});
+
 test("clearStaged removes a payload and reports not-found for others", async () => {
 	const seedDir = makeSeedDir();
 	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-home6-"));

@@ -874,7 +874,7 @@ program
 			listLessons,
 			addLesson,
 			inboxLessons,
-			lessonsRoot,
+			resolveLessonFile,
 			fileInboxItem,
 			deleteInboxItem,
 			clearInbox,
@@ -913,12 +913,11 @@ program
 			if (!name) {
 				fail("Usage: agent lessons show <topic/descriptive-name>");
 			}
-			const pathMod = await import("node:path");
 			const { exists: ex, readFile: rf } = await import("./util.js");
-			const fp = pathMod.join(
-				lessonsRoot(scope, cwd),
-				`${name.replace(/\.md$/, "")}.md`,
-			);
+			const fp = await resolveLessonFile(name, { scope, cwd });
+			if (!fp) {
+				fail("Lesson path must stay inside the lessons directory");
+			}
 			if (!(await ex(fp))) {
 				fail(`Not found: ${pretty(fp)}`);
 			}

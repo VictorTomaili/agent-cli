@@ -43,6 +43,50 @@ function buildFM(fm) {
 	);
 }
 
+/** true when p is inside base (or equal), using path.sep boundaries. */
+function isInside(base, p) {
+	return p === base || p.startsWith(base + path.sep);
+}
+
+/** Realpath of p, or of its deepest existing ancestor (null at the fs root). */
+async function realpathOfExisting(p) {
+	let cur = p;
+	for (;;) {
+		try {
+			return await fsp.realpath(cur);
+		} catch {
+			const parent = path.dirname(cur);
+			if (parent === cur) return null;
+			cur = parent;
+		}
+	}
+}
+
+/**
+ * Resolve a lesson name (relative path, no .md) to an absolute path inside the
+ * selected lessons directory. Rejects traversal, absolute paths, Windows
+ * separators, and symlink escapes. Returns null when the path is unsafe.
+ */
+export async function resolveLessonFile(
+	relpath,
+	{ scope = "global", cwd = process.cwd() } = {},
+) {
+	if (typeof relpath !== "string") return null;
+	const clean = relpath.replace(/\.md$/, "").trim();
+	if (!clean) return null;
+	const root = lessonsRoot(scope, cwd);
+	const fp = resolveContained(root, `${clean}.md`);
+	if (!fp) return null;
+	// Symlink escape: the real target must stay inside the real lessons root.
+	const realRoot = await realpathOfExisting(root);
+	if (!realRoot) return null;
+	const realFp = await realpathOfExisting(fp);
+	if (realFp) return isInside(realRoot, realFp) ? fp : null;
+	// File does not exist yet — guard symlinked intermediate directories.
+	const realDir = await realpathOfExisting(path.dirname(fp));
+	return realDir && isInside(realRoot, realDir) ? fp : null;
+}
+
 /** Recursively list .md files (relative to root), excluding dotfiles/.inbox. */
 async function walk(dir) {
 	const out = [];
@@ -131,9 +175,10 @@ export async function addLesson(
 	relpath,
 	{ body = null, scope = "global", cwd = process.cwd() } = {},
 ) {
-	const root = lessonsRoot(scope, cwd);
-	const clean = relpath.replace(/\.md$/, "").trim() || "untitled";
-	const fp = resolveContained(root, `${clean}.md`);
+	const clean =
+		(typeof relpath === "string" ? relpath : "").replace(/\.md$/, "").trim() ||
+		"untitled";
+	const fp = await resolveLessonFile(clean, { scope, cwd });
 	if (!fp)
 		throw new Error("lesson path must stay inside the lessons directory");
 	const now = new Date().toISOString();

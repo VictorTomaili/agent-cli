@@ -281,6 +281,24 @@ test("lessons show for a missing lesson errors (exit 1)", () => {
 	bad(run(["lessons", "show", "nope/missing", "-p"], { envHome: home }));
 });
 
+test("lessons show rejects traversal names without disclosing files", () => {
+	const home = run(["init"]).home;
+	const secret = path.join(home, "secret.md");
+	writeFileSync(secret, "TOP-SECRET-CONTENT\n");
+	// "../../secret" from <home>/.agents/lessons would land on <home>/secret.md.
+	const r = run(["lessons", "show", "../../secret", "-p"], { envHome: home });
+	bad(r);
+	assert.ok(!r.stdout.includes("TOP-SECRET-CONTENT"));
+	assert.ok(!r.stderr.includes("TOP-SECRET-CONTENT"));
+	// JSON contract stays parseable and reports the failure.
+	const rj = run(["lessons", "show", "../../secret", "-p", "--json"], {
+		envHome: home,
+	});
+	assert.notEqual(rj.code, 0);
+	const j = parseJson(rj.stdout);
+	assert.equal(j.ok, false);
+});
+
 test("update: stage then list + clear round-trip", () => {
 	const home = run(["init"]).home;
 	const stage = parseJson(

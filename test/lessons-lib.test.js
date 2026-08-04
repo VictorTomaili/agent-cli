@@ -16,6 +16,7 @@ const {
 	deleteInboxItem,
 	clearInbox,
 	inboxLessons,
+	resolveLessonFile,
 } = await import("../src/lessons-lib.js");
 
 test("parseFM reads frontmatter", () => {
@@ -31,6 +32,79 @@ test("addLesson rejects traversal paths", async () => {
 		() => addLesson("../../../outside", { scope: "project", cwd, body: "x" }),
 		/lesson path must stay inside the lessons directory/,
 	);
+});
+
+test("resolveLessonFile rejects traversal, absolute, and Windows-separator names", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-ll-resolve-bad-"));
+	const opt = { scope: "project", cwd };
+	for (const bad of [
+		"../../../outside",
+		"/etc/passwd",
+		"C:\\Windows\\win.ini",
+		"..\\..\\outside",
+		"topic\\..\\..\\outside",
+	]) {
+		assert.equal(
+			await resolveLessonFile(bad, opt),
+			null,
+			`expected ${JSON.stringify(bad)} to be rejected`,
+		);
+	}
+});
+
+test("resolveLessonFile resolves a valid nested name inside the lessons root", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-ll-resolve-ok-"));
+	const fp = await resolveLessonFile("git/pull-rebase", {
+		scope: "project",
+		cwd,
+	});
+	assert.equal(
+		fp,
+		path.join(cwd, ".agents", "lessons", "git", "pull-rebase.md"),
+	);
+});
+
+test("resolveLessonFile rejects symlink escapes (dir and file)", async (t) => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-ll-symlink-"));
+	const outside = mkdtempSync(path.join(tmpdir(), "agent-ll-symlink-out-"));
+	await fsp.mkdir(path.join(cwd, ".agents", "lessons"), { recursive: true });
+	const lessons = path.join(cwd, ".agents", "lessons");
+	// Directory symlink out of the root (junction type works on Windows w/o admin).
+	const evilDir = path.join(lessons, "evil");
+	try {
+		await fsp.symlink(outside, evilDir, "junction");
+	} catch (e) {
+		t.skip(`dir symlinks unavailable: ${e.message}`);
+		return;
+	}
+	assert.equal(
+		await resolveLessonFile("evil/pwn", { scope: "project", cwd }),
+		null,
+	);
+	// File symlink pointing outside the root.
+	await fsp.writeFile(path.join(outside, "leak.md"), "secret");
+	const evilFile = path.join(lessons, "leak.md");
+	let fileLink = true;
+	try {
+		await fsp.symlink(path.join(outside, "leak.md"), evilFile, "file");
+	} catch {
+		fileLink = false; // e.g. Windows without developer mode
+	}
+	if (fileLink) {
+		assert.equal(
+			await resolveLessonFile("leak", { scope: "project", cwd }),
+			null,
+		);
+		await assert.rejects(
+			() => addLesson("leak", { scope: "project", cwd, body: "x" }),
+			/lesson path must stay inside the lessons directory/,
+		);
+	} else {
+		await fsp.rm(evilFile, { force: true });
+	}
+	// A real file inside the root still resolves (sanity check).
+	await fsp.writeFile(path.join(lessons, "ok.md"), "fine");
+	assert.ok(await resolveLessonFile("ok", { scope: "project", cwd }));
 });
 
 test("addLesson recurrence increments occurrences", async () => {

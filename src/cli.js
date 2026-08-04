@@ -1740,7 +1740,12 @@ program
 		const suggested = [];
 		if (archetypeNeeded) suggested.push("agent onboard suggest");
 		if (masterContent == null) suggested.push("agent init");
-		if (drift.length) suggested.push("agent link");
+		for (const target of pointerTargets) {
+			if (target.state === "native")
+				suggested.push(`agent pull ${target.id} && agent link ${target.id}`);
+			else if (target.state !== "pointer")
+				suggested.push(`agent link ${target.id}`);
+		}
 		if (!isSkillAvailable()) suggested.push("agent skill setup");
 		if (consG.recommend) suggested.push("agent consolidate");
 		if (consP.recommend) suggested.push("agent consolidate -p");

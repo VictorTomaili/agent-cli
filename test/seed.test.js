@@ -134,6 +134,16 @@ test("clearStaged removes a payload and reports not-found for others", async () 
 	assert.equal(r2.ok, false);
 });
 
+test("clearStaged rejects traversal versions without touching outside paths", async () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-home-clear-traversal-"));
+	const outside = path.join(home, "escape.txt");
+	writeFileSync(outside, "keep me\n");
+	const r = await seed.clearStaged("../../escape.txt", { home });
+	assert.equal(r.ok, false);
+	assert.equal(r.reason, "invalid version");
+	assert.equal(readFileSync(outside, "utf8"), "keep me\n");
+});
+
 test("diffLines marks live-only with '-' and staged-only with '+'", () => {
 	const d = seed.diffLines("a\nb\nc", "a\nx\nc");
 	const lines = d.split("\n");

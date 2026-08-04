@@ -203,7 +203,11 @@ export function diffLines(live, staged) {
 
 /** Remove a staged update payload dir once adopted or dismissed. */
 export async function clearStaged(version, { home = AGENTS_DIR } = {}) {
-	const dir = path.join(home, `${UPDATE_PREFIX}${version}`);
+	const name = `${UPDATE_PREFIX}${version ?? ""}`;
+	if (!UPDATE_RE.test(name)) {
+		return { ok: false, reason: "invalid version", version };
+	}
+	const dir = path.join(home, name);
 	if (!(await exists(dir))) return { ok: false, reason: "not found", version };
 	await fs.rm(dir, { recursive: true, force: true });
 	return { ok: true, version, path: dir };

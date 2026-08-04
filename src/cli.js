@@ -613,10 +613,17 @@ program
 			for (const a of targets) results.push(await validateAgent(a.path));
 			emit({ command: "agents", action: "validate", results });
 			if (!JSON_MODE)
-				for (const r of results)
+				for (const r of results) {
+					const issueText = r.issues.length
+						? c.gray(r.issues.join("; "))
+						: c.green("ok");
+					const warningText = r.warnings?.length
+						? c.yellow(" — " + r.warnings.join("; "))
+						: "";
 					log.raw(
-						`  ${r.valid ? c.green("✓") : c.red("✗")} ${c.bold(r.name)} ${r.issues.length ? c.gray(r.issues.join("; ")) : c.green("ok")}`,
+						`  ${r.valid ? c.green("✓") : c.red("✗")} ${c.bold(r.name)} ${issueText}${warningText}`,
 					);
+				}
 			return;
 		}
 		fail(`Unknown action: ${action}. Use list|show|new|validate|path`);

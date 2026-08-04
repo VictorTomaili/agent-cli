@@ -207,15 +207,15 @@ test("validateAgent: missing name + description are flagged", async () => {
 	assert.ok(v.issues.some((i) => i.includes("missing description")));
 });
 
-test("validateAgent: unknown model alias (not in config) is flagged", async () => {
+test("validateAgent: unknown model alias is a warning, not a structural failure", async () => {
 	const fp = writeAgent(
 		"badmodel",
 		{ name: "bm", description: "d", model: "bogus-model" },
 		VALID_BODY,
 	);
 	const v = await agents.validateAgent(fp);
-	assert.equal(v.valid, false);
-	assert.ok(v.issues.some((i) => i.includes("model")));
+	assert.equal(v.valid, true);
+	assert.ok(v.warnings.some((i) => i.includes("unresolved")));
 });
 
 test("validateAgent: template placeholders in the body are flagged", async () => {

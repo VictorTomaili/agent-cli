@@ -307,6 +307,7 @@ const REQUIRED_SECTIONS = [
 /** Validate a sub-agent personality file (frontmatter + required sections + placeholders). */
 export async function validateAgent(filePath) {
 	const issues = [];
+	const warnings = [];
 	if (!(await exists(filePath)))
 		return { file: filePath, valid: false, issues: ["file missing"] };
 	const content = await readFile(filePath);
@@ -325,8 +326,8 @@ export async function validateAgent(filePath) {
 		}
 		const concrete = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(frontmatter.model);
 		if (!aliasOk && !concrete)
-			issues.push(
-				`model: '${frontmatter.model}' is neither a known alias nor provider/model`,
+			warnings.push(
+				`model: '${frontmatter.model}' is unresolved; configure it with agent models set`,
 			);
 	}
 	for (const sec of REQUIRED_SECTIONS)
@@ -342,6 +343,7 @@ export async function validateAgent(filePath) {
 		name: frontmatter.name || path.basename(filePath, ".md"),
 		valid: issues.length === 0,
 		issues,
+		warnings,
 	};
 }
 

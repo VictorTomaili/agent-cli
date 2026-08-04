@@ -142,6 +142,12 @@ program
 		// 1. master + managed blocks
 		const master = await ensureMaster();
 		result.steps.master = master;
+		if (master.skipped) {
+			fail(
+				`Cannot initialize: ${master.skipped}. Preserve the existing master and repair it before retrying.`,
+				{ command: "init", steps: result.steps },
+			);
+		}
 
 		// 2. detect + enable installed global targets
 		const cfg = await loadConfig();

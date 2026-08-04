@@ -139,6 +139,18 @@ test("init in a fresh home succeeds and reports the step", () => {
 	assert.ok(j.steps && j.steps.master);
 });
 
+test("init rejects a corrupt master without replacing it", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-corrupt-init-"));
+	mkdirSync(path.join(home, ".agents"), { recursive: true });
+	const master = path.join(home, ".agents", "AGENTS.md");
+	writeFileSync(master, "x");
+	const r = run(["init", "--json"], { envHome: home });
+	bad(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.equal(readFileSync(master, "utf8"), "x");
+});
+
 test("init seeds the default personalities into the fresh home", () => {
 	const r = run(["init", "--json"]);
 	ok(r);

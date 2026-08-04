@@ -41,7 +41,7 @@ test("consolidate two-pass grace: promote recurring, prune singleton", async () 
 	let items = (await listLessons({ includeProject: true, cwd })).filter(
 		(i) => i.scope === "project",
 	);
-	assert.ok(!items.find((i) => i.path === "git/recurring"));
+	assert.ok(items.find((i) => i.path === "git/recurring" && i.promoted));
 	assert.ok(items.find((i) => i.path === "solo/once" && i.marked));
 
 	// pass 2: prune marked singleton
@@ -50,7 +50,7 @@ test("consolidate two-pass grace: promote recurring, prune singleton", async () 
 	items = (await listLessons({ includeProject: true, cwd })).filter(
 		(i) => i.scope === "project",
 	);
-	assert.equal(items.length, 0);
+	assert.deepEqual(items.map((i) => [i.path, i.promoted]), [["git/recurring", true]]);
 });
 
 test("assess reflects promotable count", async () => {
@@ -107,7 +107,7 @@ test("assess tolerates a corrupt config (falls back to defaults)", () => {
 	assert.equal(a.threshold, 70); // default scoreThreshold
 });
 
-test("consolidate promotes recurring lessons into the core file", async () => {
+test("consolidate promotes recurring lessons into the pointer index", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-promo-"));
 	await addLesson("git/rec", {
 		scope: "project",
@@ -119,6 +119,8 @@ test("consolidate promotes recurring lessons into the core file", async () => {
 	const core = readFileSync(coreFile("project", cwd), "utf8");
 	assert.ok(core.includes("## Core"));
 	assert.ok(core.includes("promoted body"));
+	assert.match(core, /lessons\/git\/rec\.md/);
+	assert.ok(readFileSync(path.join(cwd, ".agents", "lessons", "git", "rec.md"), "utf8").includes("promoted: true"));
 });
 
 test("consolidate: a marked lesson reaching the threshold is promoted, not deleted", async () => {

@@ -87,6 +87,7 @@ export async function listLessons({
 				file: fp,
 				occurrences: parseInt(fm.occurrences || "1", 10) || 1,
 				marked: String(fm.marked || "false") === "true",
+				promoted: String(fm.promoted || "false") === "true",
 				firstSeen: fm.firstSeen || null,
 				lastSeen: fm.lastSeen || null,
 			});

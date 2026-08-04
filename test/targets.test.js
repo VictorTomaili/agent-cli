@@ -85,3 +85,42 @@ test("adaptContent passes content through unchanged when there's no transform", 
 		"BODY",
 	);
 });
+
+test("adaptContent is a passthrough for every target without a transform", () => {
+	const untransformed = TARGETS.filter(
+		(t) => typeof t.transform !== "function",
+	);
+	assert.ok(untransformed.length > 0);
+	for (const t of untransformed) {
+		assert.equal(
+			adaptContent(t, "BODY", { scope: "project" }),
+			"BODY",
+			t.id + " must pass content through untouched",
+		);
+	}
+});
+
+test("every target with a transform is adapted through adaptContent", () => {
+	const transformed = TARGETS.filter(
+		(t) => typeof t.transform === "function",
+	);
+	assert.ok(transformed.length >= 1, "expected at least one transformed target");
+	for (const t of transformed) {
+		const out = adaptContent(t, "BODY", { scope: "project" });
+		assert.ok(typeof out === "string", t.id + " transform must return a string");
+		assert.ok(out.includes("BODY"), t.id + " transform must keep the body");
+		assert.notEqual(out, "BODY", t.id + " transform must actually wrap the body");
+	}
+});
+
+test("cursor transform wraps pointer stub output in alwaysApply frontmatter", () => {
+	const cursor = getTarget("cursor");
+	const body = "<!-- agent-cli-pointer -->\n<!-- target: cursor -->\n# body\n";
+	const out = adaptContent(cursor, body, { scope: "project" });
+	assert.match(out, /^---\n/);
+	assert.match(out, /description: Synced by agent-cli/);
+	assert.match(out, /alwaysApply: true/);
+	// frontmatter must precede the pointer marker so .mdc always-apply loads
+	assert.ok(out.indexOf("---") < out.indexOf("<!-- agent-cli-pointer -->"));
+	assert.ok(out.trim().endsWith("# body"));
+});

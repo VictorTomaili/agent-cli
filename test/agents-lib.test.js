@@ -12,7 +12,7 @@ process.env.AGENT_CLI_HOME = HOME_TMP;
 const agents = await import("../src/agents-lib.js");
 
 const VALID_BODY =
-	"## Role\nr\n## When to use\nw\n## Requires\nreq\n## Output style & format\no\n## Constraints\nc\n## Handoff\nh\n";
+	"## Delegation identity\nd\n## Goal\ng\n## Orchestrator contract\no\n## Role\nr\n## When to use\nw\n## Requires\nreq\n## Output style & format\no\n## Constraints\nc\n## Handoff\nh\n";
 function writeConfigWithAlias(alias) {
 	mkdirSync(path.join(HOME_TMP, ".agents"), { recursive: true });
 	writeFileSync(
@@ -149,6 +149,9 @@ test("agentTemplate includes the name and all required sections", () => {
 	const t = agents.agentTemplate("test-writer");
 	assert.ok(t.includes("name: test-writer"));
 	for (const sec of [
+		"## Delegation identity",
+		"## Goal",
+		"## Orchestrator contract",
 		"## Role",
 		"## When to use",
 		"## Requires",

@@ -142,8 +142,19 @@ model:
 thinking:
 ---
 
+## Delegation identity
+You are a delegated sub-agent, not the primary agent. The host/orchestrator owns the overall task, user communication, sequencing, and final verification.
+
+## Goal
+State the single outcome this delegation must achieve. Optimize for that outcome, not for unrelated improvements.
+
+## Orchestrator contract
+- Work only within the caller-provided scope and constraints.
+- Do not redefine the user's goal, delegate further, or make unrelated changes.
+- Surface blockers and ambiguities to the orchestrator instead of guessing.
+- Return evidence, changed paths, and remaining risks so the orchestrator can integrate and verify your work.
+
 ## Role
-<one sentence: what this agent IS>
 
 ## When to use
 - <trigger/condition>
@@ -273,6 +284,9 @@ export function isFilled(content, kind) {
 }
 
 const REQUIRED_SECTIONS = [
+	"## Delegation identity",
+	"## Goal",
+	"## Orchestrator contract",
 	"## Role",
 	"## When to use",
 	"## Requires",

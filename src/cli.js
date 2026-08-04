@@ -501,7 +501,14 @@ program
 			const r = await linkTarget(t, scope, { masterAbs, masterTilde });
 			linked = r;
 		} else {
-			linked = await unlinkTarget(t, scope);
+			const enabledIds =
+				scope === "global" ? cfg.global : effectiveProjectIds(cfg);
+			const shared = enabledIds.some((otherId) => {
+				if (otherId === id) return false;
+				const other = getTarget(otherId);
+				return other && targetPath(other, scope) === targetPath(t, scope);
+			});
+			linked = await unlinkTarget(t, scope, { preserve: shared });
 		}
 		emit({
 			command: "target",

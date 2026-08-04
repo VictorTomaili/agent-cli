@@ -112,6 +112,18 @@ test("unlinkTarget removes an actual pointer stub", async () => {
 	assert.equal(r.unlinked, true);
 });
 
+test("unlinkTarget can preserve a shared pointer path", async () => {
+	const codex = targets.getTarget("codex");
+	await pointer.linkTarget(codex, "project", {
+		masterAbs: MASTER_ABS,
+		masterTilde: "~/.agents/AGENTS.md",
+	});
+	const p = pointer.targetPath(codex, "project");
+	const r = await pointer.unlinkTarget(codex, "project", { preserve: true });
+	assert.equal(r.preserved, "shared-target-path");
+	assert.equal((await fs.readFile(p, "utf8")).includes(pointer.POINTER_MARK), true);
+});
+
 test("classify reports pointer-stale when the expected master path changed", async () => {
 	const qwen = targets.getTarget("qwen");
 	await pointer.linkTarget(qwen, "global", {

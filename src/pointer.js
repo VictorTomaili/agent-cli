@@ -94,9 +94,11 @@ export async function linkTarget(
 }
 
 /** Remove a pointer stub (only deletes files that ARE pointers). */
-export async function unlinkTarget(target, scope) {
+export async function unlinkTarget(target, scope, { preserve = false } = {}) {
 	const p = targetPath(target, scope);
 	if (!p) return { target, scope, skipped: "unsupported" };
+	if (preserve)
+		return { target, scope, path: p, preserved: "shared-target-path" };
 	const existing = await readIfExists(p);
 	if (existing == null) return { target, scope, path: p, missing: true };
 	if (!existing.includes(POINTER_MARK)) {

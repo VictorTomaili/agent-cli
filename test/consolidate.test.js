@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	writeFileSync,
+	readFileSync,
+	existsSync,
+	readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -145,4 +152,68 @@ test("consolidate: a marked lesson reaching the threshold is promoted, not delet
 	const r = consolidate({ scope: "project", cwd });
 	assert.equal(r.stats.promoted, 1);
 	assert.equal(r.stats.deleted, 0);
+});
+
+test("consolidate backs up the previous core before overwriting (project)", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-backup-proj-"));
+	await addLesson("git/rec", {
+		scope: "project",
+		cwd,
+		body: "- **Lesson:** backed up",
+	});
+	await addLesson("git/rec", { scope: "project", cwd });
+	// first run: writes the core, there is no prior core to back up yet
+	consolidate({ scope: "project", cwd });
+	const backupsDir = path.join(cwd, ".agents", "backups");
+	assert.equal(existsSync(backupsDir), false);
+	// second run: must create the backups dir and copy the existing core first
+	const r = consolidate({ scope: "project", cwd });
+	assert.equal(r.ok, true);
+	assert.ok(existsSync(backupsDir));
+	const backups = readdirSync(backupsDir).filter((n) => n.endsWith(".md"));
+	assert.ok(backups.length > 0);
+	const backup = readFileSync(path.join(backupsDir, backups[0]), "utf8");
+	assert.match(backup, /lessons\/git\/rec\.md/);
+});
+
+test("consolidate backs up the previous core under the global backups dir", async () => {
+	await addLesson("git/rec", {
+		scope: "global",
+		body: "- **Lesson:** global backup",
+	});
+	await addLesson("git/rec", { scope: "global" });
+	consolidate({ scope: "global" }); // first run: writes the core
+	const backupsDir = path.join(HOME_TMP, ".agents", "backups");
+	assert.equal(existsSync(backupsDir), false);
+	const r = consolidate({ scope: "global" }); // second run: backs up the existing core
+	assert.equal(r.ok, true);
+	assert.ok(existsSync(backupsDir));
+	assert.ok(readdirSync(backupsDir).some((n) => n.endsWith(".md")));
+});
+
+test("repeated consolidation does not duplicate a promoted lesson's pointer", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-dedup-"));
+	// prose first line → the pointer is written in the NEW `- <summary> — \`lessons/<rel>\``
+	// format, which a prose-based parser failed to recognize on the next run.
+	await addLesson("git/rec", {
+		scope: "project",
+		cwd,
+		body: "Atomic commits keep history readable.",
+	});
+	await addLesson("git/rec", { scope: "project", cwd });
+	consolidate({ scope: "project", cwd }); // promote → write pointer
+	consolidate({ scope: "project", cwd }); // must re-read and keep exactly one pointer
+	const core = readFileSync(coreFile("project", cwd), "utf8");
+	assert.match(core, /Atomic commits keep history readable/);
+	assert.equal((core.match(/lessons\/git\/rec\.md/g) || []).length, 1);
+	// user content in the Core section must survive consolidation untouched
+	const corePath = coreFile("project", cwd);
+	writeFileSync(
+		corePath,
+		readFileSync(corePath, "utf8") + "\n- A user-authored note\n",
+	);
+	consolidate({ scope: "project", cwd });
+	const after = readFileSync(corePath, "utf8");
+	assert.ok(after.includes("- A user-authored note"));
+	assert.equal((after.match(/lessons\/git\/rec\.md/g) || []).length, 1);
 });

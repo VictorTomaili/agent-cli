@@ -142,6 +142,12 @@ export function assess({ scope = "global", cwd = process.cwd() } = {}) {
 	};
 }
 
+// Canonical pointer reference: core entries are recognized by their
+// `lessons/<relative-path>` reference, NOT by prose formatting, so any pointer
+// format (legacy `- **Lesson:** ...` or new `- <summary> — \`lessons/<rel>\``)
+// containing a `lessons/<rel>` reference is recognized and deduplicated.
+const LESSON_REF = /lessons\/[A-Za-z0-9._\/-]+/;
+
 function readCore(file) {
 	if (!fs.existsSync(file)) return [];
 	const c = fs.readFileSync(file, "utf8");
@@ -150,18 +156,35 @@ function readCore(file) {
 	const entries = [];
 	let cur = null;
 	for (const line of seg.split("\n")) {
-		if (/^- \*\*Lesson/i.test(line)) {
+		// A top-level list item starts a new entry: consolidation pointers AND
+		// user-authored bullets. This keeps every pointer format parseable so
+		// re-consolidation deduplicates instead of appending duplicates, while
+		// preserving user content that does not reference a lesson.
+		if (/^-\s/.test(line)) {
 			if (cur) entries.push(cur);
 			cur = [line];
-		} else if (cur && (/^( {2,}- |- )/.test(line) || line.trim() === "")) {
+		} else if (cur && (/^[ \t]+/.test(line) || line.trim() === "")) {
 			cur.push(line);
 		} else if (cur) {
 			entries.push(cur);
 			cur = null;
+			if (line.trim() && !/^[#>]/.test(line)) entries.push([line]);
+		} else if (line.trim() && !/^[#>]/.test(line)) {
+			entries.push([line]);
 		}
 	}
 	if (cur) entries.push(cur);
 	return entries.map((e) => e.join("\n").trim()).filter(Boolean);
+}
+
+/** True when any core entry references exactly `lessons/<rel>`. */
+function hasPointer(entries, rel) {
+	const ref = `lessons/${rel}`;
+	for (const entry of entries) {
+		const m = LESSON_REF.exec(entry);
+		if (m && m[0] === ref) return true;
+	}
+	return false;
 }
 
 function walkSync(dir) {
@@ -182,22 +205,22 @@ function walkSync(dir) {
 }
 
 function ensureBackup(file, scope, cwd) {
-	try {
-		const dir =
-			scope === "project"
-				? path.join(cwd, ".agents", "backups")
-				: BACKUP_DIR_GLOBAL;
-		ensureDir(dir);
-		fs.copyFileSync(
-			file,
-			path.join(
-				dir,
-				`LESSONS-${new Date().toISOString().replace(/[:.]/g, "-")}.md`,
-			),
-		);
-	} catch {
-		/* ignore */
-	}
+	if (!fs.existsSync(file)) return; // nothing to back up on the first consolidation
+	const dir =
+		scope === "project"
+			? path.join(cwd, ".agents", "backups")
+			: BACKUP_DIR_GLOBAL;
+	// mkdirSync (recursive) BEFORE the synchronous copy: ensureDir is async and
+	// was never awaited, so on a fresh home the backups dir did not exist and
+	// copyFileSync silently failed — a "successful" consolidation had NO backup.
+	fs.mkdirSync(dir, { recursive: true });
+	fs.copyFileSync(
+		file,
+		path.join(
+			dir,
+			`LESSONS-${new Date().toISOString().replace(/[:.]/g, "-")}.md`,
+		),
+	);
 }
 
 function writeCore(file, entries, scope) {
@@ -254,8 +277,7 @@ export function consolidate({
 					body.trim().split(/\r?\n/)[0] || path.basename(rel, ".md")
 				).replace(/^[-*]\s+/, "");
 				const pointer = `- ${summary} — \`lessons/${rel}\``;
-				if (!core.some((entry) => entry.includes(`lessons/${rel}`)))
-					core.push(pointer);
+				if (!hasPointer(core, rel)) core.push(pointer);
 				const nfm = { ...fm, promoted: "true", marked: "false" };
 				fs.writeFileSync(
 					fp,
@@ -285,7 +307,14 @@ export function consolidate({
 	}
 
 	if (!dryRun) {
-		ensureBackup(corePath, scope, cwd);
+		try {
+			ensureBackup(corePath, scope, cwd);
+		} catch (error) {
+			return {
+				ok: false,
+				reason: `backup failed: ${error && error.message ? error.message : error}`,
+			};
+		}
 		writeCore(corePath, core, scope);
 		try {
 			fs.writeFileSync(

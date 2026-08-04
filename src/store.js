@@ -62,6 +62,12 @@ const STARTER = `# AGENTS.md — canonical source (managed by agent-cli)
 ## Sub-agents & delegation
 - Prefer specialized sub-agents by default. Discover an existing role, reuse it; otherwise author a reusable role, then delegate. The main agent plans, orchestrates, and verifies.
 
+## SPECT task-start guidance
+- SPECT is optional. If the user explicitly requests specification-driven development, run agent spect init in the project directory when it is absent.
+- If the project already has .spect, read its README, constitution, and relevant spec/plan/task files and follow its loop.
+- For ordinary tasks, do not initialize SPECT or create .spect automatically. If SPECT would materially help, explain the option and ask the user before initializing it.
+- When SPECT is active, use this loop: specify → plan → decompose → implement one task → verify acceptance criteria → review for bugs → refactor → re-verify. Failed checks return to implementation.
+
 ## Model aliases
 - Personalities use aliases (\`model: coding-model\`), not provider IDs. \`MODELS.md\` stores tagged <ALIAS> entries with ordered fallbacks for transient API outage, rate limits, and usage limits. The using agent decides when to fail over; avoid infinite retries.
 

@@ -19,6 +19,20 @@ This project uses SPECT as a living specification workflow.
 4. Implement one task at a time; keep the specification honest when reality changes.
 5. Verify every acceptance criterion and record the relevant tests before declaring done.
 
+## Task-start guidance
+
+SPECT is optional. If the user explicitly requests specification-driven development,
+run agent spect init in the project directory when it is absent. If the project already
+has .spect, read this README, constitution.md, and the relevant specs, plans, and tasks,
+then follow the SPECT loop below.
+
+For ordinary tasks, do not initialize SPECT or create .spect automatically. If SPECT
+would materially help, explain the option and ask the user before initializing it.
+
+When SPECT is active, use this loop:
+specify → plan → decompose → implement → verify → review → refactor → re-verify.
+A failed check returns to implementation; do not declare done with an open failure.
+
 ## Layout
 
 - \`constitution.md\` — project-wide principles and constraints.
@@ -149,7 +163,8 @@ async function exists(file) {
 export async function initSpect(cwd = process.cwd()) {
 	const files = spectFiles(cwd);
 	await fs.mkdir(files.root, { recursive: true });
-	for (const dir of DIRS) await fs.mkdir(path.join(files.root, dir), { recursive: true });
+	for (const dir of DIRS)
+		await fs.mkdir(path.join(files.root, dir), { recursive: true });
 	const created = [];
 	const skipped = [];
 	for (const [relative, content] of Object.entries(FILE_TEMPLATES)) {
@@ -168,7 +183,9 @@ async function listMarkdown(dir) {
 	if (!(await exists(dir))) return [];
 	const entries = await fs.readdir(dir, { withFileTypes: true });
 	return entries
-		.filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".md"))
+		.filter(
+			(entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".md"),
+		)
 		.map((entry) => path.join(dir, entry.name))
 		.sort();
 }
@@ -204,6 +221,9 @@ export function templatePaths(cwd = process.cwd()) {
 	return Object.fromEntries(
 		Object.keys(FILE_TEMPLATES)
 			.filter((file) => file.startsWith("templates/"))
-			.map((file) => [path.basename(file, ".md"), path.join(spectRoot(cwd), file)]),
+			.map((file) => [
+				path.basename(file, ".md"),
+				path.join(templates, path.basename(file)),
+			]),
 	);
 }

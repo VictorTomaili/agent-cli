@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { initSpect, inspectSpect, spectFiles, templatePaths } from "../src/spect.js";
+import {
+	initSpect,
+	inspectSpect,
+	spectFiles,
+	templatePaths,
+} from "../src/spect.js";
 
 function project() {
 	return mkdtempSync(path.join(tmpdir(), "agent-spect-"));
@@ -27,7 +32,10 @@ test("spect init is idempotent and never overwrites project-owned content", asyn
 	writeFileSync(files.constitution, "# User constitution\n", "utf8");
 	const second = await initSpect(cwd);
 	assert.ok(second.skipped.includes("constitution.md"));
-	assert.equal(readFileSync(files.constitution, "utf8"), "# User constitution\n");
+	assert.equal(
+		readFileSync(files.constitution, "utf8"),
+		"# User constitution\n",
+	);
 });
 
 test("inspectSpect reports an uninitialized project without creating files", async () => {
@@ -49,7 +57,19 @@ test("inspectSpect discovers only markdown specs, plans, and tasks", async () =>
 	assert.equal(result.counts.plans, 1);
 	assert.equal(result.counts.tasks, 0);
 	assert.ok(result.load.some((file) => file.endsWith("SPEC-001.md")));
-	assert.equal(result.load.some((file) => file.endsWith("secret.txt")), false);
+	assert.equal(
+		result.load.some((file) => file.endsWith("secret.txt")),
+		false,
+	);
+});
+
+test("spect guidance is opt-in and defines the quality loop", async () => {
+	const cwd = project();
+	await initSpect(cwd);
+	const readme = readFileSync(spectFiles(cwd).readme, "utf8");
+	assert.match(readme, /SPECT is optional/);
+	assert.match(readme, /ask the user before initializing/);
+	assert.match(readme, /specify → plan → decompose → implement/);
 });
 
 test("templatePaths stays within the project SPECT directory", () => {

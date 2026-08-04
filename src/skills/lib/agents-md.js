@@ -6,29 +6,29 @@ const BEGIN = '<!-- BEGIN skill-cli -->'
 const END = '<!-- END skill-cli -->'
 
 // Global instruction block — injected into each agent's global instruction file.
-// `skill active` (alias: `status`) is a description-only CATALOG of ACTIVE skills;
-// decides per skill: functional → `skill cat`, context-altering → propose. No flag
+// `agent skill active` (alias: `status`) is a description-only CATALOG of ACTIVE skills;
+// decides per skill: functional → `agent skill cat`, context-altering → propose. No flag
 // or fixed list — detection is the agent's judgment from the description, so it
 // covers any skill (including ones installed later).
 export const AGENTS_BLOCK = `## skill-cli
 
-This machine uses the \`skill\` command to manage skills (instruction / workflow
-packages). Skills live in a single global store (\`~/.skill-cli/store\`) and are
-NOT copied into agent directories (\`~/.claude\`, \`~/.codex\`, etc.) — so they
-won't appear here.
+This machine uses the \`agent skill\` command to manage skills (instruction /
+workflow packages). Skills live in a single global store (\`~/.skill-cli/store\`)
+and are NOT copied into agent directories (\`~/.claude\`, \`~/.codex\`, etc.) — so
+they won't appear here.
 
 Usage:
-- \`skill list\` — skills installed + active in the current project (with triggers)
-- \`skill show <name>\` — skill summary (path, triggers, version)
-- \`skill cat <name>\` — load skill content into context
-- \`skill default <name>\` — mark a skill as a global default (active + auto-load)
+- \`agent skill list\` — skills installed + active in the current project (with triggers)
+- \`agent skill show <name>\` — skill summary (path, triggers, version)
+- \`agent skill cat <name>\` — load skill content into context
+- \`agent skill default <name>\` — mark a skill as a global default (active + auto-load)
 
 START GATE (mandatory): On the FIRST user message of a session, your VERY FIRST
 action — BEFORE ANYTHING ELSE (before thinking, before any tool call) — MUST be to
-run \`skill active\`. It lists each ACTIVE skill's name + FULL description (never the
+run \`agent skill active\`. It lists each ACTIVE skill's name + FULL description (never the
 body). Read it, then for EACH skill classify which axis it moves and ACT — there is
 no discretion and no third option:
-- moves CORRECTNESS or QUALITY → load it now: \`skill cat <name>\`.
+- moves CORRECTNESS or QUALITY → load it now: \`agent skill cat <name>\`.
 - moves COST, SPEED, or response STYLE → PROPOSE it. These are TRADE-OFFS — the
   USER decides them, NEVER you. Even if you are SURE one would hurt THIS task, you
   still ASK: "Enable <name>? It <one-line benefit>." (apply only on yes). They move
@@ -61,11 +61,11 @@ PRIORITIES: correctness > quality > cost (cheap) > speed — never trade correct
 or quality for speed or cost.
 Discovery: on EVERY later message, re-run this classification; load newly-relevant
 correctness/quality skills, PROPOSE newly-relevant cost/style/speed ones. Load each
-skill only ONCE per session (\`skill trigger <keyword>\` resolves a keyword).
+skill only ONCE per session (\`agent skill trigger <keyword>\` resolves a keyword).
 
-Triggers: when the user types \`/X\`, run \`skill trigger X\`.
+Triggers: when the user types \`/X\`, run \`agent skill trigger X\`.
 - Single match → apply the output directly.
-- Multiple matches → show the candidate list; load the right one with \`skill cat <name>\`.
+- Multiple matches → show the candidate list; load the right one with \`agent skill cat <name>\`.
 `
 
 export function injectBlock(content) {

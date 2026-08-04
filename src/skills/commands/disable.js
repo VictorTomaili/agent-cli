@@ -17,10 +17,16 @@ export function cmdDisable(args) {
   } else {
     const cwd = process.cwd()
     const cfg = readProjectConfig(cwd) || { inherit: true, deny: [], allow: [] }
-    const had = (cfg.allow || []).some(a => a.toLowerCase() === name.toLowerCase())
+    const hadAllow = (cfg.allow || []).some(a => a.toLowerCase() === name.toLowerCase())
+    const hadDeny = (cfg.deny || []).some(a => a.toLowerCase() === name.toLowerCase())
     cfg.allow = (cfg.allow || []).filter(a => a.toLowerCase() !== name.toLowerCase())
+    // B11: also add it to deny — removing it from `allow` alone isn't enough: a
+    // globally defaulted skill stays active in the project via inheritance, so
+    // `computeEffective` must see the deny entry to actually turn it off.
+    if (!hadDeny) cfg.deny = [...(cfg.deny || []), name]
     writeProjectConfig(cwd, cfg)
-    console.log(had
+    const changed = hadAllow || !hadDeny
+    console.log(changed
       ? (c.green('✓') + ' disabled in project: ' + c.bold(name))
       : (c.gray('·') + ' not enabled in project: ' + c.bold(name) + c.gray(' (nothing to do)')))
   }

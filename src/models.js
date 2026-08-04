@@ -71,7 +71,7 @@ export function writeModelsMd() {
 	const lines = [
 		"# MODELS.md — model aliases",
 		"",
-		"> This file is generated from `config.json` by agent-cli. It stores model aliases and ordered fallback configuration only; agent-cli has no direct LLM integration and does not call models. The host/orchestrator chooses when and how to execute a configured model.",
+		"> If a configured model is unavailable in the current host stack, the host/orchestrator must select the best compatible equivalent instead of failing solely because the provider/model ID differs. Preserve the alias category, capability, and fallback intent.",
 		"> Edit with `agent models set <alias> <provider/model> --fallback <provider/model>...`.",
 		"",
 		"## Aliases",

@@ -193,25 +193,50 @@ async function listMarkdown(dir) {
 /** Return a read manifest for an existing project-local SPECT workflow. */
 export async function inspectSpect(cwd = process.cwd()) {
 	const files = spectFiles(cwd);
-	const initialized = await exists(files.root);
-	if (!initialized) {
+	const rootExists = await exists(files.root);
+	if (!rootExists) {
 		return {
 			initialized: false,
+			partial: false,
 			root: files.root,
 			load: [],
+			missing: [],
+			missingFiles: [],
 			counts: { specs: 0, plans: 0, tasks: 0 },
 		};
 	}
+	const expectedFiles = [
+		files.readme,
+		files.constitution,
+		path.join(files.templates, "spec.md"),
+		path.join(files.templates, "plan.md"),
+		path.join(files.templates, "tasks.md"),
+	];
+	const expectedDirs = [files.specs, files.plans, files.tasks, files.templates];
 	const [specs, plans, tasks] = await Promise.all([
 		listMarkdown(files.specs),
 		listMarkdown(files.plans),
 		listMarkdown(files.tasks),
 	]);
-	const load = [files.readme, files.constitution, ...specs, ...plans, ...tasks];
+	const missingFiles = [];
+	for (const file of expectedFiles) if (!(await exists(file))) missingFiles.push(file);
+	const missing = [
+		...missingFiles,
+		...(await Promise.all(expectedDirs.map(async (dir) => ((await exists(dir)) ? null : dir)))).filter(Boolean),
+	];
+	const load = [
+		...expectedFiles.filter((file) => !missingFiles.includes(file)),
+		...specs,
+		...plans,
+		...tasks,
+	];
 	return {
-		initialized: true,
+		initialized: missing.length === 0,
+		partial: missing.length > 0,
 		root: files.root,
 		load,
+		missing,
+		missingFiles,
 		counts: { specs: specs.length, plans: plans.length, tasks: tasks.length },
 	};
 }

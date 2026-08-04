@@ -1677,15 +1677,15 @@ program
 			filled: null,
 			gaps: null,
 		});
-		if (spect.initialized)
-			for (const file of spect.load)
+		if (spect.initialized || spect.partial)
+			for (const file of new Set([...(spect.load || []), ...(spect.missingFiles || [])]))
 				sessionLoad.push({
 					kind: "spect",
 					scope: "project",
 					path: file,
-					exists: true,
-					filled: true,
-					gaps: null,
+					exists: !(spect.missingFiles || []).includes(file),
+					filled: !(spect.missingFiles || []).includes(file),
+					gaps: (spect.missingFiles || []).includes(file) ? ["missing"] : null,
 				});
 		// AX: surface the lesson index (filenames ARE the summaries) + inbox so the agent
 		// actually loads memory at session start instead of only seeing a score. Also load the

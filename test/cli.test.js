@@ -79,6 +79,16 @@ test("target enable with an unknown id errors (exit 1)", () => {
 	assert.match(r.stderr + r.stdout, /unknown target/i);
 });
 
+test("target changes refuse to replace corrupt config", () => {
+	const home = run(["init"]).home;
+	const fp = path.join(home, ".agents", "config.json");
+	writeFileSync(fp, "{ broken json");
+	const r = run(["target", "enable", "claude"], { envHome: home });
+	bad(r);
+	assert.equal(readFileSync(fp, "utf8"), "{ broken json");
+	assert.match(r.stderr + r.stdout, /config\.json is corrupt/i);
+});
+
 test("target enable with no action/id errors", () => {
 	const r = run(["target"]);
 	bad(r);

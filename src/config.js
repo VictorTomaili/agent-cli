@@ -11,6 +11,7 @@ import {
 import { targetsWithScope } from "./targets.js";
 
 export const CONFIG_VERSION = 2;
+const CONFIG_CORRUPT = Symbol("configCorrupt");
 
 export function defaultConfig() {
 	return {
@@ -30,13 +31,25 @@ export async function loadConfig() {
 	if (!raw) return defaultConfig();
 	try {
 		const parsed = JSON.parse(raw);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+			throw new Error("config root must be an object");
 		return { ...defaultConfig(), ...parsed };
 	} catch {
-		return defaultConfig();
+		const fallback = defaultConfig();
+		Object.defineProperty(fallback, CONFIG_CORRUPT, { value: true });
+		return fallback;
 	}
 }
 
+export function isConfigCorrupt(cfg) {
+	return cfg?.[CONFIG_CORRUPT] === true;
+}
+
 export async function saveConfig(cfg) {
+	if (isConfigCorrupt(cfg))
+		throw new Error(
+			"config.json is corrupt; repair or remove it before changing settings",
+		);
 	cfg.version = CONFIG_VERSION;
 	cfg.updatedAt = new Date().toISOString();
 	await ensureDir(AGENTS_DIR);

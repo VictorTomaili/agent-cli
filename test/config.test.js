@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { mkdtempSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	existsSync,
+	mkdirSync,
+	writeFileSync,
+	readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -51,12 +57,19 @@ test("loadConfig returns defaults when the file is missing", async () => {
 	assert.equal(c.skillManaged, true);
 });
 
-test("loadConfig treats corrupt JSON as default (no throw)", async () => {
+test("loadConfig marks corrupt JSON and saveConfig refuses to replace it", async () => {
 	mkdirSync(path.join(TMP, ".agents"), { recursive: true });
-	writeFileSync(path.join(TMP, ".agents", "config.json"), "{ broken json");
+	const fp = path.join(TMP, ".agents", "config.json");
+	writeFileSync(fp, "{ broken json");
 	const c = await config.loadConfig();
 	assert.equal(c.version, config.CONFIG_VERSION);
 	assert.deepEqual(c.global, []);
+	assert.equal(config.isConfigCorrupt(c), true);
+	await assert.rejects(
+		() => config.saveConfig(c),
+		/config\.json is corrupt; repair or remove it/,
+	);
+	assert.equal(readFileSync(fp, "utf8"), "{ broken json");
 });
 
 test("loadConfig merges defaults over a partial parsed config", async () => {

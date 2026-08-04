@@ -93,11 +93,13 @@ export async function listAgents({
 	cwd = process.cwd(),
 } = {}) {
 	const out = [];
-	const dirs = [{ dir: GLOBAL_AGENTS_DIR, scope: "global" }];
+	const dirs = [];
 	if (includeProject) {
 		const pdir = projectAgentsDir(cwd);
 		if (pdir !== GLOBAL_AGENTS_DIR) dirs.push({ dir: pdir, scope: "project" });
 	}
+	// Project-local personalities override global personalities with the same name.
+	dirs.push({ dir: GLOBAL_AGENTS_DIR, scope: "global" });
 	for (const { dir, scope } of dirs) {
 		if (!(await exists(dir))) continue;
 		let entries = [];

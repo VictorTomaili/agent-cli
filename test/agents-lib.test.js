@@ -64,6 +64,14 @@ test("scaffoldAgent rejects traversal names", async () => {
 	);
 });
 
+test("project personality overrides global personality with the same name", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-override-"));
+	await agents.scaffoldAgent("same", { scope: "global", cwd });
+	await agents.scaffoldAgent("same", { scope: "project", cwd });
+	const effective = await agents.showAgent("same", { cwd });
+	assert.equal(effective.scope, "project");
+});
+
 test("identityInventory runs in project scope", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-inv-"));
 	const inv = await agents.identityInventory({ scope: "project", cwd });

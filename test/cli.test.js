@@ -73,10 +73,12 @@ test("--json on targets emits valid JSON with the catalog", () => {
 	assert.ok(j.targets.length >= 8);
 });
 
-test("target enable with an unknown id errors (exit 1)", () => {
-	const r = run(["target", "enable", "bogus-target"]);
+test("JSON errors are parseable and non-zero", () => {
+	const r = run(["target", "enable", "bogus-target", "--json"]);
 	bad(r);
-	assert.match(r.stderr + r.stdout, /unknown target/i);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.match(j.error, /unknown target/i);
 });
 
 test("target changes refuse to replace corrupt config", () => {
@@ -395,6 +397,15 @@ test("update diff rejects files outside the staged payload", () => {
 	const j = parseJson(r.stdout);
 	assert.equal(j.ok, false);
 	assert.match(j.error, /not part of staged update/i);
+});
+
+test("consolidate semantic failures exit non-zero in JSON mode", () => {
+	const home = run(["init"]).home;
+	const r = run(["consolidate", "--json"], { envHome: home });
+	bad(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.match(j.reason, /no lessons dir/i);
 });
 
 test("update diff on an unknown version errors as JSON", () => {

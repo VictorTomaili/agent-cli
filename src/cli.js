@@ -465,13 +465,11 @@ program
 	.option("-p, --project")
 	.action(async (action, id, opts) => {
 		if (!id || !["enable", "disable", "on", "off"].includes(action)) {
-			log.error("Usage: agent target enable|disable <id> [-g|-p]");
-			process.exit(1);
+			fail("Usage: agent target enable|disable <id> [-g|-p]");
 		}
 		const t = getTarget(id);
 		if (!t) {
-			log.error(`Unknown target: ${id}. Run ${c.cyan("agent targets")}.`);
-			process.exit(1);
+			fail(`Unknown target: ${id}. Run agent targets.`);
 		}
 		const scope = opts.project ? "project" : "global";
 		const cfg = await loadConfig();
@@ -523,10 +521,9 @@ program
 		if (kind && kind !== "agents") {
 			target = identityFilePath(kind, scope);
 			if (!target) {
-				log.error(
+				fail(
 					`Unknown kind: ${kind}. Use: agents|soul|identity|user|lessons|environments|models`,
 				);
-				process.exit(1);
 			}
 			if (!(await exists(target))) {
 				const arc = await import("./archetypes.js");
@@ -575,13 +572,11 @@ program
 		}
 		if (action === "show") {
 			if (!name) {
-				log.error("Usage: agent agents show <name>");
-				process.exit(1);
+				fail("Usage: agent agents show <name>");
 			}
 			const a = await showAgent(name, { cwd });
 			if (!a) {
-				log.error(`No agent named '${name}'`);
-				process.exit(1);
+				fail(`No agent named '${name}'`);
 			}
 			const fsp = (await import("node:fs/promises")).default;
 			const content = await fsp.readFile(a.path, "utf8");
@@ -591,8 +586,7 @@ program
 		}
 		if (action === "new") {
 			if (!name) {
-				log.error("Usage: agent agents new <name>");
-				process.exit(1);
+				fail("Usage: agent agents new <name>");
 			}
 			const r = await scaffoldAgent(name, {
 				scope: opts.project ? "project" : "global",
@@ -625,8 +619,7 @@ program
 					);
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use list|show|new|validate|path`);
-		process.exit(1);
+		fail(`Unknown action: ${action}. Use list|show|new|validate|path`);
 	});
 
 program
@@ -661,8 +654,7 @@ program
 		if (action === "apply") {
 			const key = rest[0];
 			if (!key) {
-				log.error("Usage: agent identity apply <id>");
-				process.exit(1);
+				fail("Usage: agent identity apply <id>");
 			}
 			const r = await id.applyIdentity(key, { scope, cwd });
 			let soul = null;
@@ -680,8 +672,7 @@ program
 		if (action === "set") {
 			const [section, ...val] = rest;
 			if (!section) {
-				log.error("Usage: agent identity set <section> <value...>");
-				process.exit(1);
+				fail("Usage: agent identity set <section> <value...>");
 			}
 			const f = await id.setSection(
 				id.idFile(scope, cwd),
@@ -692,8 +683,7 @@ program
 			if (!JSON_MODE) log.success(`Updated ${pretty(f)}`);
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use list|apply|set`);
-		process.exit(1);
+		fail(`Unknown action: ${action}. Use list|apply|set`);
 	});
 
 program
@@ -717,8 +707,7 @@ program
 		if (action === "apply") {
 			const key = rest[0];
 			if (!key) {
-				log.error("Usage: agent soul apply <variant>");
-				process.exit(1);
+				fail("Usage: agent soul apply <variant>");
 			}
 			const r = await id.applySoul(key, { scope, cwd });
 			emit({ command: "soul", action, ...r });
@@ -728,8 +717,7 @@ program
 		if (action === "set") {
 			const [section, ...val] = rest;
 			if (!section) {
-				log.error("Usage: agent soul set <section> <value...>");
-				process.exit(1);
+				fail("Usage: agent soul set <section> <value...>");
 			}
 			const f = await id.setSection(
 				id.soulFile(scope, cwd),
@@ -740,8 +728,7 @@ program
 			if (!JSON_MODE) log.success(`Updated ${pretty(f)}`);
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use list|apply|set`);
-		process.exit(1);
+		fail(`Unknown action: ${action}. Use list|apply|set`);
 	});
 
 program
@@ -766,16 +753,14 @@ program
 		if (action === "set") {
 			const [section, ...val] = rest;
 			if (!section) {
-				log.error("Usage: agent user set <field> <value...>");
-				process.exit(1);
+				fail("Usage: agent user set <field> <value...>");
 			}
 			const f = await id.setSection(file, section, val.join(" "));
 			emit({ command: "user", action, file: f });
 			if (!JSON_MODE) log.success(`Updated ${pretty(f)}`);
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use apply|set`);
-		process.exit(1);
+		fail(`Unknown action: ${action}. Use apply|set`);
 	});
 
 program
@@ -799,8 +784,7 @@ program
 			}
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use suggest`);
-		process.exit(1);
+			fail(`Unknown action: ${action}. Use suggest`);
 	});
 
 program
@@ -834,8 +818,7 @@ program
 		if (action === "set") {
 			const [alias, model] = rest;
 			if (!alias || !model) {
-				log.error("Usage: agent models set <alias> <provider/model>");
-				process.exit(1);
+				fail("Usage: agent models set <alias> <provider/model>");
 			}
 			const r = m.setAlias(alias, {
 				model,
@@ -868,8 +851,7 @@ program
 			if (!JSON_MODE) log.success(`Wrote ${pretty(f)}`);
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use list|set|resolve|write`);
-		process.exit(1);
+		fail(`Unknown action: ${action}. Use list|set|resolve|write`);
 	});
 
 program
@@ -941,8 +923,7 @@ program
 		}
 		if (action === "add") {
 			if (!name) {
-				log.error("Usage: agent lessons add <topic/descriptive-name>");
-				process.exit(1);
+				fail("Usage: agent lessons add <topic/descriptive-name>");
 			}
 			const r = await addLesson(name, { body: opts.body, scope, cwd });
 			emit({ command: "lessons", action, ...r });
@@ -954,8 +935,7 @@ program
 		}
 		if (action === "show") {
 			if (!name) {
-				log.error("Usage: agent lessons show <topic/descriptive-name>");
-				process.exit(1);
+				fail("Usage: agent lessons show <topic/descriptive-name>");
 			}
 			const pathMod = await import("node:path");
 			const { exists: ex, readFile: rf } = await import("./util.js");
@@ -964,8 +944,7 @@ program
 				`${name.replace(/\.md$/, "")}.md`,
 			);
 			if (!(await ex(fp))) {
-				log.error(`Not found: ${pretty(fp)}`);
-				process.exit(1);
+				fail(`Not found: ${pretty(fp)}`);
 			}
 			const content = await rf(fp);
 			if (JSON_MODE) emit({ command: "lessons", action, path: fp, content });
@@ -993,26 +972,26 @@ program
 		if (action === "triage") {
 			if (opts.file != null) {
 				if (!name) {
-					log.error("Usage: agent lessons triage --file <i> <topic/name>");
-					process.exit(1);
+					fail("Usage: agent lessons triage --file <i> <topic/name>");
 				}
 				const r = await fileInboxItem(parseInt(opts.file, 10), name, { cwd });
 				emit({ command: "lessons", action: "triage", op: "file", ...r });
+				if (!r.ok) {
+					if (!JSON_MODE) log.error(r.reason);
+					process.exit(1);
+				}
 				if (!JSON_MODE)
-					log.success(
-						r.ok
-							? `Filed inbox #${opts.file} → ${pretty(r.filedTo)}`
-							: `Failed: ${r.reason}`,
-					);
+					log.success(`Filed inbox #${opts.file} → ${pretty(r.filedTo)}`);
 				return;
 			}
 			if (opts.delete != null) {
 				const r = await deleteInboxItem(parseInt(opts.delete, 10), { cwd });
 				emit({ command: "lessons", action: "triage", op: "delete", ...r });
-				if (!JSON_MODE)
-					log.success(
-						r.ok ? `Deleted inbox #${opts.delete}` : `Failed: ${r.reason}`,
-					);
+				if (!r.ok) {
+					if (!JSON_MODE) log.error(r.reason);
+					process.exit(1);
+				}
+				if (!JSON_MODE) log.success(`Deleted inbox #${opts.delete}`);
 				return;
 			}
 			const items = await inboxLessons({ includeProject: true, cwd });
@@ -1035,8 +1014,7 @@ program
 			}
 			return;
 		}
-		log.error(`Unknown action: ${action}. Use list|add|show|inbox|triage`);
-		process.exit(1);
+		fail(`Unknown action: ${action}. Use list|add|show|inbox|triage`);
 	});
 
 program
@@ -1083,11 +1061,11 @@ program
 				: undefined,
 		});
 		emit({ command: "consolidate", ...r });
+		if (!r.ok) {
+			if (JSON_MODE) process.exit(1);
+			fail(r.reason);
+		}
 		if (!JSON_MODE) {
-			if (!r.ok) {
-				log.error(r.reason);
-				process.exit(1);
-			}
 			const s = r.stats;
 			log.success(
 				`Consolidated (${r.dryRun ? "dry-run" : "applied"}, ${r.scope}): promoted ${c.green(s.promoted)}, pruned ${c.red(s.deleted)}, marked ${c.yellow(s.marked)}, kept ${s.kept}, core ${s.core}`,
@@ -1103,24 +1081,20 @@ program
 	.action(async (id, opts) => {
 		const t = getTarget(id);
 		if (!t) {
-			log.error(`Unknown target: ${id}`);
-			process.exit(1);
+			fail(`Unknown target: ${id}`);
 		}
 		const scope = opts.project ? "project" : "global";
 		const p = targetPath(t, scope);
 		if (!p) {
-			log.error(`${id} has no ${scope} path`);
-			process.exit(1);
+			fail(`${id} has no ${scope} path`);
 		}
 		if (!(await exists(p))) {
-			log.error(`Not found: ${p}`);
-			process.exit(1);
+			fail(`Not found: ${p}`);
 		}
 		const fs = await import("node:fs/promises");
 		const content = await fs.readFile(p, "utf8");
 		if (content.includes(POINTER_MARK)) {
-			log.error(`${p} is already a pointer (no native content to pull).`);
-			process.exit(1);
+			fail(`${p} is already a pointer (no native content to pull).`);
 		}
 		const { ensureBlocks } = await import("./blocks.js");
 		await writeMaster(ensureBlocks(content));
@@ -1222,10 +1196,11 @@ program
 			if (!version) fail("Usage: agent update clear <version>");
 			const r = await seed.clearStaged(version, { home: AGENTS_DIR });
 			emit({ command: "update", action: "clear", ...r });
-			if (!JSON_MODE)
-				r.ok
-					? log.success(`Removed ${pretty(r.path)}`)
-					: log.warn(`Not found: update-${version}`);
+			if (!r.ok) {
+				if (!JSON_MODE) log.error(`Not found: update-${version}`);
+				process.exit(1);
+			}
+			if (!JSON_MODE) log.success(`Removed ${pretty(r.path)}`);
 			return;
 		}
 		if (action === "diff") {
@@ -1419,16 +1394,17 @@ program
 		const target =
 			name || list.find((n) => !n.startsWith("pre-restore-")) || list[0];
 		if (!target) {
-			log.error("No snapshot to restore.");
-			process.exit(1);
+			fail("No snapshot to restore.");
 		}
 		const r = restore(target);
 		emit({ command: "restore", ...r });
+		if (!r.ok) {
+			if (!JSON_MODE) log.error(r.reason);
+			process.exit(1);
+		}
 		if (!JSON_MODE)
 			log.success(
-				r.ok
-					? `Restored ${r.name} (pre-restore backup: ${pretty(r.preRestoreBackup)})`
-					: `Failed: ${r.reason}`,
+				`Restored ${r.name} (pre-restore backup: ${pretty(r.preRestoreBackup)})`,
 			);
 	});
 

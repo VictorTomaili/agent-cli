@@ -50,7 +50,21 @@ export async function readFile(p) {
 
 export async function writeFile(p, content) {
 	await ensureDir(path.dirname(p));
-	await fsp.writeFile(p, content, "utf8");
+	const tmp = `${p}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+	try {
+		await fsp.writeFile(tmp, content, "utf8");
+		try {
+			await fsp.rename(tmp, p);
+		} catch (error) {
+			// Windows cannot replace an existing file with rename; remove only after
+			// the complete temporary file is ready, then retry the rename.
+			if (!['EEXIST', 'EPERM', 'ENOTEMPTY'].includes(error.code)) throw error;
+			await fsp.rm(p, { force: true });
+			await fsp.rename(tmp, p);
+		}
+	} finally {
+		await fsp.rm(tmp, { force: true });
+	}
 }
 
 export async function ensureDir(p) {

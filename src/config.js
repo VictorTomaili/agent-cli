@@ -21,6 +21,7 @@ export function defaultConfig() {
 		seed: null, // home-relative path the master was seeded from
 		skillManaged: true, // agent-cli manages the skill-cli block inside the master
 		seedVersion: null, // agent-cli version whose seed defaults were last installed/staged
+		seedFiles: [], // seed paths known at the last install/stage, for deletion reconciliation
 		updateCheck: null, // cached npm latest-version check: { latestVersion, checkedAt }
 		updatedAt: null,
 	};

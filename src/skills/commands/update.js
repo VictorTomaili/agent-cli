@@ -84,10 +84,28 @@ function updateOne(name) {
       console.log(c.gray('  ✓ ' + pad(name)) + c.gray('up to date'))
       return 'current'
     }
-    // replace content, preserve .source
-    fs.rmSync(skillPath, { recursive: true, force: true })
-    fs.cpSync(newSkillDir, skillPath, { recursive: true })
-    fs.writeFileSync(path.join(skillPath, '.source'), source + '\n')
+    // Stage the complete replacement before moving the existing skill aside.
+    // If any swap step fails, restore the previous directory.
+    const stagedPath = path.join(STORE_DIR, `.${name}.update-${process.pid}-${Date.now()}`)
+    const backupPath = path.join(STORE_DIR, `.${name}.backup-${process.pid}-${Date.now()}`)
+    fs.cpSync(newSkillDir, stagedPath, { recursive: true })
+    fs.writeFileSync(path.join(stagedPath, '.source'), source + '\n')
+    let backedUp = false
+    try {
+      fs.renameSync(skillPath, backupPath)
+      backedUp = true
+      fs.renameSync(stagedPath, skillPath)
+      fs.rmSync(backupPath, { recursive: true, force: true })
+    } catch (swapError) {
+      if (backedUp) {
+        fs.rmSync(skillPath, { recursive: true, force: true })
+        fs.renameSync(backupPath, skillPath)
+      }
+      throw swapError
+    } finally {
+      fs.rmSync(stagedPath, { recursive: true, force: true })
+      fs.rmSync(backupPath, { recursive: true, force: true })
+    }
     const verInfo = oldVer !== newVer ? c.green(`${oldVer} → ${newVer}`) : c.gray('content changed')
     console.log(c.green('  ↑ ') + c.bold(pad(name)) + verInfo)
     return 'updated'

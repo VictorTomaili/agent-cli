@@ -90,10 +90,13 @@ export async function stageSeeds({
 	home = AGENTS_DIR,
 	seedDir = SEED_DIR,
 	version,
+	previousFiles = [],
 }) {
 	if (!version) throw new Error("stageSeeds: version is required");
 	const stageDir = path.join(home, `${UPDATE_PREFIX}${version}`);
 	const seeds = await listSeedFiles({ seedDir });
+	const currentFiles = seeds.map(({ rel }) => rel).sort();
+	const removed = previousFiles.filter((rel) => !currentFiles.includes(rel)).sort();
 	const staged = [];
 	for (const { rel, abs } of seeds) {
 		const target = path.join(stageDir, ...rel.split("/"));
@@ -101,7 +104,12 @@ export async function stageSeeds({
 		await fs.copyFile(abs, target);
 		staged.push(rel);
 	}
-	return { version, path: stageDir, staged };
+	await fs.writeFile(
+		path.join(stageDir, "removed.json"),
+		JSON.stringify(removed, null, 2) + "\n",
+		"utf8",
+	);
+	return { version, path: stageDir, staged, removed };
 }
 
 /** Decide install-vs-stage given the previously-seeded version. Pure helper (no I/O). */
@@ -128,7 +136,14 @@ export async function listStagedUpdates({ home = AGENTS_DIR } = {}) {
 		if (!m) continue;
 		const dir = path.join(home, e.name);
 		const files = (await walk(dir)).filter((f) => f.endsWith(".md")).sort();
-		out.push({ version: m[1], path: dir, files });
+		let removed = [];
+		try {
+			removed = JSON.parse(await fs.readFile(path.join(dir, "removed.json"), "utf8"));
+			if (!Array.isArray(removed)) removed = [];
+		} catch {
+			removed = [];
+		}
+		out.push({ version: m[1], path: dir, files, removed });
 	}
 	return out.sort((a, b) =>
 		a.version.localeCompare(b.version, undefined, { numeric: true }),

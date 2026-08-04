@@ -162,14 +162,18 @@ program
 		//    Existing user files are never overwritten.
 		const seed = await import("./seed.js");
 		const seedPlan = seed.planSeedAction(cfg.seedVersion, VERSION);
+		const seedEntries = await seed.listSeedFiles();
+		const currentSeedFiles = seedEntries.map((f) => f.rel).sort();
 		if (seedPlan.action === "install") {
 			result.steps.seeds = await seed.installSeeds({ home: AGENTS_DIR });
 		} else if (seedPlan.action === "stage") {
 			result.steps.seeds = await seed.stageSeeds({
 				home: AGENTS_DIR,
 				version: VERSION,
+				previousFiles: cfg.seedFiles || [],
 			});
 		}
+		cfg.seedFiles = currentSeedFiles;
 		cfg.seedVersion = VERSION;
 
 		await saveConfig(cfg);

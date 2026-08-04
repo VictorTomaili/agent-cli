@@ -32,9 +32,24 @@ function readConfig() {
 		return {};
 	}
 }
+function atomicWriteSync(file, content) {
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+	try {
+		fs.writeFileSync(tmp, content, "utf8");
+		try {
+			fs.renameSync(tmp, file);
+		} catch (error) {
+			if (!['EEXIST', 'EPERM', 'ENOTEMPTY'].includes(error.code)) throw error;
+			fs.rmSync(file, { force: true });
+			fs.renameSync(tmp, file);
+		}
+	} finally {
+		fs.rmSync(tmp, { force: true });
+	}
+}
 function writeConfig(cfg) {
-	fs.mkdirSync(path.dirname(CONFIG), { recursive: true });
-	fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2) + "\n", "utf8");
+	atomicWriteSync(CONFIG, JSON.stringify(cfg, null, 2) + "\n");
 }
 export function getAliases() {
 	const cfg = readConfig();
@@ -87,7 +102,6 @@ export function writeModelsMd() {
 		...CATEGORIES.map((c) => `- **${c}** — ${CAT_DESC[c]}`),
 		"",
 	);
-	fs.mkdirSync(path.dirname(MODELS_MD), { recursive: true });
-	fs.writeFileSync(MODELS_MD, lines.join("\n"), "utf8");
+	atomicWriteSync(MODELS_MD, lines.join("\n"));
 	return MODELS_MD;
 }

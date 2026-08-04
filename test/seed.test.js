@@ -71,8 +71,14 @@ test("stageSeeds writes into update-<version>/ without touching real files", asy
 	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-home3-"));
 	mkdirSync(path.join(home, "agents"), { recursive: true });
 	writeFileSync(path.join(home, "agents", "scout.md"), "USER OWNED\n");
-	const r = await seed.stageSeeds({ home, seedDir, version: "0.2.0" });
+	const r = await seed.stageSeeds({
+		home,
+		seedDir,
+		version: "0.2.0",
+		previousFiles: ["agents/removed.md"],
+	});
 	assert.equal(r.version, "0.2.0");
+	assert.deepEqual(r.removed, ["agents/removed.md"]);
 	assert.ok(r.staged.includes("agents/scout.md"));
 	assert.ok(existsSync(path.join(home, "update-0.2.0", "agents", "scout.md")));
 	// real file untouched
@@ -92,6 +98,7 @@ test("listStagedUpdates discovers staged payloads (newest last)", async () => {
 	assert.equal(list[0].version, "0.2.0");
 	assert.equal(list[1].version, "0.3.0");
 	assert.ok(list[0].files.includes("agents/scout.md"));
+	assert.deepEqual(list[0].removed, []);
 });
 
 test("readStagedFile returns content or null", async () => {

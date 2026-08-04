@@ -14,7 +14,7 @@ import {
 	HOME,
 	resolveContained,
 } from "./util.js";
-import { FIELD_TAGS, fieldGaps } from "./fields.js";
+import { FIELD_TAGS, fieldGaps, environmentGaps } from "./fields.js";
 
 /** Global reusable sub-agent personalities dir: ~/.agents/agents */
 export const GLOBAL_AGENTS_DIR = path.join(HOME, ".agents", "agents");
@@ -225,6 +225,7 @@ export async function identityInventory({
 				const content = await readFile(fp);
 				filled = kind === "agents" ? null : isFilled(content, kind);
 				if (FIELD_TAGS[kind]) gaps = fieldGaps(content, kind);
+				else if (kind === "environments") gaps = environmentGaps(content);
 			} catch {
 				/* ignore */
 			}
@@ -282,6 +283,7 @@ function realTextLen(text) {
 export function isFilled(content, kind) {
 	if (!content || !content.trim()) return false;
 	if (kind && FIELD_TAGS[kind]) return fieldGaps(content, kind).length === 0;
+	if (kind === "environments") return environmentGaps(content).length === 0;
 	const body = content
 		.replace(/<!--[\s\S]*?-->/g, "")
 		.replace(/^---[\s\S]*?---/, "");

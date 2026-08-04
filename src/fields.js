@@ -5,6 +5,19 @@
 // Currently tagged: IDENTITY.md, SOUL.md, USER.md. (ENVIRONMENTS.md / LESSONS.md
 // stay prose — they're freeform.)
 
+export const ENVIRONMENT_FIELDS = [
+	{ key: "ENV_LOCAL_USER", pattern: /^- User:\s*$/m },
+	{ key: "ENV_LOCAL_OS", pattern: /^- OS:\s*$/m },
+	{ key: "ENV_LOCAL_SHELL", pattern: /^- Shell:\s*$/m },
+	{ key: "ENV_LOCAL_HOME", pattern: /^- Home:\s*$/m },
+];
+
+export function environmentGaps(content) {
+	return ENVIRONMENT_FIELDS.filter((f) => f.pattern.test(content || "")).map(
+		(f) => f.key,
+	);
+}
+
 export const FIELD_TAGS = {
 	identity: [
 		{ tag: "AGENT_NAME", label: "Name", section: "Name" },

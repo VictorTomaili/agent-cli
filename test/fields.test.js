@@ -55,6 +55,11 @@ test("fieldGaps returns [] for a non-tagged kind", () => {
 	assert.deepEqual(f.fieldGaps("# X\n", "environments"), []);
 });
 
+test("environmentGaps detects unfilled local environment fields", () => {
+	const gaps = f.environmentGaps("# ENVIRONMENTS.md\n\n## Local (primary)\n- User:\n- OS: Windows\n- Shell:\n- Home:\\n");
+	assert.deepEqual(gaps, ["ENV_LOCAL_USER", "ENV_LOCAL_SHELL"]);
+});
+
 test("resolveField matches tag / label / section (case-insensitive)", () => {
 	assert.equal(f.resolveField("identity", "AGENT_NAME").tag, "AGENT_NAME");
 	assert.equal(f.resolveField("identity", "Name").tag, "AGENT_NAME");

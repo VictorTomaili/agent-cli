@@ -24,7 +24,6 @@ import {
 	loadConfig,
 	saveConfig,
 	enableGlobal,
-	disableGlobal,
 	isGlobalEnabled,
 	isProjectEnabled,
 	effectiveProjectIds,
@@ -63,6 +62,7 @@ import {
 	skillVersion,
 	runSkill,
 } from "./skill.js";
+import { registerTargetCommand } from "./commands/target.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
@@ -111,6 +111,12 @@ function selectedTargets(scope, ids) {
 }
 
 const program = new Command();
+registerTargetCommand(program, {
+	emit,
+	fail,
+	ctxPaths,
+	isJson: () => JSON_MODE,
+});
 program
 	.name("agent")
 	.description(
@@ -466,60 +472,6 @@ program
 			}
 			log.dim(`${rows.length} targets — ${installed.size} detected installed`);
 		}
-	});
-
-program
-	.command("target <action> [id]")
-	.description("enable|disable a target globally (--project for project scope)")
-	.option("-g, --global")
-	.option("-p, --project")
-	.action(async (action, id, opts) => {
-		if (!id || !["enable", "disable", "on", "off"].includes(action)) {
-			fail("Usage: agent target enable|disable <id> [-g|-p]");
-		}
-		const t = getTarget(id);
-		if (!t) {
-			fail(`Unknown target: ${id}. Run agent targets.`);
-		}
-		const scope = opts.project ? "project" : "global";
-		const cfg = await loadConfig();
-		const enabling = action === "enable" || action === "on";
-		if (scope === "global")
-			enabling ? enableGlobal(cfg, id) : disableGlobal(cfg, id);
-		else
-			enabling
-				? (cfg.project = Array.from(
-						new Set([...(Array.isArray(cfg.project) ? cfg.project : []), id]),
-					))
-				: (cfg.project = (
-						Array.isArray(cfg.project) ? cfg.project : effectiveProjectIds(cfg)
-					).filter((x) => x !== id));
-		await saveConfig(cfg);
-		const { masterAbs, masterTilde } = ctxPaths();
-		let linked = null;
-		if (enabling) {
-			const r = await linkTarget(t, scope, { masterAbs, masterTilde });
-			linked = r;
-		} else {
-			const enabledIds =
-				scope === "global" ? cfg.global : effectiveProjectIds(cfg);
-			const shared = enabledIds.some((otherId) => {
-				if (otherId === id) return false;
-				const other = getTarget(otherId);
-				return other && targetPath(other, scope) === targetPath(t, scope);
-			});
-			linked = await unlinkTarget(t, scope, { preserve: shared });
-		}
-		emit({
-			command: "target",
-			action,
-			id,
-			scope,
-			config: { global: cfg.global, project: cfg.project },
-			result: linked,
-		});
-		if (!JSON_MODE)
-			log.success(`${enabling ? "enabled" : "disabled"} ${id} (${scope})`);
 	});
 
 // ---------------------------------------------------------------------------

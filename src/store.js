@@ -68,6 +68,13 @@ const STARTER = `# AGENTS.md — canonical source (managed by agent-cli)
 - For ordinary tasks, do not initialize SPECT or create .spect automatically. If SPECT would materially help, explain the option and ask the user before initializing it.
 - When SPECT is active, use this loop: specify → plan → decompose → implement one task → verify acceptance criteria → review for bugs → refactor → re-verify. Failed checks return to implementation.
 
+## Tool-call mediation (host/orchestrator guidance)
+- The host executes tools; agent-cli provides no model runtime. Call the tool directly first.
+- On failure, apply deterministic fixes first: validate the schema, normalize safe paths/arguments, and retry only transient errors with a strict limit (normally one or two retries).
+- If deterministic repair fails, an agent may ask its cheap repair model to propose corrected arguments from a structured envelope containing the tool name, arguments, error, and relevant context. Validate the proposal before retrying; never let it bypass permissions, confirmations, or path/input safety.
+- For large successful output, an agent may use a cheap summarizer. Preserve the raw output, state what was omitted, and keep errors/identifiers/actionable details verbatim.
+- Never expose secrets unnecessarily, never retry indefinitely, and do not use a model for deterministic errors. Record the final tool result and any repair attempt in the task context.
+
 ## Model aliases
 - Personalities use aliases (\`model: coding-model\`), not provider IDs. \`MODELS.md\` stores tagged <ALIAS> entries with ordered fallbacks for transient API outage, rate limits, and usage limits. The using agent decides when to fail over; avoid infinite retries.
 

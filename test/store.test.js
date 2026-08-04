@@ -40,8 +40,9 @@ test("ensureMaster seeds a starter when no master and no candidates", async () =
 	const r = await store.ensureMaster();
 	assert.equal(r.action, "starter");
 	assert.equal(r.changed, true);
-	assert.ok(existsSync(master()));
-	assert.ok(readFileSync(master(), "utf8").includes("## Conventions"));
+	assert.ok(
+		readFileSync(master(), "utf8").includes("## Tool-call mediation"),
+	);
 });
 
 test("ensureMaster is idempotent on a valid master", async () => {

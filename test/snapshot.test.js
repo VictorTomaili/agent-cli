@@ -53,3 +53,16 @@ test("multiple snapshots are listed newest-first", () => {
 	const list = snap.listSnapshots();
 	assert.ok(list.length >= 2);
 });
+
+test("restore rejects traversal and malformed snapshot names before mutation", () => {
+	const before = readFileSync(path.join(brain(), "AGENTS.md"), "utf8");
+	const traversal = snap.restore("../../outside");
+	assert.equal(traversal.ok, false);
+	assert.equal(traversal.reason, "invalid snapshot name");
+
+	mkdirSync(path.join(snap.SNAP_DIR, "malformed"), { recursive: true });
+	const malformed = snap.restore("malformed");
+	assert.equal(malformed.ok, false);
+	assert.equal(malformed.reason, "invalid snapshot contents");
+	assert.equal(readFileSync(path.join(brain(), "AGENTS.md"), "utf8"), before);
+});

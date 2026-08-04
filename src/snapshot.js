@@ -65,9 +65,51 @@ export function snapshot() {
 	return { ok: true, name, path: dst, files };
 }
 
+function safeSnapshotName(name) {
+	return (
+		typeof name === "string" &&
+		/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) &&
+		name !== "." &&
+		name !== ".."
+	);
+}
+
+function snapshotWithinRoot(name) {
+	if (!safeSnapshotName(name)) return null;
+	const root = path.resolve(SNAP_DIR);
+	const candidate = path.resolve(root, name);
+	return candidate === root || candidate.startsWith(root + path.sep)
+		? candidate
+		: null;
+}
+
+function validateSnapshot(src) {
+	try {
+		if (!fs.statSync(src).isDirectory()) return false;
+		const metadata = path.join(src, ".snapshot.json");
+		if (!fs.lstatSync(metadata).isFile()) return false;
+		const parsed = JSON.parse(fs.readFileSync(metadata, "utf8"));
+		if (!parsed || typeof parsed !== "object") return false;
+		const stack = [src];
+		while (stack.length) {
+			const dir = stack.pop();
+			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+				if (entry.isSymbolicLink()) return false;
+				if (entry.isDirectory()) stack.push(path.join(dir, entry.name));
+			}
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export function restore(name) {
-	const src = path.join(SNAP_DIR, name);
+	const src = snapshotWithinRoot(name);
+	if (!src) return { ok: false, reason: "invalid snapshot name" };
 	if (!fs.existsSync(src)) return { ok: false, reason: "no such snapshot" };
+	if (!validateSnapshot(src))
+		return { ok: false, reason: "invalid snapshot contents" };
 	// safety: back up current brain first
 	const pre = path.join(SNAP_DIR, `pre-restore-${ts()}`);
 	copyDir(BRAIN, pre, new Set(["backups"]));

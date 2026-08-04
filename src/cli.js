@@ -101,6 +101,58 @@ function ctxPaths() {
 	return { masterAbs: MASTER_FILE, masterTilde: masterTilde() };
 }
 
+// --- project-aware master resolution (Finding 13) ---
+// The global master lives at ~/.agents/AGENTS.md; a project master lives at
+// [cwd]/.agents/AGENTS.md and is what project-scoped pointers must redirect to.
+const SKILL_BEGIN = "<!-- BEGIN skill-cli -->";
+const SKILL_END = "<!-- END skill-cli -->";
+
+function projectMasterPath(cwd = process.cwd()) {
+	return path.join(cwd, ".agents", "AGENTS.md");
+}
+function masterPaths(scope = "global", cwd = process.cwd()) {
+	if (scope === "project") {
+		const abs = projectMasterPath(cwd);
+		return { masterAbs: abs, masterTilde: pretty(abs) };
+	}
+	return { masterAbs: MASTER_FILE, masterTilde: masterTilde() };
+}
+
+/** Scan argv for a global --json flag (survives commander parse errors). */
+function argvWantsJson() {
+	return process.argv.includes("--json");
+}
+
+/** Remove the integrated skill-cli block from the master (used by `init --no-skill`).
+ *  Returns true when a block was actually stripped. */
+async function stripSkillBlockFromMaster() {
+	const c = await readMaster();
+	if (c == null || !c.includes(SKILL_BEGIN)) return false;
+	const stripped = c
+		.replace(new RegExp(`${SKILL_BEGIN}[\\s\\S]*?${SKILL_END}`), "")
+		.replace(/\n{3,}/g, "\n\n")
+		.replace(/\s+$/, "") + "\n";
+	await writeMaster(stripped);
+	return true;
+}
+
+/** Agents whose frontmatter `model:` is an unresolved alias (validateAgent warning). */
+async function findUnresolvedModels(cwd = process.cwd()) {
+	const list = await listAgents({ includeProject: false, cwd });
+	const unresolved = [];
+	for (const a of list) {
+		if (!a.model) continue;
+		const v = await validateAgent(a.path);
+		if (v.warnings && v.warnings.some((w) => w.includes("unresolved")))
+			unresolved.push({
+				name: a.name,
+				model: a.model,
+				guidance: `agent models set ${a.model} <provider/model>`,
+			});
+	}
+	return unresolved;
+}
+
 function selectedTargets(scope, ids) {
 	const pool = targetsWithScope(scope);
 	if (ids && ids.length) {
@@ -111,6 +163,9 @@ function selectedTargets(scope, ids) {
 }
 
 const program = new Command();
+// Route commander's own parse/usage errors through our JSON-aware error path
+// instead of letting commander print plain text and process.exit() directly.
+program.exitOverride();
 registerTargetCommand(program, {
 	emit,
 	fail,
@@ -167,6 +222,10 @@ program
 		// 3. skill-cli store + block (block already ensured by ensureMaster)
 		if (opts.skill !== false && cfg.skillManaged) {
 			result.steps.skillStore = await ensureSkillStore();
+		} else if (opts.skill === false) {
+			// --no-skill: suppress the skill-cli block that ensureMaster injected,
+			// not just the store setup.
+			result.steps.skillBlockRemoved = await stripSkillBlockFromMaster();
 		}
 
 		// 4. seed defaults: first install writes them into ~/.agents; a version bump
@@ -299,13 +358,15 @@ program
 		if (opts.global) scopes.push("global");
 		if (opts.project) scopes.push("project");
 		if (scopes.length === 0) scopes.push("global");
-		const { masterAbs, masterTilde } = ctxPaths();
 		const out = { command: "link", scopes, results: [] };
 		for (const scope of scopes) {
 			let ids = opts.target;
 			if (!ids)
 				ids = scope === "global" ? cfg.global : effectiveProjectIds(cfg);
 			const targets = selectedTargets(scope, ids);
+			// Project pointers must redirect to the project master, not the global one.
+			const { masterAbs, masterTilde } = masterPaths(scope);
+			setExpectedCtx({ masterAbs, masterTilde });
 			for (const t of targets) {
 				const r = await linkTarget(t, scope, {
 					masterAbs,
@@ -345,6 +406,9 @@ program
 			if (!ids)
 				ids = scope === "global" ? cfg.global : effectiveProjectIds(cfg);
 			const targets = selectedTargets(scope, ids);
+			// unlinkTarget classifies via expectedCtx() — keep it in sync with scope.
+			const { masterAbs, masterTilde } = masterPaths(scope);
+			setExpectedCtx({ masterAbs, masterTilde });
 			for (const t of targets) {
 				const r = await unlinkTarget(t, scope);
 				out.results.push({ id: t.id, name: t.name, scope, ...r });
@@ -415,6 +479,20 @@ program
 			targets: visibleTargets,
 			targetCount: targets.length,
 			all: showAll,
+			targetsSummary: {
+				pointer: visibleTargets.filter(
+					(t) => t.global?.state === "pointer",
+				).length,
+				missing: visibleTargets.filter(
+					(t) => t.global?.state === "missing",
+				).length,
+				stale: visibleTargets.filter(
+					(t) => t.global?.state === "pointer-stale",
+				).length,
+				native: visibleTargets.filter(
+					(t) => t.global?.state === "native",
+				).length,
+			},
 		};
 		emit(out);
 		if (!JSON_MODE) {
@@ -430,19 +508,38 @@ program
 			);
 			log.raw(c.bold("\nTargets:"));
 			for (const t of visibleTargets) {
+				const state = t.global?.state;
 				const tag =
-					t.global?.state === "pointer"
+					state === "pointer"
 						? c.green("●")
-						: t.global?.state === "native"
+						: state === "native"
 							? c.yellow("●")
-							: t.global?.state === "missing"
+							: state === "missing"
 								? c.gray("○")
-								: c.gray("○");
+								: state === "pointer-stale"
+									? c.yellow("○")
+									: c.gray("○");
+				const label =
+					state === "pointer"
+						? c.green("pointer")
+						: state === "native"
+							? c.yellow("native")
+							: state === "missing"
+								? c.gray("absent")
+								: state === "pointer-stale"
+									? c.yellow("stale")
+									: c.gray("—");
 				const en = t.globalEnabled ? c.green("on") : c.gray("off");
 				log.raw(
-					`  ${tag} ${c.bold(t.id.padEnd(9))} ${t.name.padEnd(34)} ${en} ${c.gray(t.global?.path ? pretty(t.global.path) : "(no global)")}`,
+					`  ${tag} ${c.bold(t.id.padEnd(9))} ${t.name.padEnd(30)} ${en} ${label.padEnd(8)} ${c.gray(t.global?.path ? pretty(t.global.path) : "(no global)")}`,
 				);
 			}
+			const s = out.targetsSummary;
+			log.dim(
+				s.pointer + s.missing + s.stale + s.native === 0
+					? "no targets"
+					: `${s.pointer} pointer · ${s.missing} absent · ${s.stale} stale (need re-link) · ${s.native} native (user content)`,
+			);
 		}
 	});
 
@@ -480,21 +577,25 @@ program
 program
 	.command("edit [kind]")
 	.description(
-		"Open a unified home file in $EDITOR. kind: agents (default) | soul | identity | user | lessons | environments | models",
+		"Open a unified home file in $EDITOR. kind: agents (default) | soul | identity | user | lessons | environments",
 	)
-	.option("--print-path", "Just print the resolved path (for agents) and exit")
-	.option("-p, --project", "Edit the project-local copy")
+	.option("--print-path", "Just print the resolved path and exit (creates no file)")
+	.option(
+		"-p, --project",
+		"Edit the project-local copy (master resolves to [cwd]/.agents/AGENTS.md)",
+	)
 	.action(async (kind, opts) => {
 		const scope = opts.project ? "project" : "global";
-		let target = MASTER_FILE;
+		let target = scope === "project" ? projectMasterPath() : MASTER_FILE;
 		if (kind && kind !== "agents") {
 			target = identityFilePath(kind, scope);
 			if (!target) {
 				fail(
-					`Unknown kind: ${kind}. Use: agents|soul|identity|user|lessons|environments|models`,
+					`Unknown kind: ${kind}. Use: agents|soul|identity|user|lessons|environments`,
 				);
 			}
-			if (!(await exists(target))) {
+			// --print-path only computes the path — it must not create the file.
+			if (!opts.printPath && !(await exists(target))) {
 				const arc = await import("./archetypes.js");
 				let tpl = `# ${kind.toUpperCase()}.md\n\n`;
 				if (kind === "identity") tpl = arc.identityContent("general-purpose");
@@ -503,16 +604,27 @@ program
 				await writeFile(target, tpl);
 			}
 		}
-		emit({ command: "edit", kind: kind || "agents", path: target });
 		if (opts.printPath) {
-			process.stdout.write(target + "\n");
+			// Exactly one JSON value on stdout in JSON mode; no path mixed in.
+			if (JSON_MODE)
+				emit({
+					command: "edit",
+					kind: kind || "agents",
+					path: target,
+					printPath: true,
+				});
+			else process.stdout.write(target + "\n");
 			return;
 		}
+		emit({ command: "edit", kind: kind || "agents", path: target });
 		const editor =
 			process.env.VISUAL ||
 			process.env.EDITOR ||
 			(process.platform === "win32" ? "notepad" : "vi");
-		spawnSync(editor, [target], { stdio: "inherit", shell: true });
+		const r = spawnSync(editor, [target], { stdio: "inherit", shell: true });
+		// Editor failures must surface as a non-zero exit.
+		if (r.error || r.status !== 0)
+			process.exit(r.status != null ? r.status : 1);
 	});
 
 program
@@ -577,11 +689,31 @@ program
 		}
 		if (action === "validate") {
 			const list = await listAgents({ includeProject: true, cwd });
-			const targets = name ? list.filter((a) => a.name === name) : list;
+			let targets;
+			let missing = null;
+			if (name) {
+				targets = list.filter((a) => a.name === name);
+				if (!targets.length) {
+					missing = name;
+					targets = [];
+				}
+			} else {
+				targets = list;
+			}
 			const results = [];
 			for (const a of targets) results.push(await validateAgent(a.path));
-			emit({ command: "agents", action: "validate", results });
-			if (!JSON_MODE)
+			const valid = results.length > 0 && results.every((r) => r.valid);
+			const out = {
+				command: "agents",
+				action: "validate",
+				valid,
+				count: results.length,
+				results,
+			};
+			if (missing) out.missing = missing;
+			emit(out);
+			if (!JSON_MODE) {
+				if (missing) log.error(`No agent named '${missing}'`);
 				for (const r of results) {
 					const issueText = r.issues.length
 						? c.gray(r.issues.join("; "))
@@ -593,6 +725,9 @@ program
 						`  ${r.valid ? c.green("✓") : c.red("✗")} ${c.bold(r.name)} ${issueText}${warningText}`,
 					);
 				}
+			}
+			// Machine-actionable failure: invalid or missing personalities exit non-zero.
+			if (!valid) process.exit(1);
 			return;
 		}
 		fail(`Unknown action: ${action}. Use list|show|new|validate|path`);
@@ -632,13 +767,26 @@ program
 			if (!key) {
 				fail("Usage: agent identity apply <id>");
 			}
+			const known = id.listIdentities().some((i) => i.key === key);
+			const resolved = known ? null : "general-purpose";
+			if (!known && !JSON_MODE) {
+				fail(
+					`Unknown identity '${key}' (would resolve to default 'general-purpose'). Use: agent identity list`,
+				);
+			}
 			const r = await id.applyIdentity(key, { scope, cwd });
 			let soul = null;
 			if (opts.soul) {
 				const sr = await id.applySoul(opts.soul, { scope, cwd });
 				soul = sr.soul;
 			}
-			emit({ command: "identity", action, ...r, soul });
+			emit({
+				command: "identity",
+				action,
+				...r,
+				soul,
+				...(known ? {} : { fallback: true, resolved }),
+			});
 			if (!JSON_MODE)
 				log.success(
 					`Identity '${key}'${soul ? ` + soul '${soul}'` : ""} → ${pretty(r.file)}`,
@@ -685,8 +833,20 @@ program
 			if (!key) {
 				fail("Usage: agent soul apply <variant>");
 			}
+			const known = id.listSouls().some((s) => s.key === key);
+			const resolved = known ? null : "pragmatist";
+			if (!known && !JSON_MODE) {
+				fail(
+					`Unknown soul '${key}' (would resolve to default 'pragmatist'). Use: agent soul list`,
+				);
+			}
 			const r = await id.applySoul(key, { scope, cwd });
-			emit({ command: "soul", action, ...r });
+			emit({
+				command: "soul",
+				action,
+				...r,
+				...(known ? {} : { fallback: true, resolved }),
+			});
 			if (!JSON_MODE) log.success(`Soul '${key}' → ${pretty(r.file)}`);
 			return;
 		}
@@ -710,9 +870,10 @@ program
 program
 	.command("user [action] [rest...]")
 	.description(
-		"USER.md: apply (write template) | set <field> <value...>. -p project.",
+		"USER.md: apply (write template; --force replaces an existing file) | set <field> <value...>. -p project.",
 	)
 	.option("-p, --project", "project scope")
+	.option("--force", "overwrite an existing non-empty USER.md")
 	.action(async (action, rest, opts) => {
 		const id = await import("./identity.js");
 		const arc = await import("./archetypes.js");
@@ -721,6 +882,14 @@ program
 		const cwd = process.cwd();
 		const file = identityFilePath("user", scope, cwd);
 		if (action === "apply") {
+			if (!opts.force && (await exists(file))) {
+				const existing = await readFile(file);
+				if (existing && existing.trim()) {
+					fail(
+						`USER.md already exists (${pretty(file)}). Pass --force to replace it.`,
+					);
+				}
+			}
 			await writeFile(file, arc.userContent());
 			emit({ command: "user", action, file });
 			if (!JSON_MODE) log.success(`USER.md template → ${pretty(file)}`);
@@ -802,7 +971,15 @@ program
 				thinking: opts.thinking,
 				fallbacks: opts.fallback,
 			});
-			emit({ command: "models", action, alias, ...r });
+			// Keep MODELS.md in sync with the alias configuration.
+			m.writeModelsMd();
+			emit({
+				command: "models",
+				action,
+				alias,
+				...r,
+				modelsMd: m.MODELS_MD,
+			});
 			if (!JSON_MODE)
 				log.success(
 					`Alias '${alias}' → ${r.model}${r.thinking ? " @" + r.thinking : ""}`,
@@ -1117,8 +1294,12 @@ program
 		action = action || "list";
 		if (action === "stage") {
 			const r = await seed.stageSeeds({ home: AGENTS_DIR, version: VERSION });
-			cfg.seedVersion = VERSION;
-			await saveConfig(cfg);
+			// Never mark seeding as done before `agent init` has installed the defaults:
+			// planSeedAction(prev=null) must still return "install" for the first run.
+			if (cfg.seedVersion != null) {
+				cfg.seedVersion = VERSION;
+				await saveConfig(cfg);
+			}
 			emit({ command: "update", action, ...r });
 			if (!JSON_MODE)
 				log.success(`Staged ${r.staged.length} seeds → ${pretty(r.path)}`);
@@ -1325,6 +1506,21 @@ program
 			return;
 		}
 		// passthrough
+		if (JSON_MODE) {
+			// JSON mode: capture the skill output and wrap it in a single JSON
+			// envelope so stdout stays one parseable value.
+			const r = runSkill(args);
+			emit({
+				command: "skill",
+				passthrough: true,
+				args,
+				output: r.stdout,
+				error: r.stderr,
+				code: r.code,
+				ok: r.ok,
+			});
+			process.exit(typeof r.code === "number" ? r.code : r.ok ? 0 : 1);
+		}
 		const r = runSkill(args, { stdio: "inherit" });
 		process.exit(typeof r.code === "number" ? r.code : r.ok ? 0 : 1);
 	});
@@ -1489,6 +1685,21 @@ program
 			ok: true,
 			detail: `${subList.length} in ~/.agents/agents`,
 		});
+		// #2b unresolved model aliases → actionable setup guidance
+		const unresolvedModels = await findUnresolvedModels();
+		checks.push({
+			check: "models-resolved",
+			ok: unresolvedModels.length === 0,
+			detail: unresolvedModels.length
+				? unresolvedModels.map((u) => `${u.name} (${u.model})`).join(", ")
+				: "all model aliases resolve",
+		});
+		if (unresolvedModels.length)
+			issues.push(
+				`unresolved model aliases: ${unresolvedModels
+					.map((u) => `${u.name} uses '${u.model}' — run ${u.guidance}`)
+					.join("; ")}`,
+			);
 		const oldPiAgents = path.join(os.homedir(), ".pi", "agent", "agents");
 		let orphans = 0;
 		try {
@@ -1659,29 +1870,39 @@ program
 		// AX: surface the lesson index (filenames ARE the summaries) + inbox so the agent
 		// actually loads memory at session start instead of only seeing a score. Also load the
 		// LESSONS.md core DIRECTLY (critical-lesson pointer index) so it's never skipped.
+		// Project lessons are included; project core takes precedence over global core.
 		const { listLessons, coreFile } = await import("./lessons-lib.js");
-		const lessonsIndex = (await listLessons({ includeProject: false }))
+		const lessonsIndex = (await listLessons({ includeProject: true }))
 			.map((l) => ({
 				path: l.path,
+				scope: l.scope,
 				occurrences: l.occurrences,
 				marked: l.marked,
 			}))
 			.sort((a, b) => a.path.localeCompare(b.path));
 		const inboxCount = (consG.metrics.inbox || 0) + (consP.metrics.inbox || 0);
 		let coreContent = null;
-		try {
-			const md = await readFile(coreFile("global", process.cwd()));
-			const idx = md.indexOf("## Core");
-			if (idx >= 0) {
-				const cleaned = md
-					.slice(idx + "## Core".length)
-					.replace(/<!--[\s\S]*?-->/g, "")
-					.trim();
-				if (cleaned) coreContent = cleaned;
+		let coreScope = null;
+		for (const scope of ["project", "global"]) {
+			try {
+				const md = await readFile(coreFile(scope, process.cwd()));
+				const idx = md.indexOf("## Core");
+				if (idx >= 0) {
+					const cleaned = md
+						.slice(idx + "## Core".length)
+						.replace(/<!--[\s\S]*?-->/g, "")
+						.trim();
+					if (cleaned) {
+						coreContent = cleaned;
+						coreScope = scope;
+						break;
+					}
+				}
+			} catch {
+				/* no core file */
 			}
-		} catch {
-			/* no core file */
 		}
+		const unresolvedModels = await findUnresolvedModels();
 		const pointerTargets = [];
 		const drift = [];
 		for (const id of cfg.global) {
@@ -1712,6 +1933,7 @@ program
 			suggested.push(`npm i -g ${PKG_NAME}@latest`);
 		if (stagedUpdates.length) suggested.push("agent update list");
 		if (inboxCount >= 10) suggested.push("agent lessons inbox (triage)");
+		for (const u of unresolvedModels) suggested.push(u.guidance);
 
 		const out = {
 			tool: "agent-cli",
@@ -1762,6 +1984,10 @@ program
 				index: lessonsIndex,
 				inbox: inboxCount,
 				core: coreContent,
+				coreScope,
+			},
+			modelAliases: {
+				unresolved: unresolvedModels,
 			},
 			project: {
 				spect,
@@ -1786,6 +2012,15 @@ program
 				log.warn(
 					`Information gap: ${c.yellow(gapStr)} — ask the user, or fill via agent identity/soul/user set <field> <value>.`,
 				);
+			}
+			if (unresolvedModels.length) {
+				log.warn(
+					`Unresolved model alias${unresolvedModels.length > 1 ? "es" : ""}:`,
+				);
+				for (const u of unresolvedModels)
+					log.raw(
+						`  ${c.bold(u.name)}: ${c.yellow(u.model)} — ${c.cyan(u.guidance)}`,
+					);
 			}
 			log.kv(
 				"master",
@@ -1871,6 +2106,21 @@ program
 	});
 
 program.parseAsync(process.argv).catch((e) => {
+	// Commander raises CommanderError for --help/--version and for parse/usage
+	// errors (exitOverride). Route them through the JSON contract when requested.
+	const isCmdError = e && typeof e.code === "string" && e.code.startsWith("commander.");
+	if (isCmdError && (e.code === "commander.helpDisplayed" || e.code === "commander.version")) {
+		process.exit(e.exitCode ?? 0);
+	}
+	if (isCmdError) {
+		const json = JSON_MODE || argvWantsJson();
+		if (json)
+			console.log(
+				JSON.stringify({ ok: false, error: e.message, code: e.code }),
+			);
+		else log.error(e.message);
+		process.exit(e.exitCode || 1);
+	}
 	if (JSON_MODE) console.log(JSON.stringify({ ok: false, error: e.message }));
 	else log.error(e.message);
 	process.exit(1);

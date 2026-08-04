@@ -553,3 +553,215 @@ test("F1 doctor flags missing required files", () => {
 	assert.ok(j.checks.some((c) => c.check === "file-exists:soul" && !c.ok));
 	assert.ok(j.checks.some((c) => c.check === "file-exists:models" && !c.ok));
 });
+
+// ---------------------------------------------------------------------------
+// Findings 11-CLI / 12 / 13 — CLI JSON/UX + agent-experience regressions
+// ---------------------------------------------------------------------------
+
+test("commander parse errors honor --json", () => {
+	const r = run(["frobnicate", "--json"]);
+	bad(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.ok(j.error);
+});
+
+test("edit --print-path --json emits exactly one JSON value and creates no file", () => {
+	const r = run(["edit", "identity", "--print-path", "--json"]); // fresh home
+	ok(r);
+	const home = r.home;
+	// parseJson fails the test if stdout is not exactly one JSON value.
+	const j = parseJson(r.stdout);
+	assert.equal(j.command, "edit");
+	assert.equal(j.kind, "identity");
+	assert.equal(j.printPath, true);
+	assert.equal(j.path, path.join(home, ".agents", "IDENTITY.md"));
+	// --print-path must NOT create the file.
+	assert.equal(existsSync(path.join(home, ".agents", "IDENTITY.md")), false);
+});
+
+test("edit agents --project resolves the project master, not the global master", () => {
+	const home = run(["init"]).home;
+	const project = mkdtempSync(path.join(tmpdir(), "agent-proj-master-"));
+	mkdirSync(path.join(project, ".agents"), { recursive: true });
+	const r = run(["edit", "agents", "--project", "--print-path", "--json"], {
+		envHome: home,
+		cwd: project,
+	});
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.path, path.join(project, ".agents", "AGENTS.md"));
+});
+
+test("editor process failure returns a non-zero exit", () => {
+	const prev = process.env.VISUAL;
+	process.env.VISUAL = "definitely-not-a-real-editor-xyz-12345";
+	try {
+		bad(run(["edit"]));
+	} finally {
+		if (prev === undefined) delete process.env.VISUAL;
+		else process.env.VISUAL = prev;
+	}
+});
+
+test("edit help does not advertise unsupported edit models", () => {
+	const edit = run(["edit", "--help"]);
+	ok(edit);
+	assert.ok(!/models/i.test(edit.stdout));
+});
+
+test("identity/soul apply with unknown keys reports fallback in JSON, rejects in prose", () => {
+	const home = run(["init"]).home;
+	const ji = parseJson(
+		run(["identity", "apply", "no-such-identity", "--json"], {
+			envHome: home,
+		}).stdout,
+	);
+	assert.equal(ji.fallback, true);
+	assert.equal(ji.resolved, "general-purpose");
+	const js = parseJson(
+		run(["soul", "apply", "no-such-soul", "--json"], { envHome: home })
+			.stdout,
+	);
+	assert.equal(js.fallback, true);
+	assert.ok(js.resolved);
+	bad(run(["identity", "apply", "no-such-identity"], { envHome: home }));
+	bad(run(["soul", "apply", "no-such-soul"], { envHome: home }));
+});
+
+test("user apply refuses to replace a non-empty USER.md without --force", () => {
+	const home = run(["init"]).home;
+	writeFileSync(path.join(home, ".agents", "USER.md"), "# USER.md\n\nkeep me\n");
+	bad(run(["user", "apply"], { envHome: home }));
+	assert.equal(
+		readFileSync(path.join(home, ".agents", "USER.md"), "utf8"),
+		"# USER.md\n\nkeep me\n",
+	);
+	ok(run(["user", "apply", "--force"], { envHome: home }));
+});
+
+test("agents validate returns machine-actionable failure for invalid or missing personalities", () => {
+	const home = run(["init"]).home;
+	parseJson(
+		run(["agents", "new", "tester", "--json"], { envHome: home }).stdout,
+	);
+	const v = run(["agents", "validate", "tester", "--json"], { envHome: home });
+	bad(v); // fresh scaffold has placeholders → invalid → non-zero
+	const j = parseJson(v.stdout);
+	assert.equal(j.command, "agents");
+	assert.equal(j.valid, false);
+	assert.ok(
+		j.results.some((r) => r.name === "tester" && r.valid === false),
+	);
+	const m = run(["agents", "validate", "no-such-agent", "--json"], {
+		envHome: home,
+	});
+	bad(m);
+	const jm = parseJson(m.stdout);
+	assert.equal(jm.missing, "no-such-agent");
+	assert.equal(jm.valid, false);
+});
+
+test("update stage before init does not suppress default personality installation", () => {
+	const first = run(["update", "stage"]);
+	ok(first);
+	const home = first.home; // fresh home: no init yet
+	const j = parseJson(run(["init", "--json"], { envHome: home }).stdout);
+	assert.ok(j.steps.seeds);
+	assert.ok(j.steps.seeds.installed.length >= 4);
+});
+
+test("brief surfaces unresolved model aliases with actionable guidance", () => {
+	const home = run(["init"]).home;
+	const agentsDir = path.join(home, ".agents", "agents");
+	mkdirSync(agentsDir, { recursive: true });
+	writeFileSync(
+		path.join(agentsDir, "badmodel.md"),
+		[
+			"---",
+			"name: badmodel",
+			"description: test agent",
+			"model: no-such-alias",
+			"---",
+			"## Delegation identity",
+			"d",
+			"## Goal",
+			"g",
+			"## Orchestrator contract",
+			"o",
+			"## Role",
+			"r",
+			"## When to use",
+			"w",
+			"## Requires",
+			"req",
+			"## Output style & format",
+			"o",
+			"## Constraints",
+			"c",
+			"## Handoff",
+			"h",
+		].join("\n"),
+	);
+	const j = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
+	assert.ok(j.modelAliases);
+	const u = j.modelAliases.unresolved || [];
+	const hit = u.find((x) => x.name === "badmodel");
+	assert.ok(hit);
+	assert.match(hit.guidance, /models set/);
+});
+
+test("brief prefers project core over global core and includes project lessons", () => {
+	const home = run(["init"]).home;
+	const project = mkdtempSync(path.join(tmpdir(), "agent-brief-proj-"));
+	mkdirSync(path.join(project, ".agents"), { recursive: true });
+	writeFileSync(
+		path.join(home, ".agents", "LESSONS.md"),
+		"# LESSONS.md\n\n## Core\nGLOBAL-CORE-MARKER\n",
+	);
+	writeFileSync(
+		path.join(project, ".agents", "LESSONS.md"),
+		"# LESSONS.md\n\n## Core\nPROJECT-CORE-MARKER\n",
+	);
+	const lessonsDir = path.join(project, ".agents", "lessons", "git");
+	mkdirSync(lessonsDir, { recursive: true });
+	writeFileSync(
+		path.join(lessonsDir, "proj.md"),
+		"---\noccurrences: 1\n---\nbody\n",
+	);
+	const j = parseJson(
+		run(["brief", "--json"], { envHome: home, cwd: project }).stdout,
+	);
+	assert.equal(j.lessons.coreScope, "project");
+	assert.ok(j.lessons.core.includes("PROJECT-CORE-MARKER"));
+	assert.ok(
+		j.lessons.index.some(
+			(l) => l.path.endsWith("git/proj") && l.scope === "project",
+		),
+	);
+});
+
+test("init --no-skill suppresses the skill-cli block in the master", () => {
+	const withSkill = run(["init"]).home;
+	const masterWith = readFileSync(
+		path.join(withSkill, ".agents", "AGENTS.md"),
+		"utf8",
+	);
+	assert.match(masterWith, /BEGIN skill-cli/);
+	const noSkill = run(["init", "--no-skill"]).home;
+	const masterNo = readFileSync(
+		path.join(noSkill, ".agents", "AGENTS.md"),
+		"utf8",
+	);
+	assert.ok(!/BEGIN skill-cli/.test(masterNo));
+});
+
+test("skill passthrough emits a JSON envelope in --json mode", () => {
+	const r = run(["skill", "list", "--json"]);
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.command, "skill");
+	assert.equal(j.passthrough, true);
+	assert.equal(j.args[0], "list");
+	assert.equal(typeof j.code, "number");
+});

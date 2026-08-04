@@ -72,6 +72,20 @@ test("project personality overrides global personality with the same name", asyn
 	assert.equal(effective.scope, "project");
 });
 
+test("listAgents dedupes by name with the project entry winning (no duplicates)", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-dedupe-"));
+	await agents.scaffoldAgent("same", { scope: "global", cwd });
+	await agents.scaffoldAgent("same", { scope: "project", cwd });
+	await agents.scaffoldAgent("only-global", { scope: "global", cwd });
+	const list = await agents.listAgents({ includeProject: true, cwd });
+	const same = list.filter((a) => a.name === "same");
+	assert.equal(same.length, 1);
+	assert.equal(same[0].scope, "project"); // project wins
+	const only = list.filter((a) => a.name === "only-global");
+	assert.equal(only.length, 1);
+	assert.equal(only[0].scope, "global");
+});
+
 test("identityInventory runs in project scope", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-inv-"));
 	const inv = await agents.identityInventory({ scope: "project", cwd });

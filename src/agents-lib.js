@@ -100,6 +100,7 @@ export async function listAgents({
 	}
 	// Project-local personalities override global personalities with the same name.
 	dirs.push({ dir: GLOBAL_AGENTS_DIR, scope: "global" });
+	const seen = new Set();
 	for (const { dir, scope } of dirs) {
 		if (!(await exists(dir))) continue;
 		let entries = [];
@@ -113,8 +114,13 @@ export async function listAgents({
 			const fp = path.join(dir, e.name);
 			const content = await readFile(fp);
 			const { frontmatter } = parseFrontmatter(content);
+			const name = frontmatter.name || e.name.replace(/\.md$/, "");
+			// Dedupe by name with the project (higher-precedence) entry winning:
+			// project dirs are pushed first, so a global duplicate is skipped.
+			if (seen.has(name)) continue;
+			seen.add(name);
 			out.push({
-				name: frontmatter.name || e.name.replace(/\.md$/, ""),
+				name,
 				description: frontmatter.description || "",
 				tools: csv(frontmatter.tools),
 				model: frontmatter.model || undefined,

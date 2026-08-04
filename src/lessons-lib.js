@@ -134,7 +134,8 @@ export async function addLesson(
 	const root = lessonsRoot(scope, cwd);
 	const clean = relpath.replace(/\.md$/, "").trim() || "untitled";
 	const fp = resolveContained(root, `${clean}.md`);
-	if (!fp) throw new Error("lesson path must stay inside the lessons directory");
+	if (!fp)
+		throw new Error("lesson path must stay inside the lessons directory");
 	const now = new Date().toISOString();
 	if (await exists(fp)) {
 		const { fm, body: oldBody } = parseFM(await readFile(fp));

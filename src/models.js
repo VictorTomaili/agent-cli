@@ -40,7 +40,7 @@ function atomicWriteSync(file, content) {
 		try {
 			fs.renameSync(tmp, file);
 		} catch (error) {
-			if (!['EEXIST', 'EPERM', 'ENOTEMPTY'].includes(error.code)) throw error;
+			if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error.code)) throw error;
 			fs.rmSync(file, { force: true });
 			fs.renameSync(tmp, file);
 		}

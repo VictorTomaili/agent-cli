@@ -50,7 +50,10 @@ test("consolidate two-pass grace: promote recurring, prune singleton", async () 
 	items = (await listLessons({ includeProject: true, cwd })).filter(
 		(i) => i.scope === "project",
 	);
-	assert.deepEqual(items.map((i) => [i.path, i.promoted]), [["git/recurring", true]]);
+	assert.deepEqual(
+		items.map((i) => [i.path, i.promoted]),
+		[["git/recurring", true]],
+	);
 });
 
 test("assess reflects promotable count", async () => {
@@ -120,7 +123,12 @@ test("consolidate promotes recurring lessons into the pointer index", async () =
 	assert.ok(core.includes("## Core"));
 	assert.ok(core.includes("promoted body"));
 	assert.match(core, /lessons\/git\/rec\.md/);
-	assert.ok(readFileSync(path.join(cwd, ".agents", "lessons", "git", "rec.md"), "utf8").includes("promoted: true"));
+	assert.ok(
+		readFileSync(
+			path.join(cwd, ".agents", "lessons", "git", "rec.md"),
+			"utf8",
+		).includes("promoted: true"),
+	);
 });
 
 test("consolidate: a marked lesson reaching the threshold is promoted, not deleted", async () => {

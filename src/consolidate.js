@@ -250,15 +250,20 @@ export function consolidate({
 			promoted++;
 			if (!dryRun) {
 				const rel = path.relative(dir, fp).split(path.sep).join("/");
-				const summary =
-					(body.trim().split(/\r?\n/)[0] || path.basename(rel, ".md"))
-						.replace(/^[-*]\s+/, "");
+				const summary = (
+					body.trim().split(/\r?\n/)[0] || path.basename(rel, ".md")
+				).replace(/^[-*]\s+/, "");
 				const pointer = `- ${summary} — \`lessons/${rel}\``;
-				if (!core.some((entry) => entry.includes(`lessons/${rel}`))) core.push(pointer);
+				if (!core.some((entry) => entry.includes(`lessons/${rel}`)))
+					core.push(pointer);
 				const nfm = { ...fm, promoted: "true", marked: "false" };
-				fs.writeFileSync(fp, `---\n${Object.entries(nfm)
-					.map(([k, v]) => `${k}: ${v}`)
-					.join("\n")}\n---\n${body}`, "utf8");
+				fs.writeFileSync(
+					fp,
+					`---\n${Object.entries(nfm)
+						.map(([k, v]) => `${k}: ${v}`)
+						.join("\n")}\n---\n${body}`,
+					"utf8",
+				);
 			}
 		} else if (isMarked) {
 			deleted++; // grace expired, still single-occurrence → prune

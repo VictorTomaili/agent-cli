@@ -402,9 +402,12 @@ test("update diff shows staged-vs-live changes", () => {
 test("update diff rejects files outside the staged payload", () => {
 	const home = run(["init"]).home;
 	run(["update", "stage"], { envHome: home });
-	const r = run(["update", "diff", "0.2.1", "--file", "../../secret.txt", "--json"], {
-		envHome: home,
-	});
+	const r = run(
+		["update", "diff", "0.2.1", "--file", "../../secret.txt", "--json"],
+		{
+			envHome: home,
+		},
+	);
 	bad(r);
 	const j = parseJson(r.stdout);
 	assert.equal(j.ok, false);

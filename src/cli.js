@@ -760,7 +760,7 @@ program
 			}
 			return;
 		}
-			fail(`Unknown action: ${action}. Use suggest`);
+		fail(`Unknown action: ${action}. Use suggest`);
 	});
 
 program
@@ -1184,9 +1184,7 @@ program
 			const stagedList = await seed.listStagedUpdates({ home: AGENTS_DIR });
 			const payload = stagedList.find((s) => s.version === version);
 			if (!payload) fail(`No staged update for ${version}`);
-			const requested = opts.file
-				? opts.file.replace(/\\/g, "/")
-				: null;
+			const requested = opts.file ? opts.file.replace(/\\/g, "/") : null;
 			if (requested && !payload.files.includes(requested))
 				fail(`File is not part of staged update: ${opts.file}`);
 			const rels = requested ? [requested] : payload.files;
@@ -1647,7 +1645,10 @@ program
 			gaps: null,
 		});
 		if (spect.initialized || spect.partial)
-			for (const file of new Set([...(spect.load || []), ...(spect.missingFiles || [])]))
+			for (const file of new Set([
+				...(spect.load || []),
+				...(spect.missingFiles || []),
+			]))
 				sessionLoad.push({
 					kind: "spect",
 					scope: "project",

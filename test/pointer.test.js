@@ -121,7 +121,10 @@ test("unlinkTarget can preserve a shared pointer path", async () => {
 	const p = pointer.targetPath(codex, "project");
 	const r = await pointer.unlinkTarget(codex, "project", { preserve: true });
 	assert.equal(r.preserved, "shared-target-path");
-	assert.equal((await fs.readFile(p, "utf8")).includes(pointer.POINTER_MARK), true);
+	assert.equal(
+		(await fs.readFile(p, "utf8")).includes(pointer.POINTER_MARK),
+		true,
+	);
 });
 
 test("classify reports pointer-stale when the expected master path changed", async () => {

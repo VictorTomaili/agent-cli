@@ -49,7 +49,9 @@ test("inspectSpect reports an uninitialized project without creating files", asy
 test("inspectSpect marks a partial SPECT directory incomplete and reports missing files", async () => {
 	const cwd = project();
 	const files = spectFiles(cwd);
-	await import("node:fs/promises").then(({ mkdir }) => mkdir(files.root, { recursive: true }));
+	await import("node:fs/promises").then(({ mkdir }) =>
+		mkdir(files.root, { recursive: true }),
+	);
 	const result = await inspectSpect(cwd);
 	assert.equal(result.initialized, false);
 	assert.equal(result.partial, true);

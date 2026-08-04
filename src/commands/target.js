@@ -16,7 +16,9 @@ export function registerTargetCommand(
 ) {
 	program
 		.command("target <action> [id]")
-		.description("enable|disable a target globally (--project for project scope)")
+		.description(
+			"enable|disable a target globally (--project for project scope)",
+		)
 		.option("-g, --global")
 		.option("-p, --project")
 		.action(async (action, id, opts) => {
@@ -35,7 +37,9 @@ export function registerTargetCommand(
 							new Set([...(Array.isArray(cfg.project) ? cfg.project : []), id]),
 						))
 					: (cfg.project = (
-							Array.isArray(cfg.project) ? cfg.project : effectiveProjectIds(cfg)
+							Array.isArray(cfg.project)
+								? cfg.project
+								: effectiveProjectIds(cfg)
 						).filter((x) => x !== id));
 			await saveConfig(cfg);
 			const { masterAbs, masterTilde } = ctxPaths();

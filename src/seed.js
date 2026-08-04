@@ -96,7 +96,9 @@ export async function stageSeeds({
 	const stageDir = path.join(home, `${UPDATE_PREFIX}${version}`);
 	const seeds = await listSeedFiles({ seedDir });
 	const currentFiles = seeds.map(({ rel }) => rel).sort();
-	const removed = previousFiles.filter((rel) => !currentFiles.includes(rel)).sort();
+	const removed = previousFiles
+		.filter((rel) => !currentFiles.includes(rel))
+		.sort();
 	const staged = [];
 	for (const { rel, abs } of seeds) {
 		const target = path.join(stageDir, ...rel.split("/"));
@@ -138,7 +140,9 @@ export async function listStagedUpdates({ home = AGENTS_DIR } = {}) {
 		const files = (await walk(dir)).filter((f) => f.endsWith(".md")).sort();
 		let removed = [];
 		try {
-			removed = JSON.parse(await fs.readFile(path.join(dir, "removed.json"), "utf8"));
+			removed = JSON.parse(
+				await fs.readFile(path.join(dir, "removed.json"), "utf8"),
+			);
 			if (!Array.isArray(removed)) removed = [];
 		} catch {
 			removed = [];

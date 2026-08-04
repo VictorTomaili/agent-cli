@@ -56,7 +56,9 @@ test("fieldGaps returns [] for a non-tagged kind", () => {
 });
 
 test("environmentGaps detects unfilled local environment fields", () => {
-	const gaps = f.environmentGaps("# ENVIRONMENTS.md\n\n## Local (primary)\n- User:\n- OS: Windows\n- Shell:\n- Home:\\n");
+	const gaps = f.environmentGaps(
+		"# ENVIRONMENTS.md\n\n## Local (primary)\n- User:\n- OS: Windows\n- Shell:\n- Home:\\n",
+	);
 	assert.deepEqual(gaps, ["ENV_LOCAL_USER", "ENV_LOCAL_SHELL"]);
 });
 

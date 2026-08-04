@@ -58,7 +58,7 @@ export async function writeFile(p, content) {
 		} catch (error) {
 			// Windows cannot replace an existing file with rename; remove only after
 			// the complete temporary file is ready, then retry the rename.
-			if (!['EEXIST', 'EPERM', 'ENOTEMPTY'].includes(error.code)) throw error;
+			if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error.code)) throw error;
 			await fsp.rm(p, { force: true });
 			await fsp.rename(tmp, p);
 		}
@@ -96,7 +96,11 @@ export function resolveScope(rel, scope) {
 export function resolveContained(root, rel) {
 	if (typeof rel !== "string") return null;
 	const normalized = rel.replace(/\\/g, "/");
-	if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized))
+	if (
+		!normalized ||
+		normalized.startsWith("/") ||
+		/^[A-Za-z]:\//.test(normalized)
+	)
 		return null;
 	const base = path.resolve(root);
 	const candidate = path.resolve(base, normalized);

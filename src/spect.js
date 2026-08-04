@@ -219,10 +219,15 @@ export async function inspectSpect(cwd = process.cwd()) {
 		listMarkdown(files.tasks),
 	]);
 	const missingFiles = [];
-	for (const file of expectedFiles) if (!(await exists(file))) missingFiles.push(file);
+	for (const file of expectedFiles)
+		if (!(await exists(file))) missingFiles.push(file);
 	const missing = [
 		...missingFiles,
-		...(await Promise.all(expectedDirs.map(async (dir) => ((await exists(dir)) ? null : dir)))).filter(Boolean),
+		...(
+			await Promise.all(
+				expectedDirs.map(async (dir) => ((await exists(dir)) ? null : dir)),
+			)
+		).filter(Boolean),
 	];
 	const load = [
 		...expectedFiles.filter((file) => !missingFiles.includes(file)),

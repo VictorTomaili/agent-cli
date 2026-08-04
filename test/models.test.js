@@ -77,3 +77,56 @@ test("getAliases treats corrupt config as empty (no throw)", () => {
 	writeFileSync(p, "{ not valid json");
 	assert.deepEqual(models.getAliases(), {});
 });
+
+// ---------------------------------------------------------------------------
+// Finding 5 — corrupt model configuration replacement.
+// setAlias/writeModelsMd must refuse on malformed config WITHOUT destroying the
+// original bytes; getAliases stays permissive (returns {}).
+// ---------------------------------------------------------------------------
+const expectCorruptSetAlias = (raw) => {
+	writeFileSync(cfgPath(), raw);
+	assert.throws(
+		() => models.setAlias("coding-model", { model: "openai/gpt" }),
+		/config\.json is corrupt/i,
+	);
+	assert.equal(readFileSync(cfgPath(), "utf8"), raw); // original bytes preserved
+};
+
+test("setAlias on malformed JSON refuses without destroying the file", () => {
+	expectCorruptSetAlias("{ not valid json");
+});
+
+test("setAlias on a root-array config refuses without destroying the file", () => {
+	expectCorruptSetAlias(JSON.stringify([1, 2, 3]));
+});
+
+test("setAlias on null top-level refuses without destroying the file", () => {
+	expectCorruptSetAlias("null");
+});
+
+test("setAlias on semantically invalid aliases refuses without destroying the file", () => {
+	expectCorruptSetAlias(
+		JSON.stringify({ models: { aliases: { fast: ["not", "an", "object"] } } }),
+	);
+});
+
+test("setAlias on partial valid config preserves unrelated fields", () => {
+	const raw = JSON.stringify({ global: ["claude"], project: ["codex"] });
+	writeFileSync(cfgPath(), raw);
+	const a = models.setAlias("coding-model", { model: "openai/gpt" });
+	assert.equal(a.model, "openai/gpt");
+	const reloaded = JSON.parse(readFileSync(cfgPath(), "utf8"));
+	assert.deepEqual(reloaded.global, ["claude"]); // untouched
+	assert.deepEqual(reloaded.project, ["codex"]); // untouched
+	assert.equal(reloaded.models.aliases["coding-model"].model, "openai/gpt");
+});
+
+test("writeModelsMd on corrupt config refuses without touching config.json", () => {
+	const raw = "{ not valid json";
+	writeFileSync(cfgPath(), raw);
+	assert.throws(
+		() => models.writeModelsMd(),
+		/config\.json is corrupt/i,
+	);
+	assert.equal(readFileSync(cfgPath(), "utf8"), raw);
+});

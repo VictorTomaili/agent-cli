@@ -3,9 +3,13 @@
 
 import path from "node:path";
 import fs from "node:fs";
-import { HOME, CONFIG_FILE } from "./util.js";
+import { HOME } from "./util.js";
+import {
+	loadConfigSync,
+	saveConfigSync,
+	isConfigCorrupt,
+} from "./config.js";
 
-const CONFIG = CONFIG_FILE;
 export const MODELS_MD = path.join(HOME, ".agents", "MODELS.md");
 
 export const CATEGORIES = [
@@ -25,13 +29,16 @@ const CAT_DESC = {
 	vision: "image-capable",
 };
 
+const CORRUPT_MSG =
+	"config.json is corrupt; repair or remove it before changing model aliases";
+
+/** Load config through the central corruption-aware loader. Throws on corrupt. */
 function readConfig() {
-	try {
-		return JSON.parse(fs.readFileSync(CONFIG, "utf8"));
-	} catch {
-		return {};
-	}
+	const cfg = loadConfigSync();
+	if (isConfigCorrupt(cfg)) throw new Error(CORRUPT_MSG);
+	return cfg;
 }
+
 function atomicWriteSync(file, content) {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
@@ -48,17 +55,21 @@ function atomicWriteSync(file, content) {
 		fs.rmSync(tmp, { force: true });
 	}
 }
-function writeConfig(cfg) {
-	atomicWriteSync(CONFIG, JSON.stringify(cfg, null, 2) + "\n");
-}
 export function getAliases() {
-	const cfg = readConfig();
+	let cfg;
+	try {
+		cfg = readConfig();
+	} catch {
+		// Permissive read: a corrupt config reads as empty (existing behavior).
+		return {};
+	}
 	return cfg.models?.aliases ?? {};
 }
 export function getAlias(name) {
 	return getAliases()[name] ?? null;
 }
 export function setAlias(name, { model, category, thinking, fallbacks }) {
+	// Throws on corrupt config BEFORE any mutation — the original bytes stay intact.
 	const cfg = readConfig();
 	cfg.models = cfg.models || {};
 	cfg.models.aliases = cfg.models.aliases || {};
@@ -72,11 +83,14 @@ export function setAlias(name, { model, category, thinking, fallbacks }) {
 			? { fallbacks: [...new Set(fallbacks.filter(Boolean))] }
 			: {}),
 	};
-	writeConfig(cfg);
+	// Central corruption-aware save — also refuses to replace a corrupt config.
+	saveConfigSync(cfg);
 	return cfg.models.aliases[name];
 }
 export function writeModelsMd() {
-	const a = getAliases();
+	// Refuse to generate a misleading document from a corrupt config.
+	const cfg = readConfig();
+	const a = cfg.models?.aliases ?? {};
 	const esc = (v) =>
 		String(v ?? "")
 			.replace(/&/g, "&amp;")

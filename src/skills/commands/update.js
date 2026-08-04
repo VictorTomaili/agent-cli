@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import c from "picocolors";
 import { STORE_DIR } from "../lib/paths.js";
 import { parseSkillMd } from "../lib/frontmatter.js";
-import { listStore } from "../lib/store.js";
+import { listStore, sanitizeSkillName } from "../lib/store.js";
 import { fetchSkillsToTemp } from "../lib/npx.js";
 import { pad } from "../lib/format.js";
 
@@ -14,25 +14,28 @@ import { pad } from "../lib/format.js";
 //   skill update --all        same as no args (explicit)
 export function cmdUpdate(args) {
 	const installed = listStore();
-	const byLower = new Map(installed.map((s) => [s.name.toLowerCase(), s.name]));
+	// Keep the FULL installed entry (not just the display name) so updateOne can key
+	// every filesystem path on the TRUSTED directory identity: entry.dir comes from
+	// readdir and can never be ".", "..", contain a path separator, or be an absolute
+	// path. The frontmatter `name` is attacker-controlled and must never drive a
+	// path.join(STORE_DIR, ...).
+	const byLower = new Map(installed.map((s) => [s.name.toLowerCase(), s]));
 	const explicit = args.filter((a) => !a.startsWith("-"));
 
 	let targets = [];
 	let unknown = 0;
 	if (explicit.length) {
-		// B1: case-fold to the canonical installed name (every other command does).
-		// A side benefit: an unknown name like `../x` can't reach path.join(STORE_DIR,
-		// name), closing the latent traversal surface in `skill update <name>`.
+		// B1: case-fold to the canonical installed entry (every other command does).
 		for (const a of explicit) {
-			const canon = byLower.get(a.toLowerCase());
-			if (canon) targets.push(canon);
+			const entry = byLower.get(a.toLowerCase());
+			if (entry) targets.push(entry);
 			else {
 				console.log(c.red("  ✗ " + pad(a)) + c.red("not installed"));
 				unknown++;
 			}
 		}
 	} else {
-		targets = installed.map((s) => s.name);
+		targets = installed;
 	}
 
 	if (targets.length === 0 && unknown === 0) {
@@ -48,7 +51,7 @@ export function cmdUpdate(args) {
 
 	const counts = { updated: 0, current: 0, failed: 0, nosource: 0 };
 	counts.failed += unknown;
-	for (const name of targets) counts[updateOne(name)]++;
+	for (const entry of targets) counts[updateOne(entry)]++;
 
 	console.log();
 	console.log(
@@ -61,8 +64,25 @@ export function cmdUpdate(args) {
 	if (counts.failed > 0) process.exit(1);
 }
 
-function updateOne(name) {
-	const skillPath = path.join(STORE_DIR, name);
+// updateOne receives the installed entry from listStore(). entry.dir is the
+// trusted installed directory identity (from readdir — never ".", "..", a path
+// separator, or an absolute path) and is used for EVERY path.join(STORE_DIR, ...):
+// skillPath, stagedPath, backupPath. The frontmatter `name` is untrusted
+// (`name: ../../victim` must not escape the store), so it's used for display and
+// source lookup only, and is rejected up front unless it's a safe identifier.
+export function updateOne(entry) {
+	const name = entry.name; // frontmatter / display name — UNTRUSTED
+	const dir = entry.dir; // trusted installed directory identity
+	// S7 (path traversal): refuse an installed skill whose `name:` field isn't a
+	// safe store identifier. sanitizeSkillName rejects "..", path separators (/ and
+	// \ on Windows) and absolute paths, so `../../victim`, `..\..\victim` and
+	// `C:\escape\...` can never reach a filesystem operation. Legitimate names
+	// (alnum/._-) are unaffected.
+	if (!sanitizeSkillName(name)) {
+		console.log(c.red("  ✗ " + pad(name)) + c.red("unsafe skill name — refusing to update"));
+		return "failed";
+	}
+	const skillPath = path.join(STORE_DIR, dir);
 	if (!fs.existsSync(skillPath)) {
 		console.log(c.red("  ✗ " + pad(name)) + c.red("not installed"));
 		return "failed";
@@ -90,6 +110,16 @@ function updateOne(name) {
 	try {
 		const newDir = resolveFetched(fetchedDir, name);
 		if (!newDir) throw new Error("skill not found in fetched source");
+		// Defense-in-depth: the fetched dir name comes from readdir (which can't
+		// yield ".", "..", or a path separator), but refuse anything that isn't a
+		// plain path-safe segment so it can never escape the temp fetch dir.
+		if (
+			path.basename(newDir.name) !== newDir.name ||
+			newDir.name === "." ||
+			newDir.name === ".."
+		) {
+			throw new Error("skill not found in fetched source");
+		}
 		const newSkillDir = path.join(fetchedDir, newDir.name);
 
 		const oldVer = getVer(skillPath);
@@ -101,13 +131,16 @@ function updateOne(name) {
 		}
 		// Stage the complete replacement before moving the existing skill aside.
 		// If any swap step fails, restore the previous directory.
+		// Staging/backup dirs live INSIDE STORE_DIR and are keyed on the trusted dir
+		// name (not the frontmatter name) so a malicious name can't point them at a
+		// location outside the store (or write through them into one).
 		const stagedPath = path.join(
 			STORE_DIR,
-			`.${name}.update-${process.pid}-${Date.now()}`,
+			`.${dir}.update-${process.pid}-${Date.now()}`,
 		);
 		const backupPath = path.join(
 			STORE_DIR,
-			`.${name}.backup-${process.pid}-${Date.now()}`,
+			`.${dir}.backup-${process.pid}-${Date.now()}`,
 		);
 		fs.cpSync(newSkillDir, stagedPath, { recursive: true });
 		fs.writeFileSync(path.join(stagedPath, ".source"), source + "\n");

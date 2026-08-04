@@ -6,6 +6,8 @@ import {
 	writeFileSync,
 	readFileSync,
 	existsSync,
+	symlinkSync,
+	readdirSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -86,6 +88,79 @@ test("stageSeeds writes into update-<version>/ without touching real files", asy
 		readFileSync(path.join(home, "agents", "scout.md"), "utf8"),
 		"USER OWNED\n",
 	);
+});
+
+test("stageSeeds rejects a pre-existing update-<version> symlink without writing outside", async (t) => {
+	const seedDir = makeSeedDir();
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-home-symlink-"));
+	const outside = mkdtempSync(path.join(tmpdir(), "agent-seed-outside-symlink-"));
+	writeFileSync(path.join(outside, "victim.txt"), "keep me\n");
+	const link = path.join(home, "update-0.2.0");
+	try {
+		symlinkSync(outside, link, "dir");
+	} catch (e) {
+		if (["EPERM", "EACCES", "ENOTSUP", "UNKNOWN"].includes(e.code)) {
+			t.skip(`dir symlink unsupported here: ${e.code}`);
+			return;
+		}
+		throw e;
+	}
+	// staging must fail cleanly — never write through the link
+	await assert.rejects(
+		seed.stageSeeds({ home, seedDir, version: "0.2.0" }),
+		/symlink|reparse|refus/i,
+	);
+	// outside target untouched: sentinel intact, no seed files written through
+	assert.equal(
+		readFileSync(path.join(outside, "victim.txt"), "utf8"),
+		"keep me\n",
+	);
+	assert.deepEqual(readdirSync(outside).sort(), ["victim.txt"]);
+	assert.equal(existsSync(path.join(outside, "agents")), false);
+	assert.equal(existsSync(path.join(outside, "removed.json")), false);
+});
+
+test("stageSeeds rejects a pre-existing update-<version> junction without writing outside", async (t) => {
+	if (process.platform !== "win32") {
+		t.skip("Windows junctions only exist on Windows");
+		return;
+	}
+	const seedDir = makeSeedDir();
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-home-junction-"));
+	const outside = mkdtempSync(path.join(tmpdir(), "agent-seed-outside-junction-"));
+	writeFileSync(path.join(outside, "victim.txt"), "keep me\n");
+	const link = path.join(home, "update-0.2.0");
+	try {
+		symlinkSync(outside, link, "junction");
+	} catch (e) {
+		if (["EPERM", "EACCES", "ENOTSUP", "UNKNOWN"].includes(e.code)) {
+			t.skip(`junction unsupported here: ${e.code}`);
+			return;
+		}
+		throw e;
+	}
+	await assert.rejects(
+		seed.stageSeeds({ home, seedDir, version: "0.2.0" }),
+		/symlink|reparse|refus/i,
+	);
+	// outside target untouched: sentinel intact, no seed files written through
+	assert.equal(
+		readFileSync(path.join(outside, "victim.txt"), "utf8"),
+		"keep me\n",
+	);
+	assert.deepEqual(readdirSync(outside).sort(), ["victim.txt"]);
+	assert.equal(existsSync(path.join(outside, "agents")), false);
+	assert.equal(existsSync(path.join(outside, "removed.json")), false);
+});
+
+test("stageSeeds still reuses a pre-existing regular update-<version> directory", async () => {
+	const seedDir = makeSeedDir();
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-home-regulardir-"));
+	mkdirSync(path.join(home, "update-0.2.0"), { recursive: true });
+	const r = await seed.stageSeeds({ home, seedDir, version: "0.2.0" });
+	assert.equal(r.version, "0.2.0");
+	assert.ok(existsSync(path.join(home, "update-0.2.0", "agents", "scout.md")));
+	assert.ok(existsSync(path.join(home, "update-0.2.0", "removed.json")));
 });
 
 test("listStagedUpdates discovers staged payloads (newest last)", async () => {

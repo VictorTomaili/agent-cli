@@ -81,10 +81,70 @@ export async function installSeeds({
 	return { installed, skipped };
 }
 
+/** Realpath of `p`, or of its deepest existing ancestor (null at the fs root). */
+async function realpathOfExisting(p) {
+	let cur = p;
+	for (;;) {
+		try {
+			return await fs.realpath(cur);
+		} catch {
+			const parent = path.dirname(cur);
+			if (parent === cur) return null;
+			cur = parent;
+		}
+	}
+}
+
+/** true when `p` is inside `base` (or equal), with path.sep boundaries. */
+function isInside(base, p) {
+	return p === base || p.startsWith(base + path.sep);
+}
+
+/** lstat of `p`, or null when it does not exist. */
+async function lstatIfExists(p) {
+	try {
+		return await fs.lstat(p);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Guard a staging dir against symlink / reparse-point (Windows junction) escapes.
+ * A pre-existing `update-<version>` link would let copyFile/ensureDir write through
+ * to an arbitrary directory, so we reject it instead of writing. Node's lstat
+ * reports Windows junctions as S_IFLNK (mode 0o120000), so isSymbolicLink() covers
+ * both symlinks and junctions; realpath containment is the fallback for platforms
+ * or Node versions where a reparse point reports differently.
+ * Returns null when safe (create/write may proceed), or { ok:false, reason } when
+ * the staging dir must be rejected.
+ */
+async function guardStageDir(home, stageDir) {
+	const st = await lstatIfExists(stageDir);
+	if (st?.isSymbolicLink()) {
+		return {
+			ok: false,
+			reason: `refusing to stage: ${stageDir} already exists as a symlink or reparse point (junction)`,
+		};
+	}
+	// Fallback: the fully-resolved staging dir must stay inside the real home.
+	const realHome = await realpathOfExisting(home);
+	const realStage = await realpathOfExisting(stageDir);
+	if (realStage && realHome && !isInside(realHome, realStage)) {
+		return {
+			ok: false,
+			reason: `refusing to stage: ${stageDir} resolves outside ${home}`,
+		};
+	}
+	return null;
+}
+
 /**
  * Staged upgrade: copy every seed into `home/update-<version>/` for the using-agent
  * to review and migrate. Never touches the real files under `home` (except the new
- * staging dir). Returns { version, path, staged: [rel] }.
+ * staging dir). Rejects a pre-existing `update-<version>` symlink or Windows junction
+ * (or any staging dir whose realpath escapes `home`) with a thrown error rather than
+ * writing through it. Returns { version, path: stageDir, staged: [rel] } on success.
  */
 export async function stageSeeds({
 	home = AGENTS_DIR,
@@ -94,6 +154,8 @@ export async function stageSeeds({
 }) {
 	if (!version) throw new Error("stageSeeds: version is required");
 	const stageDir = path.join(home, `${UPDATE_PREFIX}${version}`);
+	const unsafe = await guardStageDir(home, stageDir);
+	if (unsafe) throw new Error(`stageSeeds: ${unsafe.reason}`);
 	const seeds = await listSeedFiles({ seedDir });
 	const currentFiles = seeds.map(({ rel }) => rel).sort();
 	const removed = previousFiles

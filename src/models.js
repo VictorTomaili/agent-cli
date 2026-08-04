@@ -71,7 +71,7 @@ export function writeModelsMd() {
 	const lines = [
 		"# MODELS.md — model aliases",
 		"",
-		"> Semantic model roles. Each ALIAS is machine-readable XML so agents and tooling can inspect the primary model and ordered fallbacks. The using agent decides when to fail over (API down, rate limit, or usage limit).",
+		"> This file is generated from `config.json` by agent-cli. It stores model aliases and ordered fallback configuration only; agent-cli has no direct LLM integration and does not call models. The host/orchestrator chooses when and how to execute a configured model.",
 		"> Edit with `agent models set <alias> <provider/model> --fallback <provider/model>...`.",
 		"",
 		"## Aliases",

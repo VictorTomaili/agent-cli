@@ -71,7 +71,7 @@ export function writeModelsMd() {
 	const lines = [
 		"# MODELS.md — model aliases",
 		"",
-		"> If a configured model is unavailable in the current host stack, the host/orchestrator must select the best compatible equivalent instead of failing solely because the provider/model ID differs. Preserve the alias category, capability, and fallback intent.",
+		"> When a configured model is unavailable, research the current host/provider model stack, select the best compatible equivalent, and test it with a minimal echo request before assigning it. Preserve the alias category, capability, and fallback intent. agent-cli only stores configuration; it does not perform research, model calls, or capability tests.",
 		"> Edit with `agent models set <alias> <provider/model> --fallback <provider/model>...`.",
 		"",
 		"## Aliases",

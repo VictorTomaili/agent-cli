@@ -12,6 +12,7 @@ import {
 	ensureDir,
 	pretty,
 	HOME,
+	resolveContained,
 } from "./util.js";
 import { FIELD_TAGS, fieldGaps } from "./fields.js";
 
@@ -187,7 +188,17 @@ export async function scaffoldAgent(
 ) {
 	const dir = scope === "project" ? projectAgentsDir(cwd) : GLOBAL_AGENTS_DIR;
 	await ensureDir(dir);
-	const fp = path.join(dir, `${name}.md`);
+	if (
+		typeof name !== "string" ||
+		!name.trim() ||
+		name === "." ||
+		name === ".." ||
+		/[\\/]/.test(name) ||
+		path.isAbsolute(name)
+	)
+		throw new Error("agent name must be a simple filename");
+	const fp = resolveContained(dir, `${name}.md`);
+	if (!fp) throw new Error("agent name must stay inside the agents directory");
 	if (await exists(fp)) return { created: false, path: fp, reason: "exists" };
 	await writeFile(fp, agentTemplate(name));
 	return { created: true, path: fp };

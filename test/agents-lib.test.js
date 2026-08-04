@@ -56,6 +56,14 @@ test("scaffoldAgent + listAgents + validateAgent (project scope, isolated cwd)",
 	assert.ok(v.issues.length > 0);
 });
 
+test("scaffoldAgent rejects traversal names", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-traversal-"));
+	await assert.rejects(
+		() => agents.scaffoldAgent("../../../outside", { scope: "project", cwd }),
+		/agent name must be a simple filename/,
+	);
+});
+
 test("identityInventory runs in project scope", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-inv-"));
 	const inv = await agents.identityInventory({ scope: "project", cwd });

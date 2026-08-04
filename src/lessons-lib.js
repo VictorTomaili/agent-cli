@@ -3,7 +3,14 @@
 
 import path from "node:path";
 import fsp from "node:fs/promises";
-import { exists, readFile, writeFile, ensureDir, HOME } from "./util.js";
+import {
+	exists,
+	readFile,
+	writeFile,
+	ensureDir,
+	HOME,
+	resolveContained,
+} from "./util.js";
 
 export function lessonsRoot(scope = "global", cwd = process.cwd()) {
 	return scope === "project"
@@ -125,7 +132,8 @@ export async function addLesson(
 ) {
 	const root = lessonsRoot(scope, cwd);
 	const clean = relpath.replace(/\.md$/, "").trim() || "untitled";
-	const fp = path.join(root, `${clean}.md`);
+	const fp = resolveContained(root, `${clean}.md`);
+	if (!fp) throw new Error("lesson path must stay inside the lessons directory");
 	const now = new Date().toISOString();
 	if (await exists(fp)) {
 		const { fm, body: oldBody } = parseFM(await readFile(fp));

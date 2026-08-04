@@ -78,6 +78,19 @@ export function resolveScope(rel, scope) {
 	return path.resolve(base, rel);
 }
 
+/** Resolve a user-provided relative path while enforcing a filesystem root. */
+export function resolveContained(root, rel) {
+	if (typeof rel !== "string") return null;
+	const normalized = rel.replace(/\\/g, "/");
+	if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized))
+		return null;
+	const base = path.resolve(root);
+	const candidate = path.resolve(base, normalized);
+	return candidate === base || candidate.startsWith(base + path.sep)
+		? candidate
+		: null;
+}
+
 /** Normalize newlines for stable comparison. */
 export function normalizeEndings(s) {
 	return s.replace(/\r\n/g, "\n");

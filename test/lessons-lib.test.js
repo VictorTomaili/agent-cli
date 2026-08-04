@@ -25,6 +25,14 @@ test("parseFM reads frontmatter", () => {
 	assert.equal(body, "body");
 });
 
+test("addLesson rejects traversal paths", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-ll-traversal-"));
+	await assert.rejects(
+		() => addLesson("../../../outside", { scope: "project", cwd, body: "x" }),
+		/lesson path must stay inside the lessons directory/,
+	);
+});
+
 test("addLesson recurrence increments occurrences", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-ll-"));
 	const r1 = await addLesson("git/x", {

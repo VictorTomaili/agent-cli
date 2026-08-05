@@ -30,5 +30,5 @@ Fix the 5 critical findings from the multi-agent project analysis.
 - [x] Test: interrupted consolidation does not lose lessons (test/consolidate.test.js)
 
 ## Verification
-- `npm test` passes with all existing + new regression tests
-- `npm run check` passes (syntax check all source files)
+- [x] `npm test` passes with all existing + new regression tests (501/501)
+- [x] `npm run check` passes (syntax check all source files)

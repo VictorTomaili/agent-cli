@@ -19,9 +19,9 @@ export function registerTargetCommand(
 ) {
 	program
 		.command("target <action> [id]")
-		.description(
-			"enable|disable a target globally (--project for project scope)",
-		)
+	.description(
+		"Enable or disable an agent target (writes/removes its pointer stub). Action: enable|disable <id>. -g/--global for home scope (default), -p/--project for project scope. Use 'agent targets' to list known ids.",
+	)
 		.option("-g, --global")
 		.option("-p, --project")
 		.action(async (action, id, opts) => {

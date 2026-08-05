@@ -32,7 +32,6 @@ import {
 	listAgents,
 	identityInventory,
 	computeOnboarding,
-	validateAgent,
 } from "../agents-lib.js";
 import { listLessons, inboxLessons, coreFile } from "../lessons-lib.js";
 import { inspectSpect } from "../spect.js";
@@ -50,22 +49,7 @@ function masterPaths(scope = "global", cwd = process.cwd()) {
 	return { masterAbs: MASTER_FILE, masterTilde: pretty(MASTER_FILE) };
 }
 
-/** Mirror of cli.js findUnresolvedModels(). */
-async function findUnresolvedModels(cwd = process.cwd()) {
-	const list = await listAgents({ includeProject: false, cwd });
-	const unresolved = [];
-	for (const a of list) {
-		if (!a.model) continue;
-		const v = await validateAgent(a.path);
-		if (v.warnings && v.warnings.some((w) => w.includes("unresolved")))
-			unresolved.push({
-				name: a.name,
-				model: a.model,
-				guidance: `agent models set ${a.model} <provider/model>`,
-			});
-	}
-	return unresolved;
-}
+import { findUnresolvedModels } from "../agents-lib.js";
 
 /** `agent status` payload. */
 export async function status({ all = false, cwd = process.cwd() } = {}) {

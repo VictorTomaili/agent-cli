@@ -51,6 +51,11 @@ export const IDENTITY_FILES = [
 		file: "ENVIRONMENTS.md",
 		desc: "Execution & connection environments (local, SSH, containers)",
 	},
+	{
+		kind: "models",
+		file: "MODELS.md",
+		desc: "Model aliases + curated catalog (provider/model + category + thinking)",
+	},
 ];
 
 export function identityBase(scope = "global", cwd = process.cwd()) {
@@ -290,6 +295,13 @@ export function isFilled(content, kind) {
 	if (!content || !content.trim()) return false;
 	if (kind && FIELD_TAGS[kind]) return fieldGaps(content, kind).length === 0;
 	if (kind === "environments") return environmentGaps(content).length === 0;
+	if (kind === "models") {
+		// MODELS.md is "filled" when it has at least one <ALIAS ...> entry OR the
+		// curated catalog section is present. The first install creates the file
+		// with a starter catalog, so don't mark it unfilled just because the user
+		// hasn't added aliases yet.
+		return /<ALIAS\s+name=/.test(content) || /##\s+Curated model catalog/.test(content);
+	}
 	const body = content
 		.replace(/<!--[\s\S]*?-->/g, "")
 		.replace(/^---[\s\S]*?---/, "");
@@ -359,9 +371,10 @@ export async function validateAgent(filePath) {
 
 export { pretty };
 
-/** Agents whose frontmatter `model:` is an unresolved alias (validateAgent warning). */
+/** Agents whose frontmatter `model:` is an unresolved alias. Scans both global
+ * and project-scope personas so a brief shows every persona that needs an alias. */
 export async function findUnresolvedModels(cwd = process.cwd()) {
-	const list = await listAgents({ includeProject: false, cwd });
+	const list = await listAgents({ includeProject: true, cwd });
 	const unresolved = [];
 	for (const a of list) {
 		if (!a.model) continue;
@@ -370,7 +383,8 @@ export async function findUnresolvedModels(cwd = process.cwd()) {
 			unresolved.push({
 				name: a.name,
 				model: a.model,
-				guidance: `agent models set ${a.model} <provider/model>`,
+				scope: a.scope || "global",
+				guidance: `agent models set ${a.name} <provider/model>`,
 			});
 	}
 	return unresolved;

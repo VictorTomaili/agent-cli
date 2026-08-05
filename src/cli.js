@@ -1286,8 +1286,6 @@ program
 			emit({ command: "onboard", ...s });
 			if (!JSON_MODE) {
 				log.raw(c.bold(s.question));
-				for (const o of s.options)
-					log.raw(`  ${c.bold(o.key.padEnd(18))} ${o.label}`);
 				log.dim(
 					`Default: ${s.default}. Ask the user, then: agent identity apply <choice>`,
 				);
@@ -1300,7 +1298,7 @@ program
 program
 	.command("models [action] [rest...]")
 	.description(
-		"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | set <alias> <provider/model> [--category c] [--thinking lvl] [--fallback <provider/model>...> ...] | resolve <alias> | write | suggest [--apply] | research [--refresh] | lint | usage | test <alias>. Bundled curated catalog + auto-pick per category.",
+		"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | set <alias> <provider/model> [--category c] [--thinking lvl] [--fallback <provider/model>...] | resolve <alias> | write | suggest [--apply] | research [--refresh] | lint | usage | test <alias>. Bundled curated catalog + auto-pick per category.",
 	)
 	.option("--category <c>", "category for set")
 	.option("--thinking <lvl>", "thinking level for set")
@@ -1408,63 +1406,88 @@ program
 			const unresolved = await findUnresolvedModels();
 			const cfg = await loadConfig();
 			const preferredProviders = cfg.providers || [];
-			// file (the .agents/agents/<name>.md frontmatter / body) and pick a
-			// catalog entry. Falls back to the alias's own category.
 			const agents = await listAgents({ includeProject: true });
 			const personaByName = new Map(agents.map((a) => [a.id, a]));
-			const rows = [];
+			// Group personas that share the same alias (e.g. all 6 reviewers
+			// share 'review-model'); one pick serves them all.
+			const byAlias = new Map();
 			for (const u of unresolved) {
-				let category = null;
-				// If the alias name matches a persona id, prefer that persona's
-				// declared category (from MODELS.md or the persona file frontmatter).
-				const persona = personaByName.get(u.name);
-				if (persona) {
-					const cfgForPersona = m.getAlias(u.name);
-					category = cfgForPersona?.category || null;
-				}
-				// The unresolved `u.model` is a placeholder name like "coding-model";
-				// strip the "-model" suffix to derive a category hint.
+				const arr = byAlias.get(u.model) || [];
+				arr.push(u);
+				byAlias.set(u.model, arr);
+			}
+			const rows = [];
+			const shared = [];
+			for (const [alias, personas] of byAlias) {
+				// Derive a category from the alias name (strip "-model" suffix)
+				// or fall back to the persona's configured category.
+				const hint = String(alias).replace(/-model$/, "").toLowerCase();
+				let category = m.CATEGORIES.includes(hint) ? hint : null;
 				if (!category) {
-					const hint = String(u.model || "").replace(/-model$/, "").toLowerCase();
-					if (m.CATEGORIES.includes(hint)) category = hint;
+					for (const p of personas) {
+						const cfgForPersona = m.getAlias(p.name);
+						if (cfgForPersona?.category) {
+							category = cfgForPersona.category;
+							break;
+						}
+					}
 				}
 				const picked = category ? m.pickForCategory(category, { preferredProviders }) : null;
-				rows.push({
-					name: u.name,
-					model: u.model,
-					category,
-					pick: picked
+				// Personas whose alias name doesn't match a category get a category
+				// hint from the alias shape ("review-model" → try to infer review
+				// or smart category by walking the alias name). If still no match,
+				// fall back to "smart" so at least one model is auto-pickable.
+				const fallbackCategory = !category ? "smart" : null;
+				const finalPick =
+					picked ||
+					(fallbackCategory
+						? m.pickForCategory(fallbackCategory, { preferredProviders })
+						: null);
+				const row = {
+					alias,
+					category: category || fallbackCategory,
+					pick: finalPick
 						? {
-								id: picked.id,
-								provider: picked.provider,
-								thinking: picked.thinking,
-								notes: picked.notes,
+								id: finalPick.id,
+								provider: finalPick.provider,
+								thinking: finalPick.thinking,
+								notes: finalPick.notes,
 							}
 						: null,
-					guidance: picked
-						? `agent models set ${u.name} ${picked.provider}/${picked.id}${picked.thinking ? " --thinking on" : ""}`
-						: u.guidance,
-				});
+					personas: personas.map((p) => ({
+						name: p.name,
+						scope: p.scope,
+					})),
+				};
+				row.guidance = finalPick
+					? `agent models set ${alias} ${finalPick.provider}/${finalPick.id}${finalPick.thinking ? " --thinking on" : ""}  (applies to ${personas.length} persona${personas.length === 1 ? "" : "s"})`
+					: `agent models set ${alias} <provider/model>  (${personas.length} persona${personas.length === 1 ? "" : "s"} share this alias)`;
+				rows.push(row);
+				if (personas.length > 1) shared.push(alias);
 			}
-			emit({ command: "models", action: "suggest", count: rows.length, unresolved: rows });
+			emit({ command: "models", action: "suggest", count: rows.length, unresolved: rows, shared });
 			if (!JSON_MODE) {
 				if (!rows.length) log.success("All model aliases resolve.");
 				else {
 					for (const r of rows) {
+						const personaList =
+							r.personas.length > 1
+								? c.gray(` (${r.personas.length} personas: ${r.personas.map((p) => p.name).join(", ")})`)
+								: "";
 						if (r.pick) {
 							log.raw(
-								`  ${c.bold(r.name.padEnd(14))} ${c.yellow(r.model)} → ${c.green(r.pick.provider + "/" + r.pick.id)} ${r.pick.thinking ? c.gray("(thinking)") : ""}`,
+								`  ${c.bold(r.alias.padEnd(28))} ${c.yellow(r.alias)} → ${c.green(r.pick.provider + "/" + r.pick.id)} ${r.pick.thinking ? c.gray("(thinking)") : ""}${personaList}`,
 							);
 						} else {
 							log.raw(
-								`  ${c.bold(r.name.padEnd(14))} ${c.yellow(r.model)} — ${c.cyan(r.guidance)}`,
+								`  ${c.bold(r.alias.padEnd(28))} ${c.yellow(r.alias)} — ${c.cyan(r.guidance)}${personaList}`,
 							);
 						}
 					}
 					const applyable = rows.filter((r) => r.pick).length;
 					if (applyable > 0) {
 						log.dim(
-							`${applyable} auto-pickable from the bundled catalog. Apply with: agent models suggest --apply (or run 'agent run models:suggest:planner' etc.)`,
+							`${applyable} alias${applyable === 1 ? "" : "es"} auto-pickable from the bundled catalog. Apply with: agent models suggest --apply`,
 						);
 					} else {
 						log.dim("No catalog match — assign manually: agent models set <alias> <provider/model>.");
@@ -1475,12 +1498,16 @@ program
 				const applied = [];
 				for (const r of rows) {
 					if (!r.pick) continue;
-					m.setAlias(r.name, {
+					m.setAlias(r.alias, {
 						model: `${r.pick.provider}/${r.pick.id}`,
 						category: r.category,
 						thinking: r.pick.thinking ? "on" : undefined,
 					});
-					applied.push({ name: r.name, model: `${r.pick.provider}/${r.pick.id}` });
+					applied.push({
+						alias: r.alias,
+						model: `${r.pick.provider}/${r.pick.id}`,
+						personas: r.personas.map((p) => p.name),
+					});
 				}
 				m.writeModelsMd();
 				if (!JSON_MODE) {
@@ -1488,8 +1515,10 @@ program
 						log.success(
 							`Applied ${applied.length} alias${applied.length === 1 ? "" : "es"}:`,
 						);
-					for (const a of applied)
-						log.raw(`  ${c.green("✓")} ${a.name} = ${a.model}`);
+					for (const a of applied) {
+						const personas = a.personas.length > 1 ? c.gray(` (${a.personas.length} personas)`) : "";
+						log.raw(`  ${c.green("✓")} ${a.alias} = ${a.model}${personas}`);
+					}
 				}
 			}
 			return;
@@ -3642,39 +3671,29 @@ program
 				...(spectHeadline ? { spectHeadline } : {}),
 			},
 		};
-		// surface the active session + open handoffs, if any.
-		const sessMod = await import("./session.js");
-		const session = sessMod.currentSession();
-		if (session && !opts.since) out.session = session;
-		if (!opts.since) {
-			const handoffMod = await import("./handoff.js");
-			const openHandoffs = (await handoffMod.listHandoffs({ status: "open" })).length;
-			if (openHandoffs) out.handoffs = { open: openHandoffs };
-		}
-		// --since: unchanged state → no actions (etag cache).
-		if (opts.since && opts.since === etag) {
-			out.actions = [];
-			out.suggestedActions = [];
-			out.unchanged = true;
-		}
-		// --next: highest-priority action only.
-		if (opts.next) out.actions = out.actions.length ? [out.actions[0]] : [];
 		if (opts.oneline) {
-			emit({
-				command: "brief",
-				oneline: true,
-				onelineText: `v${VERSION} ${out.health === "ready" ? "✓" : "!"} ${out.actions.length} action${out.actions.length === 1 ? "" : "s"}${out.drift.length ? ` drift:${out.drift.join(",")}` : ""}`,
-				health: out.health,
-				actions: out.actions.length,
-				drift: out.drift.length,
-			});
+			const onelineText = `v${VERSION} ${out.health === "ready" ? "✓" : "!"} ${out.actions.length} action${out.actions.length === 1 ? "" : "s"}${out.drift.length ? ` drift:${out.drift.join(",")}` : ""}`;
+			// Default: print the plain oneline text to stdout (so shell prompts
+			// can use it via $(agent brief --oneline)). Under --json, emit the
+			// JSON envelope (data.onelineText) and don't pollute stdout.
+			if (JSON_MODE) {
+				emit({
+					command: "brief",
+					oneline: true,
+					onelineText,
+					health: out.health,
+					actions: out.actions.length,
+					drift: out.drift.length,
+				});
+			} else {
+				process.stdout.write(onelineText + "\n");
+			}
 			if (opts.check) process.exit(out.actions.length ? EXIT.WORK : EXIT.OK);
 			return;
 		}
-		emit(out);
-		if (!JSON_MODE) {
-			log.raw(`${c.bold("agent-cli")} ${c.gray("v" + VERSION)} — brief`);
-			if (archetypeNeeded) {
+	emit(out);
+	if (!JSON_MODE) {
+		if (archetypeNeeded) {
 				log.warn("Onboarding needed — ask the user (one question):");
 				log.raw(c.bold(onboarding.question));
 				log.raw(
@@ -3698,10 +3717,12 @@ program
 				log.warn(
 					`Unresolved model alias${unresolvedModels.length > 1 ? "es" : ""}:`,
 				);
-				for (const u of unresolvedModels)
+				for (const u of unresolvedModels) {
+					const scope = u.scope ? c.gray(`[${u.scope}]`) : "";
 					log.raw(
-						`  ${c.bold(u.name)}: ${c.yellow(u.model)} — ${c.cyan(u.guidance)}`,
+						`  ${c.bold(u.name)} ${scope}: ${c.yellow(u.model)} — ${c.cyan(u.guidance)}`,
 					);
+				}
 			}
 			log.kv(
 				"master",

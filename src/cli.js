@@ -1907,27 +1907,40 @@ program
 				? parseInt(opts.threshold, 10)
 				: undefined,
 		});
-		// "nothing to do" is a healthy no-op, not a failure (cron-safe).
-		if (r.ok && r.nothingToDo == null && r.stats)
+	// "nothing to do" is a healthy no-op, not a failure (cron-safe).
+	// Three cases: r.stats is missing (no lessons dir, healthy); r.stats is
+	// present and zero (consolidate ran with nothing to do); r.stats present
+	// and nonzero (real work).
+	if (r.ok) {
+		if (r.stats) {
 			r.nothingToDo =
+				r.nothingToDo == null &&
 				r.stats.promoted === 0 &&
 				r.stats.deleted === 0 &&
 				r.stats.marked === 0;
-		emit({
-			command: "consolidate",
-			...r,
-			...(pre ? { preSnapshot: pre } : {}),
-		});
-		if (!r.ok) {
-			if (JSON_MODE) process.exit(EXIT.ERROR);
-			fail(r.reason);
+		} else {
+			r.nothingToDo = true;
 		}
-		if (!JSON_MODE) {
+	}
+	emit({
+		command: "consolidate",
+		...r,
+		...(pre ? { preSnapshot: pre } : {}),
+	});
+	if (!r.ok) {
+		if (JSON_MODE) process.exit(EXIT.ERROR);
+		fail(r.reason);
+	}
+	if (!JSON_MODE) {
+		if (r.nothingToDo) {
+			log.info(r.reason || "Nothing to consolidate.");
+		} else {
 			const s = r.stats;
 			log.success(
 				`Consolidated (${r.dryRun ? "dry-run" : "applied"}, ${r.scope}): promoted ${c.green(s.promoted)}, pruned ${c.red(s.deleted)}, marked ${c.yellow(s.marked)}, kept ${s.kept}, core ${s.core}`,
 			);
 		}
+	}
 	});
 
 program

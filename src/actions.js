@@ -320,12 +320,39 @@ export function buildActions(s) {
 			a.id.localeCompare(b.id),
 	);
 }
+/** Map (kind, field) gap tuples to actionable 'Run: agent <cmd>' lines so the
+ * brief's human output tells the user exactly which command fills the gap. */
+export function gapFixHints(gapReport) {
+	const out = [];
+	for (const [kind, fields] of Object.entries(gapReport || {})) {
+		for (const f of fields) {
+			if (kind === "identity") {
+				out.push(`agent identity set ${f.replace(/^AGENT_/, "").toLowerCase()} "<value>"`);
+			} else if (kind === "user") {
+				out.push(`agent user set ${f.replace(/^USER_/, "").toLowerCase()} "<value>"`);
+			} else if (kind === "environments") {
+				out.push(`agent env set ${f.replace(/^ENV_LOCAL_/, "").toLowerCase()} "<value>"  (or: agent env capture to auto-detect)`);
+			} else if (kind === "lessons") {
+				out.push(`agent lessons add <topic/descriptive-name> --body "..."  (or just run agents — they capture lessons automatically)`);
+			} else {
+				out.push(`fill ${kind}.${f} in the relevant markdown file`);
+			}
+		}
+	}
+	return out;
+}
 
-/** Compat: legacy free-form suggestedActions strings derived from actions. */
+/** Compat: legacy free-form suggestedActions strings derived from actions.
+ * Always shows the runnable command so a blind user can copy-paste or run
+ * 'agent run <id>'. When the command contains a placeholder (e.g. <provider/model>)
+ * the placeholder is highlighted and the action id is appended for the run path. */
 export function suggestedStrings(actions) {
 	return actions.map((a) => {
 		const joined = a.command === "agent" ? `agent ${a.args.join(" ")}` : `${a.command} ${a.args.join(" ")}`;
-		return a.args.includes("<provider/model>") ? a.reason : joined;
+		const needsInput = a.args.some((x) => /<[^>]+>/.test(String(x)));
+		return needsInput
+			? `${a.reason} → ${joined}  ${a.id ? `(or: agent run ${a.id})` : ""}`
+			: joined;
 	});
 }
 

@@ -18,6 +18,7 @@ import {
 	AGENTS_DIR,
 	exists,
 	readFile,
+	readIfExists,
 	writeFile,
 	resolveContained,
 } from "./util.js";
@@ -413,10 +414,24 @@ program
 		if (!JSON_MODE) {
 		const linked = deploy.filter((d) => d.linked).length;
 		const blocked = deploy.filter((d) => d.blocked);
-		log.info(
-			`Pointers: ${c.green(linked + " linked")}, ${cfg.global.length} global targets enabled`,
-		);
-		if (masterPointer.action === "created") {
+	log.info(
+		`Pointers: ${c.green(linked + " linked")}, ${cfg.global.length} global targets enabled`,
+	);
+	if (cfg.global.length === 0) {
+		const installed = await detectInstalled();
+		const installable = installed.filter((id) => {
+			const t = TARGETS.find((x) => x.id === id);
+			return t && t.global;
+		});
+		if (installable.length) {
+			log.dim(
+				`Detected ${installable.length} installable target(s): ${installable.join(", ")}. Enable with: agent target enable ${installable.slice(0, 3).join(" ")}${installable.length > 3 ? " …" : ""}`,
+			);
+		} else {
+			log.dim(
+				"No targets detected yet. Install a supported agent (claude/codex/gemini/pi/...) and run 'agent init' again, or 'agent target enable <id>' to enable manually.",
+			);
+		}
 			log.success(`Self-pointer stub written: ${c.cyan(pretty(POINTER_MASTER_FILE))}`);
 		} else if (masterPointer.action === "updated") {
 			log.info(`Self-pointer stub refreshed: ${c.cyan(pretty(POINTER_MASTER_FILE))}`);
@@ -1285,7 +1300,7 @@ program
 program
 	.command("models [action] [rest...]")
 	.description(
-		"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | set <alias> <provider/model> [--category c] [--thinking lvl] [--fallback <models...>] | resolve <alias> | write. The using agent chooses mappings; this tool does not seed recommendations.",
+		"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | set <alias> <provider/model> [--category c] [--thinking lvl] [--fallback <provider/model>...> ...] | resolve <alias> | write | suggest [--apply] | research [--refresh] | lint | usage | test <alias>. Bundled curated catalog + auto-pick per category.",
 	)
 	.option("--category <c>", "category for set")
 	.option("--thinking <lvl>", "thinking level for set")
@@ -1293,6 +1308,8 @@ program
 		"--fallback <models...>",
 		"ordered fallback provider/model values for API/rate/usage failures",
 	)
+	.option("--apply", "(suggest) write the auto-picked model for each unresolved alias")
+	.option("--refresh", "(research) rewrite the catalog section in MODELS.md with the bundled baseline")
 	.action(async (action, rest, opts) => {
 		const m = await import("./models.js");
 		action = action || "list";
@@ -1358,20 +1375,121 @@ program
 			if (!JSON_MODE) log.success(`Wrote ${pretty(f)}`);
 			return;
 		}
+		if (action === "research") {
+			// 'research' is the agent-facing entry point: the agent (or human) can
+			// run this to refresh MODELS.md's curated catalog section after a web
+			// investigation. Without --refresh, this is a dry run that reports
+			// what would change.
+			const f = await readIfExists(m.MODELS_MD);
+			const before = f || "";
+			const want = m.catalogMarkdown();
+			const hasCatalog = before.includes("## Curated model catalog");
+			if (!hasCatalog || opts.refresh) {
+				const out = m.writeModelsMd({ includeCatalog: true });
+				emit({ command: "models", action: "research", refreshed: true, file: out });
+				if (!JSON_MODE)
+					log.success(`Refreshed catalog in ${pretty(out)} (${m.CATALOG.length} entries).`);
+			} else {
+				emit({
+					command: "models",
+					action: "research",
+					refreshed: false,
+					count: m.CATALOG.length,
+					diff: "catalog section already present; pass --refresh to overwrite",
+				});
+				if (!JSON_MODE)
+					log.info(
+						`Catalog section already present (${m.CATALOG.length} entries). Pass --refresh to overwrite, or edit the markdown directly to reflect new research.`,
+					);
+			}
+			return;
+		}
 		if (action === "suggest") {
 			const unresolved = await findUnresolvedModels();
-			const rows = unresolved.map((u) => ({
-				name: u.name,
-				model: u.model,
-				suggestion: u.guidance,
-			}));
+			const cfg = await loadConfig();
+			const preferredProviders = cfg.providers || [];
+			// file (the .agents/agents/<name>.md frontmatter / body) and pick a
+			// catalog entry. Falls back to the alias's own category.
+			const agents = await listAgents({ includeProject: true });
+			const personaByName = new Map(agents.map((a) => [a.id, a]));
+			const rows = [];
+			for (const u of unresolved) {
+				let category = null;
+				// If the alias name matches a persona id, prefer that persona's
+				// declared category (from MODELS.md or the persona file frontmatter).
+				const persona = personaByName.get(u.name);
+				if (persona) {
+					const cfgForPersona = m.getAlias(u.name);
+					category = cfgForPersona?.category || null;
+				}
+				// The unresolved `u.model` is a placeholder name like "coding-model";
+				// strip the "-model" suffix to derive a category hint.
+				if (!category) {
+					const hint = String(u.model || "").replace(/-model$/, "").toLowerCase();
+					if (m.CATEGORIES.includes(hint)) category = hint;
+				}
+				const picked = category ? m.pickForCategory(category, { preferredProviders }) : null;
+				rows.push({
+					name: u.name,
+					model: u.model,
+					category,
+					pick: picked
+						? {
+								id: picked.id,
+								provider: picked.provider,
+								thinking: picked.thinking,
+								notes: picked.notes,
+							}
+						: null,
+					guidance: picked
+						? `agent models set ${u.name} ${picked.provider}/${picked.id}${picked.thinking ? " --thinking on" : ""}`
+						: u.guidance,
+				});
+			}
 			emit({ command: "models", action: "suggest", count: rows.length, unresolved: rows });
 			if (!JSON_MODE) {
 				if (!rows.length) log.success("All model aliases resolve.");
 				else {
-					for (const r of rows)
-						log.raw(`  ${c.bold(r.name.padEnd(14))} ${r.model} — ${c.cyan(r.suggestion)}`);
-					log.dim("Confirm provider choices with the user, then run the suggested commands.");
+					for (const r of rows) {
+						if (r.pick) {
+							log.raw(
+								`  ${c.bold(r.name.padEnd(14))} ${c.yellow(r.model)} → ${c.green(r.pick.provider + "/" + r.pick.id)} ${r.pick.thinking ? c.gray("(thinking)") : ""}`,
+							);
+						} else {
+							log.raw(
+								`  ${c.bold(r.name.padEnd(14))} ${c.yellow(r.model)} — ${c.cyan(r.guidance)}`,
+							);
+						}
+					}
+					const applyable = rows.filter((r) => r.pick).length;
+					if (applyable > 0) {
+						log.dim(
+							`${applyable} auto-pickable from the bundled catalog. Apply with: agent models suggest --apply (or run 'agent run models:suggest:planner' etc.)`,
+						);
+					} else {
+						log.dim("No catalog match — assign manually: agent models set <alias> <provider/model>.");
+					}
+				}
+			}
+			if (opts.apply) {
+				const applied = [];
+				for (const r of rows) {
+					if (!r.pick) continue;
+					m.setAlias(r.name, {
+						model: `${r.pick.provider}/${r.pick.id}`,
+						category: r.category,
+						thinking: r.pick.thinking ? "on" : undefined,
+					});
+					applied.push({ name: r.name, model: `${r.pick.provider}/${r.pick.id}` });
+				}
+				m.writeModelsMd();
+				if (!JSON_MODE) {
+					if (applied.length)
+						log.success(
+							`Applied ${applied.length} alias${applied.length === 1 ? "" : "es"}:`,
+						);
+					for (const a of applied)
+						log.raw(`  ${c.green("✓")} ${a.name} = ${a.model}`);
 				}
 			}
 			return;
@@ -3570,8 +3688,11 @@ program
 					.map(([k, v]) => `${k}: ${v.join(", ")}`)
 					.join("; ");
 				log.warn(
-					`Information gap: ${c.yellow(gapStr)} — ask the user, or fill via agent identity/soul/user set <field> <value>.`,
+					`Information gap: ${c.yellow(gapStr)} — fill these (one Run line per field):`,
 				);
+				for (const hint of actMod.gapFixHints(gapReport)) {
+					log.raw(`  ${c.cyan("Run:")} ${hint}`);
+				}
 			}
 			if (unresolvedModels.length) {
 				log.warn(
@@ -4376,13 +4497,15 @@ program.action((opts, cmd) => {
 		return;
 	}
 	log.raw(
-		`${c.bold("agent-cli")} ${c.gray("v" + VERSION)} — one canonical AGENTS.md for every coding agent.`,
+		`${c.bold("agent-cli")} ${c.gray("v" + VERSION)} — one canonical AGENTS.md at ~/AGENTS.md, mirrored to every coding agent.`,
 	);
 	log.raw("");
-	log.raw(`  ${c.cyan("agent init")}    bootstrap ~/.agents + pointers + skills`);
-	log.raw(`  ${c.cyan("agent brief")}   AI session brief (state + next actions)`);
-	log.raw(`  ${c.cyan("agent doctor")}  diagnose health`);
-	log.raw(`  ${c.cyan("agent status")}  per-target pointer state`);
+	log.raw(`  ${c.cyan("agent init")}          bootstrap ~/AGENTS.md + pointers + self-pointer + brief hooks (idempotent)`);
+	log.raw(`  ${c.cyan("agent brief")}         AI session brief — health, gaps, next action (each action is runnable via 'agent run <id>')`);
+	log.raw(`  ${c.cyan("agent doctor")}        diagnose master, pointers, skill-cli, staged updates, npm version`);
+	log.raw(`  ${c.cyan("agent status")}        per-target pointer state and brief-hook health`);
+	log.raw(`  ${c.cyan("agent models")}        list/set/resolve model aliases; MODELS.md is the source of truth`);
+	log.raw(`  ${c.cyan("agent brief-hooks")}   install/uninstall/status SessionStart hooks (auto-runs 'agent brief' per session)`);
 	log.raw("");
 	log.dim(`Run ${c.cyan("agent --help")} for the full command list.`);
 });

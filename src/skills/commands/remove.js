@@ -81,10 +81,19 @@ export function cmdRemove(args) {
 
   let removed = 0
   for (const name of targets) {
-    fs.rmSync(path.join(STORE_DIR, name), { recursive: true, force: true })
-    cleanConfig(name)
-    console.log(c.green('  ✓ ') + c.bold(pad(name)) + c.gray('removed'))
-    removed++
+    // P0-1: delete via the canonical directory entry (entry.dir), never the
+    // frontmatter `name` — a malicious skill could declare `name: ../../victim`
+    // and path.join(STORE_DIR, name) would escape the store.
+    const entry = installed.find(s => s.name === name) || installed.find(s => s.dir === name)
+    const safeDir = entry ? entry.dir : name
+    if (path.resolve(STORE_DIR, safeDir).startsWith(path.resolve(STORE_DIR) + path.sep)) {
+      fs.rmSync(path.join(STORE_DIR, safeDir), { recursive: true, force: true })
+      cleanConfig(name)
+      console.log(c.green('  ✓ ') + c.bold(pad(name)) + c.gray('removed'))
+      removed++
+    } else {
+      console.log(c.yellow('  · ' + pad(name)) + c.yellow('unsafe name — skipped'))
+    }
   }
   console.log()
   console.log(c.green(`✓ ${removed} skill(s) removed`))

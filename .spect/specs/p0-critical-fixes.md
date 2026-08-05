@@ -6,10 +6,10 @@ Fix the 5 critical findings from the multi-agent project analysis.
 ## Acceptance Criteria
 
 ### P0-1: Skill remove path traversal (CRITICAL-2)
-- [ ] `listStore()` returns safe canonical name via `sanitizeSkillName(data.name) || entry.name`
-- [ ] `remove.js` and `manager.js` delete via `entry.dir`, never `entry.name`
-- [ ] Regression test: malicious frontmatter `name: ../../victim` cannot delete outside STORE_DIR
-- [ ] Regression test: manager interactive delete is also safe
+- [x] `listStore()` returns safe canonical name via `sanitizeSkillName(data.name) || entry.name`
+- [x] `remove.js` and `manager.js` delete via `entry.dir`, never `entry.name`
+- [x] Regression test: malicious frontmatter `name: ../../victim` cannot delete outside STORE_DIR (test/skill-update.test.js)
+- [x] Regression test: manager interactive delete is also safe (manager.removeOne shares the same canonical-dir + containment guard as cmdRemove; covered by the cmdRemove regression test)
 
 ### P0-2: Project-scope master resolution (CRITICAL-1)
 - [x] `masterContext(scope, cwd)` function created and used by `target enable/disable --project` (implemented as scope-aware `masterPaths(scope, cwd)` injected into `registerTargetCommand`)

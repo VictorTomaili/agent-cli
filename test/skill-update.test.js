@@ -7,6 +7,7 @@ import {
 	writeFileSync,
 	rmSync,
 	readdirSync,
+	existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,6 +21,7 @@ process.env.SKILL_CLI_HOME = TMP; // paths.js prefers SKILL_CLI_HOME — isolate
 
 const update = await import("../src/skills/commands/update.js");
 const store = await import("../src/skills/lib/store.js");
+const removeCmd = await import("../src/skills/commands/remove.js");
 const paths = await import("../src/skills/lib/paths.js");
 
 const STORE_DIR = paths.STORE_DIR;
@@ -198,6 +200,28 @@ test("up-to-date skill reports current (hash path still works)", () => {
 });
 
 // ---- cmdUpdate failure signaling ---------------------------------------------
+
+test("P0-1: skill remove with a malicious frontmatter name cannot delete outside the store", () => {
+	resetStore();
+	plantVictim();
+	plantSkill("evil-remove", { name: "../../victim", version: "1.0.0", source: "fixture-src" });
+
+	// Removing BY the malicious frontmatter name ('../../victim') must resolve
+	// to the canonical on-disk dir entry and delete only inside the store —
+	// never path.join(STORE_DIR, name) which would escape.
+	const origExit = process.exit;
+	process.exit = () => {};
+	try {
+		removeCmd.cmdRemove(["../../victim", "-y"]);
+	} finally {
+		process.exit = origExit;
+	}
+	assertVictimIntact(); // sentinel outside the store is untouched
+	assert.ok(
+		!existsSync(path.join(STORE_DIR, "evil-remove")),
+		"in-store skill directory removed",
+	);
+});
 
 test("cmdUpdate exits 1 when a skill has a malicious name (nothing escapes)", () => {
 	resetStore();

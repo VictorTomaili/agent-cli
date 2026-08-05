@@ -49,14 +49,19 @@ export function toggleActive(name, cwd = process.cwd()) {
   return wasActive ? (c.gray('· disabled in project: ') + name) : (c.green('✓ enabled in project: ') + name)
 }
 
-function removeOne(name) {
-  fs.rmSync(path.join(STORE_DIR, name), { recursive: true, force: true })
+function removeOne(name, dir) {
+  // P0-1: delete via the canonical directory entry, never the frontmatter name.
+  const safeDir = dir || name
+  if (!path.resolve(STORE_DIR, safeDir).startsWith(path.resolve(STORE_DIR) + path.sep)) {
+    return c.yellow('unsafe name — skipped')
+  }
+  fs.rmSync(path.join(STORE_DIR, safeDir), { recursive: true, force: true })
   cleanConfig(name)
 }
 
 // Bounded view of SKILL.md — the full file can be large and inquirer does not scroll.
 function viewBody(s) {
-  const file = path.join(STORE_DIR, s.name, 'SKILL.md')
+  const file = path.join(STORE_DIR, s.dir || s.name, 'SKILL.md')
   let content
   try { content = fs.readFileSync(file, 'utf8') } catch { return c.gray('  (no SKILL.md)') }
   const lines = content.split(/\r?\n/)
@@ -116,7 +121,7 @@ const managerPrompt = createPrompt((_config, done) => {
     if (mode === 'view') { setMode('list'); return }            // any key → back to list
     if (mode === 'confirm') {
       if (key.name === 'y') {
-        if (s) { removeOne(s.name); setStatus(c.red('✓ removed ') + s.name) }
+        if (s) { removeOne(s.name, s.dir); setStatus(c.red('✓ removed ') + s.name) }
         setMode('list'); setTick(tick + 1)
       } else if (key.name === 'escape' || key.name === 'n' || (key.ctrl && key.name === 'c')) {
         setMode('list'); setStatus(c.gray('cancelled'))

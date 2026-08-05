@@ -82,7 +82,8 @@ test("thin wrappers return CLI-shaped payloads", async () => {
 	assert.equal(api.modelsResolve("definitely-missing"), null);
 	const sk = api.skillStatus();
 	assert.equal(sk.backend, "integrated");
-	assert.equal(sk.source, "integrated");
+	assert.equal(sk.available, true);
+	assert.equal(sk.version, undefined, "no skills version is reported");
 });
 
 test("api masterPaths resolves project vs global masters", () => {

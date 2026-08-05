@@ -1,7 +1,7 @@
 // src/commands/session-core.js — doctor + brief, extracted from cli.js
 // (HIGH-3). Injected deps: { emit, fail, log, c, pretty, EXIT, isJson,
 //   loadConfig, saveConfig, readMaster, detectInstalled, getTarget, classify,
-//   isSkillAvailable, skillVersion, identityInventory, computeOnboarding,
+//   isSkillAvailable, identityInventory, computeOnboarding,
 //   findUnresolvedModels, listAgents, hasAgentCliBlock, isConfigCorrupt,
 //   exists, readFile, path, os, AGENTS_DIR, MASTER_FILE, VERSION, PKG_NAME }.
 
@@ -22,7 +22,6 @@ export function registerSessionCoreCommands(
 		getTarget,
 		classify,
 		isSkillAvailable,
-		skillVersion,
 		identityInventory,
 		computeOnboarding,
 		findUnresolvedModels,
@@ -98,7 +97,7 @@ export function registerSessionCoreCommands(
 			checks.push({
 				check: "skill-available",
 				ok: skillOk,
-				detail: skillVersion().version ?? "none",
+				detail: skillOk ? "integrated" : "none",
 			});
 			if (!skillOk)
 				issues.push("skill-cli unavailable — run `agent skill setup`.");
@@ -332,7 +331,6 @@ export function registerSessionCoreCommands(
 			const cfg = await loadConfig();
 			const masterContent = await readMaster();
 			const installed = await detectInstalled();
-			const skill = skillVersion();
 			const conMod = await import("../consolidate.js");
 			const consG = conMod.assess({ scope: "global", cwd: process.cwd() });
 			const consP = conMod.assess({ scope: "project", cwd: process.cwd() });
@@ -571,8 +569,6 @@ export function registerSessionCoreCommands(
 				drift,
 				skill: {
 					available: isSkillAvailable(),
-					version: skill.version,
-					source: skill.source,
 				},
 				suggestedActions: suggested,
 				consolidation: {
@@ -688,9 +684,7 @@ export function registerSessionCoreCommands(
 				);
 				log.kv(
 					"skill-cli",
-					out.skill.available
-						? c.green("✓") + " " + (out.skill.version ?? "")
-						: c.red("✗"),
+					out.skill.available ? c.green("✓ integrated") : c.red("✗"),
 				);
 				log.kv(
 					"drift",

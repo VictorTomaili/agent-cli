@@ -1,6 +1,6 @@
 // src/commands/skill-cmds.js — skill, extracted from cli.js (HIGH-3).
 // Injected deps: { emit, fail, log, c, isJson, ensureSkillStore,
-//   refreshBlocks, skillVersion, isSkillAvailable, runSkill,
+//   refreshBlocks, isSkillAvailable, runSkill,
 //   serializeEnvelope, envelope, JSON_COMPACT }.
 
 /** Register the skill command. */
@@ -14,7 +14,6 @@ export function registerSkillCommands(
 		isJson,
 		ensureSkillStore,
 		refreshBlocks,
-		skillVersion,
 		isSkillAvailable,
 		runSkill,
 		serializeEnvelope,
@@ -55,15 +54,11 @@ export function registerSkillCommands(
 				return;
 			}
 			if (sub === "status") {
-				const v = skillVersion();
 				emit({
 					command: "skill",
 					sub: "status",
 					available: isSkillAvailable(),
 					backend: "integrated",
-					...v,
-					source: v.source,
-					version: v.version,
 					integrated: isSkillAvailable(),
 				});
 				if (!isJson()) {
@@ -71,8 +66,6 @@ export function registerSkillCommands(
 						"available",
 						isSkillAvailable() ? c.green("yes") : c.red("no"),
 					);
-					log.kv("version", v.version ?? "none");
-					log.kv("source", v.source);
 					log.kv("backend", "integrated");
 				}
 				return;

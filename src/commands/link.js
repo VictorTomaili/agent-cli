@@ -38,7 +38,7 @@ export function registerStatusCommand(
 		TARGETS,
 		loadConfig,
 		readMaster,
-		skillVersion,
+		isSkillAvailable,
 		detectInstalled,
 		isGlobalEnabled,
 		isProjectEnabled,
@@ -62,7 +62,6 @@ export function registerStatusCommand(
 			const showAll = !!opts.all;
 			const cfg = await loadConfig();
 			const masterContent = await readMaster();
-			const skill = skillVersion();
 			const targets = [];
 			for (const t of TARGETS) {
 				const installed = (await detectInstalled()).includes(t.id);
@@ -101,7 +100,10 @@ export function registerStatusCommand(
 					version: cfg.version,
 					corrupt: isConfigCorrupt(cfg) ? true : false,
 				},
-				skill: skill,
+				skill: {
+					available: isSkillAvailable(),
+					backend: "integrated",
+				},
 				targets: visibleTargets,
 				targetCount: targets.length,
 				all: showAll,
@@ -130,7 +132,7 @@ export function registerStatusCommand(
 				);
 				log.kv(
 					"skill-cli",
-					`${skill.version ?? "none"} ${c.gray("(" + skill.source + ")")}`,
+					out.skill.available ? c.green("✓ integrated") : c.red("✗"),
 				);
 				if (out.config.corrupt)
 					log.warn(

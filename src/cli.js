@@ -66,7 +66,6 @@ import {
 import {
 	ensureSkillStore,
 	isSkillAvailable,
-	skillVersion,
 	runSkill,
 } from "./skill.js";
 import { registerTargetCommand } from "./commands/target.js";
@@ -353,7 +352,7 @@ registerStatusCommand(program, {
 	TARGETS,
 	loadConfig,
 	readMaster,
-	skillVersion,
+	isSkillAvailable,
 	detectInstalled,
 	isGlobalEnabled,
 	isProjectEnabled,
@@ -513,7 +512,6 @@ registerSkillCommands(program, {
 	isJson: () => JSON_MODE,
 	ensureSkillStore,
 	refreshBlocks,
-	skillVersion,
 	isSkillAvailable,
 	runSkill,
 	serializeEnvelope,
@@ -534,7 +532,6 @@ registerSessionCoreCommands(program, {
 	getTarget,
 	classify,
 	isSkillAvailable,
-	skillVersion,
 	identityInventory,
 	computeOnboarding,
 	findUnresolvedModels,

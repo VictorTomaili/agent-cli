@@ -4,7 +4,7 @@ import readline from 'node:readline'
 import c from 'picocolors'
 import { STORE_DIR } from '../lib/paths.js'
 import { parseSkillMd } from '../lib/frontmatter.js'
-import { fetchSkillsToTemp } from '../lib/npx.js'
+import { fetchSkillsToTemp } from '../lib/fetch.js'
 import { sanitizeSkillName, guardStoreBase, copySkillIntoStore, readSkillMdBounded } from '../lib/store.js'
 import { writeLock } from './lock.js'
 import { cmdEnable } from './enable.js'
@@ -23,7 +23,7 @@ function resolveSource(source) {
 export function installSource(source) {
 	const resolved = resolveSource(source)
 	console.log(c.cyan('Fetching: ') + resolved)
-	console.log(c.gray('  via npx skills add (temp cwd; agent folders untouched)'))
+	console.log(c.gray('  (native fetch to a temp dir; agent folders untouched)'))
 
 	let tmp, fetchedDir
 	try {

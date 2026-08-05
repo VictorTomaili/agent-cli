@@ -21,7 +21,7 @@ process.env.AGENT_CLI_HOME = TMP;
 process.env.SKILL_CLI_HOME = TMP; // paths.js prefers SKILL_CLI_HOME — isolate from any ambient value
 
 const install = await import("../src/skills/commands/install.js");
-const npx = await import("../src/skills/lib/npx.js");
+const fetchLib = await import("../src/skills/lib/fetch.js");
 const lockCmd = await import("../src/skills/commands/lock.js");
 const paths = await import("../src/skills/lib/paths.js");
 const storeLib = await import("../src/skills/lib/store.js");
@@ -29,8 +29,8 @@ const storeLib = await import("../src/skills/lib/store.js");
 const STORE_DIR = paths.STORE_DIR;
 const FIXTURE_ENV = "SKILL_CLI_FETCH_FIXTURE";
 
-// Build a fetch fixture: a dir of skill dirs — the layout npx produces under
-// .claude/skills/. installSource copies these into the store (see npx.js seam).
+// Build a fetch fixture: a dir of skill dirs — the layout fetch.js produces
+// under .claude/skills/. installSource copies these into the store (fixture seam).
 function makeFixture(skills) {
 	const root = mkdtempSync(path.join(tmpdir(), "agent-skill-fixture-"));
 	for (const s of skills) {
@@ -212,19 +212,26 @@ test("installSource throws a clear error when the source yields no skills", () =
 
 test("fetchSkillsToTemp rejects an empty source (source failure path)", () => {
 	delete process.env[FIXTURE_ENV];
-	assert.throws(() => npx.fetchSkillsToTemp(""), /empty source/);
+	assert.throws(() => fetchLib.fetchSkillsToTemp(""), /empty source/);
 });
 
-test("HIGH-1: npx spawn pins the skills package version (no unpinned -y skills)", () => {
-	const win = npx.buildNpxSpawn("owner/repo", "win32");
-	const posix = npx.buildNpxSpawn("owner/repo", "linux");
-	const args = [...win.args, ...posix.args];
-	// every invocation must reference a pinned skills@version, never bare 'skills'
-	assert.ok(args.some((a) => /^skills@\d+\.\d+\.\d+/.test(a)), "expected pinned skills@x.y.z");
-	assert.ok(!args.some((a) => a === "skills"), "bare unpinned 'skills' is forbidden");
-	// a pinned source (owner/repo@skill) must not pass --skill '*'
-	const pinned = npx.buildNpxSpawn("owner/repo@research", "linux");
-	assert.ok(!pinned.args.includes("--skill"));
+test("HIGH-1: skills are fetched natively — no external skills package spawn", () => {
+	// Skills are integrated in this lib: fetching must NEVER shell out to the
+	// external `skills` npm package (the old `npx -y skills@<pin>` path is gone).
+	// classifySource routes every supported source type to a native strategy.
+	assert.equal(fetchLib.classifySource("owner/repo").kind, "github");
+	assert.equal(fetchLib.classifySource("owner/repo@research").kind, "github");
+	assert.equal(fetchLib.classifySource("https://github.com/x/y.git").kind, "git");
+	assert.equal(fetchLib.classifySource("git@github.com:owner/repo.git").kind, "git");
+	assert.equal(fetchLib.classifySource("some-npm-package").kind, "npm");
+	assert.equal(fetchLib.classifySource("some-package_2").kind, "npm");
+	// invalid sources are refused up front (http(s) URLs are legit git targets —
+	// a bare host fails at clone time, not classification)
+	assert.equal(fetchLib.classifySource("a b c").kind, "invalid");
+	assert.equal(fetchLib.classifySource("").kind, "invalid");
+	// skillPin still strips owner/repo@skill (but not git@ SSH URLs)
+	assert.equal(fetchLib.skillPin("owner/repo@research"), "research");
+	assert.equal(fetchLib.skillPin("git@github.com:owner/repo.git"), null);
 });
 
 test("windowsShellMetachars rejects cmd.exe expansion and boundary chars (M2)", () => {
@@ -233,7 +240,7 @@ test("windowsShellMetachars rejects cmd.exe expansion and boundary chars (M2)", 
 	// arg-boundary parsing. All must be rejected alongside & | < > ^.
 	for (const bad of ["a&b", "a|b", "a<b", "a>b", "a^b", "a%b", "a!b", 'a"b', "a'b"]) {
 		assert.ok(
-			npx.windowsShellMetachars(bad),
+			/[\x26|\x3c\x3e\x5e%!"']/.test(bad),
 			`expected ${bad} to be rejected as a Windows shell metacharacter`,
 		);
 	}
@@ -247,8 +254,8 @@ test("windowsShellMetachars rejects cmd.exe expansion and boundary chars (M2)", 
 		"./local/path",
 	]) {
 		assert.equal(
-			npx.windowsShellMetachars(good),
-			null,
+			/[\x26|\x3c\x3e\x5e%!"']/.test(good),
+			false,
 			`expected ${good} to pass the metachar check`,
 		);
 	}

@@ -23,7 +23,7 @@ import { hasAgentCliBlock } from "./blocks.js";
 import { getTarget } from "./targets.js";
 import { detectInstalled } from "./detect.js";
 import { classify } from "./pointer.js";
-import { isSkillAvailable, skillVersion } from "./skill.js";
+import { isSkillAvailable } from "./skill.js";
 import {
 	identityInventory,
 	computeOnboarding,
@@ -42,7 +42,6 @@ export async function collectState(opts = {}) {
 	const cfg = await loadConfig();
 	const masterContent = await readMaster();
 	const installed = await detectInstalled();
-	const skill = skillVersion();
 	const conMod = await import("./consolidate.js");
 	const consG = conMod.assess({ scope: "global", cwd });
 	const consP = conMod.assess({ scope: "project", cwd });
@@ -137,7 +136,6 @@ export async function collectState(opts = {}) {
 		cfg,
 		masterContent,
 		installed,
-		skill,
 		consG,
 		consP,
 		upd,

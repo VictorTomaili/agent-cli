@@ -13,7 +13,7 @@ import {
 	MAX_WALK_DEPTH,
 	MAX_WALK_ENTRIES,
 } from "../lib/store.js";
-import { fetchSkillsToTemp } from "../lib/npx.js";
+import { fetchSkillsToTemp } from "../lib/fetch.js";
 import { pad } from "../lib/format.js";
 
 // Re-fetch each skill from its recorded source and update the store if changed.

@@ -195,12 +195,14 @@ test("identity apply + set round-trip clears the identity gap", () => {
 	assert.deepEqual(j.data.onboarding.gaps.identity || [], []);
 });
 
-test("skill status reports the integrated backend", () => {
+test("skill status reports the integrated backend (no skills version)", () => {
 	const r = run(["skill", "status", "--json"]);
 	ok(r);
 	const j = parseJson(r.stdout);
 	assert.equal(j.data.backend, "integrated");
-	assert.equal(j.data.source, "integrated");
+	assert.equal(j.data.available, true);
+	assert.equal(j.data.version, undefined, "skills version is not reported");
+	assert.equal(j.data.source, undefined, "skills source is not reported");
 	assert.equal(j.data.globalBin, undefined);
 });
 

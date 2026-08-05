@@ -28,7 +28,7 @@ import { hasAgentCliBlock } from "../blocks.js";
 import { TARGETS, pathFor } from "../targets.js";
 import { detectInstalled } from "../detect.js";
 import { classify } from "../pointer.js";
-import { skillVersion, isSkillAvailable } from "../skill.js";
+import { isSkillAvailable } from "../skill.js";
 import {
 	listAgents,
 	identityInventory,
@@ -56,7 +56,6 @@ import { findUnresolvedModels } from "../agents-lib.js";
 export async function status({ all = false, cwd = process.cwd() } = {}) {
 	const cfg = await loadConfig();
 	const masterContent = await readMaster();
-	const skill = skillVersion();
 	const targets = [];
 	for (const t of TARGETS) {
 		const installed = (await detectInstalled()).includes(t.id);
@@ -94,7 +93,10 @@ export async function status({ all = false, cwd = process.cwd() } = {}) {
 			version: cfg.version,
 			corrupt: isConfigCorrupt(cfg) ? true : false,
 		},
-		skill: skill,
+		skill: {
+			available: isSkillAvailable(),
+			backend: "integrated",
+		},
 		targets: visibleTargets,
 		targetCount: targets.length,
 		all,
@@ -159,7 +161,7 @@ export async function doctor({ cwd = process.cwd() } = {}) {
 	checks.push({
 		check: "skill-available",
 		ok: skillOk,
-		detail: skillVersion().version ?? "none",
+		detail: skillOk ? "integrated" : "none",
 	});
 	if (!skillOk) issues.push("skill-cli unavailable — run `agent skill setup`.");
 
@@ -346,8 +348,6 @@ export async function brief({ cwd = process.cwd() } = {}) {
 		drift: s.drift,
 		skill: {
 			available: isSkillAvailable(),
-			version: s.skill.version,
-			source: s.skill.source,
 		},
 		consolidation: {
 			global: {
@@ -426,7 +426,6 @@ export function skillStatus() {
 	return {
 		available: isSkillAvailable(),
 		backend: "integrated",
-		...skillVersion(),
 	};
 }
 

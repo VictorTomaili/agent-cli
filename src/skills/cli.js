@@ -32,7 +32,7 @@ ${c.bold('Setup')}
 	${c.cyan('skill init')}                 create skill.config for this project
 
 ${c.bold('Acquire skills')}
-	${c.cyan('skill install')} ${c.gray('<source>')}    fetch to store via npx skills (agent dirs untouched)
+	${c.cyan('skill install')} ${c.gray('<source>')}    fetch to store natively (agent dirs untouched)
 	${c.cyan('skill search')}                  interactive search & multi-install (TTY only)
 
 ${c.bold('Activation')}

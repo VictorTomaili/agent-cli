@@ -2,8 +2,7 @@
 // Stored in config.json `models.aliases` (machine) + MODELS.md (human-readable).
 
 import path from "node:path";
-import fs from "node:fs";
-import { HOME } from "./util.js";
+import { HOME, writeFileSync } from "./util.js";
 import {
 	loadConfigSync,
 	saveConfigSync,
@@ -39,22 +38,8 @@ function readConfig() {
 	return cfg;
 }
 
-function atomicWriteSync(file, content) {
-	fs.mkdirSync(path.dirname(file), { recursive: true });
-	const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-	try {
-		fs.writeFileSync(tmp, content, "utf8");
-		try {
-			fs.renameSync(tmp, file);
-		} catch (error) {
-			if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error.code)) throw error;
-			fs.rmSync(file, { force: true });
-			fs.renameSync(tmp, file);
-		}
-	} finally {
-		fs.rmSync(tmp, { force: true });
-	}
-}
+// HIGH-6: writeModelsMd uses the shared util.writeFileSync (temp + rename +
+// random suffix) instead of a drifted per-module duplicate.
 export function getAliases() {
 	let cfg;
 	try {
@@ -126,7 +111,7 @@ export function writeModelsMd({ includeCatalog = true } = {}) {
 	if (includeCatalog) {
 		lines.push(catalogMarkdown());
 	}
-	atomicWriteSync(MODELS_MD, lines.join("\n"));
+	writeFileSync(MODELS_MD, lines.join("\n"));
 	return MODELS_MD;
 }
 

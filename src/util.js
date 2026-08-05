@@ -80,6 +80,26 @@ export async function ensureDir(p) {
 	await fsp.mkdir(p, { recursive: true });
 }
 
+/** Sync atomic write (temp + rename, random suffix) — single source of truth
+ *  for modules that cannot await (models.js). HIGH-6: replaces the per-module
+ *  duplicates that drifted (e.g. models.js lacked the random suffix). */
+export function writeFileSync(p, content) {
+	fs.mkdirSync(path.dirname(p), { recursive: true });
+	const tmp = `${p}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+	try {
+		fs.writeFileSync(tmp, content, "utf8");
+		try {
+			fs.renameSync(tmp, p);
+		} catch (error) {
+			if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error.code)) throw error;
+			fs.rmSync(p, { force: true });
+			fs.renameSync(tmp, p);
+		}
+	} finally {
+		fs.rmSync(tmp, { force: true });
+	}
+}
+
 export async function readIfExists(p) {
 	if (await exists(p)) return readFile(p);
 	return null;

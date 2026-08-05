@@ -365,8 +365,6 @@ export function registerSessionCoreCommands(
 						})
 					: null;
 			const modelsMod = await import("../models.js");
-			const modelsMdPath = modelsMod.MODELS_MD;
-			const modelsMdExists = await exists(modelsMdPath);
 			const spectMod = await import("../spect.js");
 			const spect = await spectMod.inspectSpect(process.cwd());
 			const spectHeadline =

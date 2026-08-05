@@ -371,10 +371,13 @@ program
 		// 5. deploy self-pointer stub (idempotent; re-creates ~/.agents/AGENTS.md
 		//    if missing or stale so agent-cli is the only writer of that path).
 		const mTildeForPointer = ctxPaths().masterTilde;
+		// After a migration the old ~/.agents/AGENTS.md holds the adopted master
+		// content — it must become the self-pointer stub unconditionally.
+		const forcePointer = !!opts.force || master.action === "migrated";
 		const masterPointer = await ensureMasterPointer({
 			masterAbs: MASTER_FILE,
 			masterTilde: mTildeForPointer,
-			force: !!opts.force,
+			force: forcePointer,
 		});
 		result.steps.masterPointer = masterPointer;
 

@@ -1211,6 +1211,26 @@ test("whoami reports identity + gaps via the CLI", () => {
 	assert.equal(r.data.identity, "Marvin");
 });
 
+test("init migrates an existing ~/.agents/AGENTS.md master to ~/AGENTS.md", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-migrate-"));
+	mkdirSync(path.join(home, ".agents"), { recursive: true });
+	// OLD layout: real master at ~/.agents/AGENTS.md, pointer stub at ~/AGENTS.md
+	const oldMaster =
+		"# OLD MASTER content\n\n## Real user content\n\n" +
+		"padding padding padding padding padding padding padding padding padding padding\n";
+	writeFileSync(path.join(home, ".agents", "AGENTS.md"), oldMaster);
+	writeFileSync(
+		path.join(home, "AGENTS.md"),
+		"<!-- agent-cli-pointer -->\n<!-- target: claude -->\n\n# stub\n",
+	);
+	ok(run(["init", "--json"], { envHome: home }));
+	// master moved to ~/AGENTS.md with the old content preserved
+	assert.match(readFileSync(path.join(home, "AGENTS.md"), "utf8"), /OLD MASTER content/);
+	// old location is now the agent-cli self-pointer stub
+	const stub = readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8");
+	assert.match(stub, /agent-cli-master-pointer/);
+});
+
 test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss", async () => {
 	const home = run(["init"]).home;
 	const ids = ["claude", "codex", "pi", "gemini", "qwen", "cline"];

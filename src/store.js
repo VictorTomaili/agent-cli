@@ -103,6 +103,23 @@ export async function ensureMaster() {
 		// Guard: never inject blocks into an empty/corrupt master — that would wipe it
 		// to blocks-only. A real master always has headings + substance.
 		if (!c || c.trim().length < 200 || !c.includes("## ")) {
+			// MIGRATION: ~/AGENTS.md holds only a pointer stub (the pre-0.3
+			// layout), while the real master content still lives at
+			// ~/.agents/AGENTS.md. Adopt the old master so upgrading an existing
+			// install never strands the user's content.
+			const old = await readIfExists(POINTER_MASTER_FILE);
+			// Adopt only if the old file looks like a REAL master (headings +
+			// substance), never a pointer stub or an empty template.
+			if (old && old.trim().length >= 40 && old.includes("## ")) {
+				const merged = ensureBlocks(old);
+				await writeMaster(merged);
+				return {
+					action: "migrated",
+					seed: ".agents/AGENTS.md",
+					changed: true,
+					from: POINTER_MASTER_FILE,
+				};
+			}
 			return {
 				action: "exists",
 				seed: null,

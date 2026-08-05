@@ -1227,6 +1227,7 @@ program
 				id.idFile(scope, cwd),
 				section,
 				val.join(" "),
+				{ scope, cwd },
 			);
 			emit({ command: "identity", action, file: f });
 			if (!JSON_MODE) log.success(`Updated ${pretty(f)}`);
@@ -1291,6 +1292,7 @@ program
 				id.soulFile(scope, cwd),
 				section,
 				val.join(" "),
+				{ scope, cwd },
 			);
 			emit({ command: "soul", action, file: f });
 			if (!JSON_MODE) log.success(`Updated ${pretty(f)}`);
@@ -1334,7 +1336,7 @@ program
 			if (!section) {
 				fail("Usage: agent user set <field> <value...>");
 			}
-			const f = await id.setSection(file, section, val.join(" "));
+			const f = await id.setSection(file, section, val.join(" "), { scope, cwd });
 			emit({ command: "user", action, file: f });
 			if (!JSON_MODE) log.success(`Updated ${pretty(f)}`);
 			return;

@@ -6,6 +6,7 @@ import {
 	writeFileSync,
 	existsSync,
 	mkdirSync,
+	symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -84,4 +85,16 @@ test("onboardSuggest returns question + options + souls + default", () => {
 test("idFile / soulFile resolve under HOME for global scope", () => {
 	assert.equal(id.idFile("global"), path.join(TMP, ".agents", "IDENTITY.md"));
 	assert.equal(id.soulFile("global"), path.join(TMP, ".agents", "SOUL.md"));
+});
+
+test("GAP-4: applyIdentity refuses a symlinked .agents that escapes the scope", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-identity-escape-"));
+	const outside = mkdtempSync(path.join(tmpdir(), "agent-identity-outside-"));
+	symlinkSync(outside, path.join(cwd, ".agents"));
+	await assert.rejects(
+		() => id.applyIdentity("coding", { scope: "project", cwd }),
+		/refusing to write outside/,
+	);
+	// nothing was written outside the project root
+	assert.equal(existsSync(path.join(outside, "IDENTITY.md")), false);
 });

@@ -1,6 +1,7 @@
 // src/identity.js — apply identity/soul archetypes; set sections; onboard suggestions.
 
 import path from "node:path";
+import fsp from "node:fs/promises";
 import { exists, readFile, writeFile, HOME } from "./util.js";
 import {
 	IDENTITIES,
@@ -30,6 +31,7 @@ export async function applyIdentity(
 	{ scope = "global", cwd = process.cwd() } = {},
 ) {
 	const fp = idFile(scope, cwd);
+	await guardScope(fp, scope, cwd);
 	// Preserve a user-set <AGENT_NAME> across re-applies — the archetype template
 	// always emits an empty name, so a plain overwrite would clobber it (G6).
 	let existingName = null;
@@ -54,6 +56,7 @@ export async function applySoul(
 	{ scope = "global", cwd = process.cwd() } = {},
 ) {
 	const fp = soulFile(scope, cwd);
+	await guardScope(fp, scope, cwd);
 	await writeFile(fp, soulContent(key));
 	return { file: fp, soul: key };
 }
@@ -76,9 +79,59 @@ export function onboardSuggest() {
 	};
 }
 
+/**
+ * GAP-4: verify `file` resolves under the scope base (`.agents` dir for the
+ * given scope). A symlinked .agents or a caller-supplied path must never let
+ * identity writes escape. Resolves the nearest existing ancestor when the file
+ * doesn't exist yet (same pattern as spect.js containedIn).
+ */
+async function containedInScope(baseDir, file) {
+	// Base absent (fresh install): nothing to symlink yet — trivially safe,
+	// the write creates the dir. Base present: must be a real (non-symlink)
+	// dir and the file must resolve under the base's REAL path.
+	let baseReal;
+	try {
+		baseReal = await fsp.realpath(baseDir);
+	} catch {
+		return true; // base doesn't exist yet
+	}
+	try {
+		const baseLstat = await fsp.lstat(baseDir);
+		if (baseLstat.isSymbolicLink()) return false;
+	} catch {
+		return false;
+	}
+	const sep = path.sep;
+	let probe = file;
+	for (;;) {
+		try {
+			const candReal = await fsp.realpath(probe);
+			return (
+				candReal === baseReal ||
+				candReal.startsWith(baseReal + sep)
+			);
+		} catch {
+			const parent = path.dirname(probe);
+			if (parent === probe) return false;
+			probe = parent;
+		}
+	}
+}
+
+async function guardScope(file, scope, cwd) {
+	if (!(await containedInScope(base(scope, cwd), file))) {
+		const err = new Error(
+			`refusing to write outside the ${scope} scope (${file})`,
+		);
+		err.code = "ESCAPE";
+		throw err;
+	}
+}
+
 /** Set a field by name: tag-aware for identity/soul/user (sets <TAG>…</TAG>);
  *  falls back to replacing/inserting a ## <section> for other files. */
-export async function setSection(file, section, body) {
+export async function setSection(file, section, body, { scope = "global", cwd = process.cwd() } = {}) {
+	await guardScope(file, scope, cwd);
 	let content = (await exists(file)) ? await readFile(file) : `# ${section}\n`;
 	const kind = kindForFile(path.basename(file));
 	const field = kind ? resolveField(kind, section) : null;

@@ -150,6 +150,33 @@ test("HIGH-1: npx spawn pins the skills package version (no unpinned -y skills)"
 	assert.ok(!pinned.args.includes("--skill"));
 });
 
+test("windowsShellMetachars rejects cmd.exe expansion and boundary chars (M2)", () => {
+	// M2: % and ! are cmd.exe (delayed) expansion markers — %PATH% could expand
+	// to a string carrying metacharacters AFTER a pre-check; quotes break cmd's
+	// arg-boundary parsing. All must be rejected alongside & | < > ^.
+	for (const bad of ["a&b", "a|b", "a<b", "a>b", "a^b", "a%b", "a!b", 'a"b', "a'b"]) {
+		assert.ok(
+			npx.windowsShellMetachars(bad),
+			`expected ${bad} to be rejected as a Windows shell metacharacter`,
+		);
+	}
+	// Real sources never contain these: owner/repo, URLs, git URLs, npm names.
+	for (const good of [
+		"owner/repo",
+		"owner/repo@research",
+		"https://github.com/x/y",
+		"git@github.com:owner/repo.git",
+		"some-npm-package",
+		"./local/path",
+	]) {
+		assert.equal(
+			npx.windowsShellMetachars(good),
+			null,
+			`expected ${good} to pass the metachar check`,
+		);
+	}
+});
+
 test("skill provenance lists source/revision/hash for locked skills", () => {
 	const { writeLock, readLock } = lockCmd;
 	// write a lock into the isolated store for the fixture skill

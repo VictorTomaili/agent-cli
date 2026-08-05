@@ -15,6 +15,32 @@ import { targetsWithScope } from "./targets.js";
 export const CONFIG_VERSION = 2;
 const CONFIG_CORRUPT = Symbol("configCorrupt");
 
+/** M9: serialize a config object the way it lands on disk (pretty + newline). */
+function serialize(cfg) {
+	return JSON.stringify(cfg, null, 2) + "\n";
+}
+
+/**
+ * M9: drop the `updatedAt` field from a serialized config so two writes that
+ * differ only in the timestamp compare equal. Accepts a JSON string or object.
+ */
+function stripUpdatedAt(jsonOrObj) {
+	if (typeof jsonOrObj === "string") {
+		try {
+			const parsed = JSON.parse(jsonOrObj);
+			if (parsed && typeof parsed === "object") {
+				const { updatedAt, ...rest } = parsed;
+				return serialize(rest);
+			}
+		} catch {
+			/* fall through to raw string */
+		}
+		return jsonOrObj;
+	}
+	const { updatedAt, ...rest } = jsonOrObj;
+	return serialize(rest);
+}
+
 function isStringArray(v) {
 	return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
@@ -180,8 +206,6 @@ export function mutateConfigSync(mutator, { retries = 8 } = {}) {
 		const next = { ...defaultConfig(), ...base };
 		mutator(next);
 		next.version = CONFIG_VERSION;
-		next.updatedAt = new Date().toISOString();
-		fs.mkdirSync(AGENTS_DIR, { recursive: true });
 
 		// Compare-and-swap: only commit if the file still matches the raw bytes
 		// we based the mutation on. A concurrent writer between read and rename
@@ -199,6 +223,14 @@ export function mutateConfigSync(mutator, { retries = 8 } = {}) {
 			continue;
 		}
 
+		// M9: byte-idempotency — a no-op mutation (e.g. `target enable` on an
+		// already-enabled id, or re-running init) must not rewrite the file or
+		// churn `updatedAt`, so repeated runs stay byte-identical and the synced
+		// brain stays clean. Compare substantive fields only.
+		if (raw != null && stripUpdatedAt(raw) === stripUpdatedAt(serialize(next))) {
+			return next;
+		}
+		next.updatedAt = new Date().toISOString();
 		writeFileSync(CONFIG_FILE, JSON.stringify(next, null, 2) + "\n");
 		return next;
 		}
@@ -211,6 +243,10 @@ export async function saveConfig(cfg) {
 			"config.json is corrupt; repair or remove it before changing settings",
 		);
 	cfg.version = CONFIG_VERSION;
+	// M9: skip the write when the substantive config is unchanged (compare
+	// without updatedAt) so repeated saves are byte-idempotent.
+	const live = await readIfExists(CONFIG_FILE);
+	if (live != null && stripUpdatedAt(live) === stripUpdatedAt(cfg)) return;
 	cfg.updatedAt = new Date().toISOString();
 	await ensureDir(AGENTS_DIR);
 	await writeFile(CONFIG_FILE, JSON.stringify(cfg, null, 2) + "\n");
@@ -223,6 +259,14 @@ export function saveConfigSync(cfg) {
 			"config.json is corrupt; repair or remove it before changing settings",
 		);
 	cfg.version = CONFIG_VERSION;
+	// M9: byte-idempotency (see saveConfig).
+	let live = null;
+	try {
+		live = fs.readFileSync(CONFIG_FILE, "utf8");
+	} catch {
+		/* file absent */
+	}
+	if (live != null && stripUpdatedAt(live) === stripUpdatedAt(cfg)) return;
 	cfg.updatedAt = new Date().toISOString();
 	writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2) + "\n");
 }

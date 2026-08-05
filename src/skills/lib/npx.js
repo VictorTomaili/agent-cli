@@ -43,6 +43,16 @@ export function skillPin(source) {
 // Verified against `npm view skills versions` (latest = 1.5.22).
 export const SKILLS_PACKAGE = 'skills@1.5.22'
 
+// B5/M2: cmd.exe parses shell metacharacters even when we spawn with shell:false
+// (cmd.exe IS a shell). `%`/`!` are (delayed) expansion markers — %PATH% could
+// expand to a string carrying metacharacters AFTER a pre-check, and quotes can
+// break cmd's arg-boundary parsing. Real sources (owner/repo, URL, git URL, npm
+// name, local path) never contain any of these. Pure + exported so the rejection
+// is unit-testable on every host, not just win32.
+export function windowsShellMetachars(safe) {
+  return /[&|<>^%!"']/.exec(safe)
+}
+
 export function buildNpxSpawn(source, platform = process.platform) {
   // pinned source (owner/repo@skill) → let the @pin select the skill (passing
   // --skill '*' here would override it and grab the whole repo). Otherwise fetch all.
@@ -66,12 +76,14 @@ export function fetchSkillsToTemp(source) {
   const safe = String(source ?? '').trim()
   if (!safe) throw new Error('empty source')
   if (/[\r\n]/.test(safe)) throw new Error('source must be a single line')
-  // B5: defense-in-depth on Windows. The source reaches `cmd.exe /c npx … <source>`;
+  // B5/M2: defense-in-depth on Windows. The source reaches `cmd.exe /c npx … <source>`;
   // cmd.exe parses shell metacharacters even though we spawn with shell:false
   // (cmd.exe IS a shell). Real sources (owner/repo, URL, git URL, npm name, local
   // path) never contain these, so reject loudly rather than risk cmd interpreting.
-  if (process.platform === 'win32' && /[&|<>^]/.test(safe)) {
-    throw new Error('source contains Windows shell metacharacters (& | < > ^) — use a path/URL without them')
+  if (process.platform === 'win32' && windowsShellMetachars(safe)) {
+    throw new Error(
+      "source contains Windows shell metacharacters (& | < > ^ % ! \" ') — use a path/URL without them",
+    )
   }
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-cli-'))

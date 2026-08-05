@@ -95,6 +95,27 @@ test("saveConfig ensures dir, stamps version+updatedAt, and roundtrips", async (
 	assert.equal(loaded.version, config.CONFIG_VERSION);
 });
 
+test("M9: saveConfig of an unchanged config is byte-idempotent (no updatedAt churn)", async () => {
+	const c = config.defaultConfig();
+	c.global = ["codex"];
+	await config.saveConfig(c);
+	const fp = path.join(TMP, ".agents", "config.json");
+	const first = readFileSync(fp, "utf8");
+	// Re-saving the SAME substantive config (only updatedAt would differ)
+	// must not rewrite the file at all.
+	const again = await config.loadConfig();
+	await config.saveConfig(again);
+	const second = readFileSync(fp, "utf8");
+	assert.equal(first, second, "unchanged config must not be rewritten");
+	// A real mutation still writes and stamps updatedAt.
+	again.global = ["codex", "claude"];
+	await config.saveConfig(again);
+	const third = readFileSync(fp, "utf8");
+	assert.notEqual(first, third, "a real change must rewrite the file");
+	const loaded = JSON.parse(third);
+	assert.ok(loaded.updatedAt);
+});
+
 test("enableProject/disableProject mutate the project array idempotently", () => {
 	const c = config.defaultConfig();
 	config.enableProject(c, "cursor");

@@ -615,6 +615,19 @@ test("commander parse errors honor --json", () => {
 	const j = parseJson(r.stdout);
 	assert.equal(j.ok, false);
 	assert.ok(j.error);
+	// M10: missing required argument and unknown option must also emit a
+	// JSON envelope on stdout (never leak plain commander text to stderr).
+	for (const args of [
+		["handoff", "--json"], // missing <action>
+		["brief", "--bogus", "--json"], // unknown option
+	]) {
+		const rr = run(args);
+		bad(rr);
+		assert.equal(rr.stderr.trim(), "", `stderr should be clean for ${args}`);
+		const jj = parseJson(rr.stdout);
+		assert.equal(jj.ok, false);
+		assert.ok(jj.error);
+	}
 });
 
 test("edit --print-path --json emits exactly one JSON value and creates no file", () => {

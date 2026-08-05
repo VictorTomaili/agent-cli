@@ -271,3 +271,24 @@ test("applyStaged rejects an unknown version", async () => {
 	assert.equal(r.ok, false);
 	assert.match(r.reason, /no staged update/);
 });
+
+test("GAP-5: a malicious ../ rel cannot escape the home via readStagedFile/applyStaged", async () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-escape-"));
+	const outside = mkdtempSync(path.join(tmpdir(), "agent-seed-outside-"));
+	// plant a staged payload dir
+	const stageDir = path.join(home, "update-0.2.0");
+	mkdirSync(path.join(stageDir, "agents"), { recursive: true });
+	writeFileSync(path.join(stageDir, "agents", "scout.md"), "# staged\n");
+	writeFileSync(path.join(stageDir, "removed.json"), "[]\n");
+	// readStagedFile must not resolve a traversal rel (returns null, no read)
+	const evil = await seed.readStagedFile("0.2.0", "../../outside/victim.md", { home });
+	assert.equal(evil, null);
+	// a staged dir that itself escapes (symlinked update dir) is refused by guardStageDir
+	const home2 = mkdtempSync(path.join(tmpdir(), "agent-seed-escape2-"));
+	symlinkSync(outside, path.join(home2, "update-0.2.0"));
+	await assert.rejects(
+		() => seed.stageSeeds({ home: home2, version: "0.2.0" }),
+		/symlink|escape|outside/i,
+	);
+	assert.equal(existsSync(path.join(outside, "agents")), false);
+});

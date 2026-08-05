@@ -331,6 +331,20 @@ test("brief --json includes sessionStart.load + lessons (index + inbox)", () => 
 	assert.ok(Array.isArray(j.data.lessons.index));
 });
 
+test("archetype import of a missing file reports Not found (ENOENT not swallowed)", () => {
+	// HIGH-4: the import catch used to report EVERY read failure as "Not found".
+	// The ENOENT branch must exit non-zero with the message; permission errors
+	// are surfaced separately (hard to trigger portably, covered by the code
+	// path that now distinguishes error.code).
+	const r = run(["archetype", "import", "definitely-missing-archetype.md"]);
+	bad(r);
+	assert.match(
+		r.stderr,
+		/Not found: definitely-missing-archetype\.md/,
+		`stderr: ${r.stderr}`,
+	);
+});
+
 test("project doctor runs in human mode without crashing (loop var does not shadow colors)", () => {
 	// Regression: the original inline block iterated `for (const c of checks)`,
 	// shadowing the colors import `c` — `c.green` threw "c.green is not a

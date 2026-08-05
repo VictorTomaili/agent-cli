@@ -42,8 +42,13 @@ export function registerArchetypeCommands(
 				let content;
 				try {
 					content = await fsp.readFile(arg, "utf8");
-				} catch {
-					fail(`Not found: ${arg}`);
+				} catch (error) {
+					// HIGH-4: only ENOENT means "not found"; a permission error
+					// (EACCES) must be surfaced as such, not misreported.
+					if (error && error.code === "ENOENT") fail(`Not found: ${arg}`);
+					fail(
+						`Cannot read ${arg}: ${error && error.message ? error.message : error}`,
+					);
 				}
 				if (!/^# IDENTITY\.md/m.test(content))
 					fail(`Not a valid identity archetype file: ${arg}`);

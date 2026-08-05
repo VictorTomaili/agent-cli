@@ -57,19 +57,57 @@ export async function readFile(p) {
 	return fsp.readFile(p, "utf8");
 }
 
+/** M3: exclusive-create + fsync + atomic-rename. Write content to a unique temp
+ *  file, fsync it, then rename over the target. Rename-over-existing is atomic
+ *  on POSIX and on Windows (libuv uses MoveFileEx with REPLACE_EXISTING), so a
+ *  reader never sees a partial or absent target except in the rare locked-file
+ *  fallback, which we reach only after retrying. */
 export async function writeFile(p, content) {
 	await ensureDir(path.dirname(p));
-	const tmp = `${p}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+	let tmp;
+	for (let attempt = 0; ; attempt++) {
+		tmp = `${p}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+		try {
+			// 'wx' = exclusive create: a symlink pre-planted at the tmp path is
+			// never followed (EEXIST → fresh random name).
+			const fh = await fsp.open(tmp, "wx");
+			try {
+				await fh.writeFile(content, "utf8");
+				await fh.sync(); // promote only fully-durable bytes
+			} finally {
+				await fh.close();
+			}
+			break;
+		} catch (error) {
+			if (error?.code !== "EEXIST" || attempt >= 3) throw error;
+		}
+	}
 	try {
-		await fsp.writeFile(tmp, content, "utf8");
 		try {
 			await fsp.rename(tmp, p);
 		} catch (error) {
-			// Windows cannot replace an existing file with rename; remove only after
-			// the complete temporary file is ready, then retry the rename.
+			// Windows: rename fails with EEXIST/EPERM/ENOTEMPTY when the target is
+			// momentarily locked (open without FILE_SHARE_DELETE) or is a
+			// directory. Transient locks clear fast — retry before any removal so
+			// the target is never absent unless we truly must replace a directory.
 			if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error.code)) throw error;
-			await fsp.rm(p, { force: true });
-			await fsp.rename(tmp, p);
+			let renamed = false;
+			for (let attempt = 0; attempt < 5 && !renamed; attempt++) {
+				await new Promise((r) => setTimeout(r, 20 * (attempt + 1)));
+				try {
+					await fsp.rename(tmp, p);
+					renamed = true;
+				} catch (retryError) {
+					if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(retryError.code))
+						throw retryError;
+				}
+			}
+			if (!renamed) {
+				// Target is a directory or stays locked; remove only after the
+				// complete temp file is durable, then rename once more.
+				await fsp.rm(p, { force: true });
+				await fsp.rename(tmp, p);
+			}
 		}
 	} finally {
 		await fsp.rm(tmp, { force: true });
@@ -80,20 +118,52 @@ export async function ensureDir(p) {
 	await fsp.mkdir(p, { recursive: true });
 }
 
-/** Sync atomic write (temp + rename, random suffix) — single source of truth
- *  for modules that cannot await (models.js). HIGH-6: replaces the per-module
- *  duplicates that drifted (e.g. models.js lacked the random suffix). */
+/** Sync atomic write (temp + fsync + rename) — single source of truth for
+ *  modules that cannot await (models.js). HIGH-6: replaces the per-module
+ *  duplicates that drifted (e.g. models.js lacked the random suffix). M3: same
+ *  exclusive-create/fsync/rename-over-existing guarantees as writeFile. */
 export function writeFileSync(p, content) {
 	fs.mkdirSync(path.dirname(p), { recursive: true });
-	const tmp = `${p}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+	let tmp;
+	for (let attempt = 0; ; attempt++) {
+		tmp = `${p}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+		try {
+			// 'wx' exclusive create: a pre-planted symlink at the tmp path is
+			// never followed (EEXIST → fresh random name).
+			const fd = fs.openSync(tmp, "wx");
+			try {
+				fs.writeFileSync(fd, content, "utf8");
+				fs.fsyncSync(fd);
+			} finally {
+				fs.closeSync(fd);
+			}
+			break;
+		} catch (error) {
+			if (error?.code !== "EEXIST" || attempt >= 3) throw error;
+		}
+	}
 	try {
-		fs.writeFileSync(tmp, content, "utf8");
 		try {
 			fs.renameSync(tmp, p);
 		} catch (error) {
 			if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error.code)) throw error;
-			fs.rmSync(p, { force: true });
-			fs.renameSync(tmp, p);
+			// Transient Windows locks clear fast — retry before any removal so
+			// the target is never absent unless we must replace a directory.
+			let renamed = false;
+			for (let attempt = 0; attempt < 5 && !renamed; attempt++) {
+				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1));
+				try {
+					fs.renameSync(tmp, p);
+					renamed = true;
+				} catch (retryError) {
+					if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(retryError.code))
+						throw retryError;
+				}
+			}
+			if (!renamed) {
+				fs.rmSync(p, { force: true });
+				fs.renameSync(tmp, p);
+			}
 		}
 	} finally {
 		fs.rmSync(tmp, { force: true });

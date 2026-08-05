@@ -158,15 +158,23 @@ export function isConfigCorrupt(cfg) {
  * retry budget is exhausted.
  */
 /** Cross-process lock file for config mutations (P0-3). O_EXCL create is
- *  atomic on both POSIX and Windows; retry briefly if another writer holds it. */
+ *  atomic on both POSIX and Windows; retry briefly if another writer holds it.
+ *  M3: the lock records this process's identity, and release only removes it if
+ *  the content still matches — a stale release can never delete a lock that a
+ *  later writer has already taken over. */
 function withConfigLock(fn, { timeoutMs = 2000 } = {}) {
 	const lock = CONFIG_FILE + ".lock";
+	const owner = `${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
 	fs.mkdirSync(AGENTS_DIR, { recursive: true });
 	const deadline = Date.now() + timeoutMs;
 	for (;;) {
 		try {
 			const fd = fs.openSync(lock, "wx");
-			fs.closeSync(fd);
+			try {
+				fs.writeFileSync(fd, owner, "utf8");
+			} finally {
+				fs.closeSync(fd);
+			}
 			break;
 		} catch (error) {
 			if (error.code !== "EEXIST") throw error;
@@ -179,8 +187,12 @@ function withConfigLock(fn, { timeoutMs = 2000 } = {}) {
 	try {
 		return fn();
 	} finally {
+		// Ownership-guarded release: only unlink when the lock still holds OUR
+		// token. If we stalled past the timeout and another writer took the lock
+		// (or a stale lock from a crashed process sits there), leave it alone.
 		try {
-			fs.unlinkSync(lock);
+			const cur = fs.readFileSync(lock, "utf8");
+			if (cur === owner) fs.unlinkSync(lock);
 		} catch {
 			/* best-effort */
 		}

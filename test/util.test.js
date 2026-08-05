@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+	mkdtempSync,
+	writeFileSync,
+	mkdirSync,
+	symlinkSync,
+	readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -38,6 +44,45 @@ test("writeFile creates nested dirs; content roundtrips", async () => {
 	const f = path.join(TMP, "a/b/c.txt");
 	await util.writeFile(f, "data");
 	assert.equal(await util.readFile(f), "data");
+});
+
+test("M3: writeFile replaces an existing file atomically (rename-over-existing)", async () => {
+	const f = path.join(TMP, "replace-me.txt");
+	await util.writeFile(f, "old content");
+	await util.writeFile(f, "new content");
+	assert.equal(await util.readFile(f), "new content");
+});
+
+test("M3: writeFile replaces a symlinked target — never writes through it", async () => {
+	// If the target path itself is a symlink, atomic rename replaces the LINK,
+	// leaving the victim untouched (rename never follows the target's link).
+	const dir = path.join(TMP, "m3-plant");
+	mkdirSync(dir, { recursive: true });
+	const victim = path.join(dir, "victim.txt");
+	const target = path.join(dir, "real.txt");
+	writeFileSync(victim, "do-not-touch");
+	let linked = false;
+	try {
+		symlinkSync(victim, target);
+		linked = true;
+	} catch {
+		/* no symlink privilege — test degenerates to the plain roundtrip */
+	}
+	await util.writeFile(target, "safe");
+	assert.equal(await util.readFile(target), "safe");
+	if (linked) {
+		assert.equal(await util.readFile(victim), "do-not-touch");
+		// no temp files left behind
+		const leftovers = readdirSync(dir).filter((n) => n.endsWith(".tmp"));
+		assert.deepEqual(leftovers, []);
+	}
+});
+
+test("M3: writeFileSync has the same exclusive-create + replace guarantees", async () => {
+	const f = path.join(TMP, "sync-replace.txt");
+	util.writeFileSync(f, "one");
+	util.writeFileSync(f, "two");
+	assert.equal(await util.readFile(f), "two");
 });
 
 test("ensureDir is recursive and idempotent", async () => {

@@ -1169,6 +1169,22 @@ test("brief --oneline emits a one-line summary", () => {
 	assert.match(r.data.onelineText, /^v\d/);
 });
 
+test("status and doctor expose a corrupt config instead of hiding it", () => {
+	const home = run(["init"]).home;
+	writeFileSync(path.join(home, ".agents", "config.json"), "{ not valid json");
+	// status --json carries config.corrupt: true
+	const status = parseJson(run(["status", "--json"], { envHome: home }).stdout);
+	assert.equal(status.data.config.corrupt, true);
+	// doctor flags it as a failed check + issue
+	const doctor = parseJson(
+		run(["doctor", "--offline", "--json"], { envHome: home }).stdout,
+	);
+	const check = doctor.data.checks.find((c) => c.check === "config-not-corrupt");
+	assert.ok(check);
+	assert.equal(check.ok, false);
+	assert.ok(doctor.data.issues.some((i) => /config\.json is corrupt/.test(i)));
+});
+
 test("doctor --plan includes structured actions", () => {
 	const home = run(["init"]).home;
 	const r = parseJson(run(["doctor", "--plan", "--json"], { envHome: home }).stdout);

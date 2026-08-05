@@ -21,6 +21,7 @@ import {
 	loadConfig,
 	isGlobalEnabled,
 	isProjectEnabled,
+	isConfigCorrupt,
 } from "../config.js";
 import { readMaster } from "../store.js";
 import { hasAgentCliBlock } from "../blocks.js";
@@ -91,6 +92,7 @@ export async function status({ all = false, cwd = process.cwd() } = {}) {
 			global: cfg.global,
 			project: cfg.project,
 			version: cfg.version,
+			corrupt: isConfigCorrupt(cfg) ? true : false,
 		},
 		skill: skill,
 		targets: visibleTargets,
@@ -123,6 +125,13 @@ export async function doctor({ cwd = process.cwd() } = {}) {
 		detail: pretty(MASTER_FILE),
 	});
 	if (!masterOk) issues.push("Master missing — run `agent init`.");
+	checks.push({
+		check: "config-not-corrupt",
+		ok: !isConfigCorrupt(cfg),
+		detail: isConfigCorrupt(cfg) ? "config.json is corrupt" : "ok",
+	});
+	if (isConfigCorrupt(cfg))
+		issues.push("config.json is corrupt — repair or remove it before changing settings");
 	checks.push({
 		check: "agent-cli-block",
 		ok: hasAgentCliBlock(masterContent || ""),

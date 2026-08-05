@@ -31,6 +31,7 @@ import {
 	isGlobalEnabled,
 	isProjectEnabled,
 	effectiveProjectIds,
+	isConfigCorrupt,
 } from "./config.js";
 import {
 	ensureMaster,
@@ -773,6 +774,7 @@ program
 				global: cfg.global,
 				project: cfg.project,
 				version: cfg.version,
+				corrupt: isConfigCorrupt(cfg) ? true : false,
 			},
 			skill: skill,
 			targets: visibleTargets,
@@ -805,6 +807,10 @@ program
 				"skill-cli",
 				`${skill.version ?? "none"} ${c.gray("(" + skill.source + ")")}`,
 			);
+			if (out.config.corrupt)
+				log.warn(
+					"config.json is corrupt — repair or remove it before changing settings",
+				);
 			log.raw(c.bold("\nTargets:"));
 			for (const t of visibleTargets) {
 				const state = t.global?.state;
@@ -3328,6 +3334,13 @@ program
 		const checks = [];
 		const masterContent = await readMaster();
 		const masterOk = masterContent != null;
+		checks.push({
+			check: "config-not-corrupt",
+			ok: !isConfigCorrupt(cfg),
+			detail: isConfigCorrupt(cfg) ? "config.json is corrupt" : "ok",
+		});
+		if (isConfigCorrupt(cfg))
+			issues.push("config.json is corrupt — repair or remove it before changing settings");
 		checks.push({
 			check: "master-exists",
 			ok: masterOk,

@@ -1056,6 +1056,42 @@ test("sync init + push + status round-trip via the CLI", { skip: !hasGitCli }, (
 	assert.ok(status.data.head);
 });
 
+test("sync diff + rollback round-trip via the CLI", { skip: !hasGitCli }, () => {
+	const home = run(["init"]).home;
+	ok(run(["sync", "init", "--json"], { envHome: home }));
+	ok(run(["sync", "push", "--message", "initial", "--json"], { envHome: home }));
+	// add a lesson, push it as the second commit
+	ok(
+		run(
+			["lessons", "add", "rollback-me", "--body", "will be removed", "--json"],
+			{ envHome: home },
+		),
+	);
+	ok(run(["sync", "push", "--message", "second", "--json"], { envHome: home }));
+	// positional diff resolves and emits a summary for the given commit
+	const diff = parseJson(
+		run(["sync", "diff", "HEAD~1", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(diff.data.ok, true);
+	assert.ok(diff.data.summary);
+	// diffing the commit that added the lesson shows it in the body
+	const second = parseJson(
+		run(["sync", "diff", "--commit", "HEAD", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(second.data.ok, true);
+	assert.match(second.data.summary, /rollback-me/);
+	// rollback to HEAD~1 removes the lesson added in the second commit
+	const rollback = parseJson(
+		run(["sync", "rollback", "HEAD~1", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(rollback.data.ok, true);
+	assert.equal(
+		existsSync(path.join(home, ".agents", "lessons", "rollback-me.md")),
+		false,
+		"rollback must remove files added after the target commit",
+	);
+});
+
 // ---------------------------------------------------------------------------
 // Phase 3 — ergonomics + composite commands
 // ---------------------------------------------------------------------------

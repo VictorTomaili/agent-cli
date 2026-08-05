@@ -200,8 +200,13 @@ export async function syncRollback({ commit = null } = {}) {
 	const check = git(["cat-file", "-e", `${commit}^{commit}`], { cwd: dir });
 	if (!check.ok) return { ok: false, reason: `no such commit: ${commit}` };
 	const previousHead = headHash(dir);
-	const co = git(["checkout", commit, "--", "."], { cwd: dir });
-	if (!co.ok) return { ok: false, reason: co.stderr || "checkout failed" };
+	// reset --hard makes index + working tree exactly match `commit`:
+	// restores changed files AND removes files that were added after `commit`.
+	// (A plain `checkout <commit> -- .` restores tracked files but leaves
+	// post-commit additions in the tree, so a rollback would not actually
+	// remove them.) This is a full-brain restore by definition.
+	const co = git(["reset", "--hard", commit], { cwd: dir });
+	if (!co.ok) return { ok: false, reason: co.stderr || "reset failed" };
 	return { ok: true, commit, previousHead, relink: true };
 }
 

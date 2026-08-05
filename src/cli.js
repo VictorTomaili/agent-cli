@@ -2611,7 +2611,7 @@ program
 				r = await sync.syncLog({ limit: opts.limit ? parseInt(opts.limit, 10) : 20 });
 				break;
 			case "diff":
-				r = await sync.syncDiff({ commit: opts.commit });
+				r = await sync.syncDiff({ commit: opts.commit || arg });
 				break;
 			case "rollback":
 				r = await sync.syncRollback({ commit: opts.commit || arg });
@@ -2667,7 +2667,10 @@ program
 				);
 			else if (action === "log")
 				for (const e of r.entries) log.raw(`  ${c.gray(e.hash)} ${e.date} ${e.message}`);
-			else if (action === "diff" && r.summary) log.raw(r.summary);
+			else if (action === "diff") {
+				if (r.summary) log.raw(r.summary);
+				if (r.diff) log.raw(r.diff.trim());
+			}
 			else if (action === "auto") log.success(`auto-commit ${r.enabled ? "on" : "off"}`);
 			else if (action === "init") log.success(`Sync repo ready at ${pretty(r.dir)}`);
 			else if (action === "rollback") log.success(`Restored ${r.commit} — re-linked pointers.`);

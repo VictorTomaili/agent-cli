@@ -56,6 +56,33 @@ export function gitInfo(cwd = process.cwd()) {
 }
 
 /** List consolidation core backups (global + project). */
+/** Recursive byte size of a directory (used for tx snapshot dirs). */
+function dirSize(dir) {
+	let total = 0;
+	const stack = [dir];
+	while (stack.length) {
+		const d = stack.pop();
+		let entries = [];
+		try {
+			entries = fs.readdirSync(d, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const e of entries) {
+			const p = path.join(d, e.name);
+			if (e.isDirectory()) stack.push(p);
+			else {
+				try {
+					total += fs.statSync(p).size;
+				} catch {
+					/* ignore */
+				}
+			}
+		}
+	}
+	return total;
+}
+
 export function backupsList({ scope = "global", cwd = process.cwd() } = {}) {
 	const dir =
 		scope === "project" ? path.join(cwd, ".agents", "backups") : path.join(HOME, ".agents", "backups");
@@ -63,14 +90,19 @@ export function backupsList({ scope = "global", cwd = process.cwd() } = {}) {
 	try {
 		entries = fs
 			.readdirSync(dir, { withFileTypes: true })
-			.filter((e) => e.isFile() && e.name.startsWith("LESSONS-") && e.name.endsWith(".md"))
+			.filter(
+				(e) =>
+					(e.isFile() && e.name.startsWith("LESSONS-") && e.name.endsWith(".md")) ||
+					(e.isDirectory() && e.name.startsWith("consolidate-tx-")),
+			)
 			.map((e) => {
 				const st = fs.statSync(path.join(dir, e.name));
 				return {
 					name: e.name,
 					path: path.join(dir, e.name),
-					size: st.size,
+					size: e.isDirectory() ? dirSize(path.join(dir, e.name)) : st.size,
 					mtime: st.mtime.toISOString(),
+					kind: e.isDirectory() ? "tx" : "core",
 				};
 			})
 			.sort((a, b) => b.mtime.localeCompare(a.mtime));

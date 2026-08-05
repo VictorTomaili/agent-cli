@@ -26,8 +26,8 @@ Fix the 5 critical findings from the multi-agent project analysis.
 - [x] Test: pre-restore backup can be restored via `agent restore pre-restore-<ts>` (test/snapshot.test.js)
 
 ### P0-5: Non-transactional consolidation (GAP-2)
-- [ ] `consolidate()` uses backup-before-mutate or transactional write
-- [ ] Test: interrupted consolidation does not lose lessons
+- [x] `consolidate()` uses backup-before-mutate or transactional write
+- [x] Test: interrupted consolidation does not lose lessons (test/consolidate.test.js)
 
 ## Verification
 - `npm test` passes with all existing + new regression tests

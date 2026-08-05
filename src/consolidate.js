@@ -204,6 +204,16 @@ function walkSync(dir) {
 	return out;
 }
 
+/** P0-5: copy the whole lessons dir into backups as a transaction snapshot.
+ *  Throws on failure so the caller aborts instead of mutating unbacked. */
+function snapshotLessonsDir(dir, backupDir, scope) {
+	fs.mkdirSync(backupDir, { recursive: true });
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const dst = path.join(backupDir, `consolidate-tx-${scope}-${stamp}`);
+	fs.cpSync(dir, dst, { recursive: true });
+	return dst;
+}
+
 function ensureBackup(file, scope, cwd) {
 	if (!fs.existsSync(file)) return; // nothing to back up on the first consolidation
 	const dir =
@@ -268,6 +278,27 @@ export function consolidate({
 	let marked = 0;
 	let kept = 0;
 	const core = [...readCore(corePath)];
+
+	// P0-5: transactional safety — snapshot the ENTIRE lessons dir BEFORE any
+	// mutation, so an interrupted consolidation never loses lessons. If the
+	// snapshot fails we abort: mutating without a restore point is worse.
+	const backupDir =
+		scope === "project"
+			? path.join(cwd, ".agents", "backups")
+			: BACKUP_DIR_GLOBAL;
+	let txDir = null;
+	if (!dryRun && fs.existsSync(dir)) {
+		try {
+			txDir = snapshotLessonsDir(dir, backupDir, scope);
+		} catch (error) {
+			return {
+				ok: false,
+				reason: `transaction backup failed: ${error && error.message ? error.message : error}`,
+				scope,
+				dir,
+			};
+		}
+	}
 
 	for (const fp of files) {
 		const raw = fs.readFileSync(fp, "utf8");
@@ -340,6 +371,7 @@ export function consolidate({
 		dryRun,
 		scope,
 		dir,
+		...(txDir ? { txBackup: txDir } : {}),
 		stats: {
 			files: files.length,
 			promoted,

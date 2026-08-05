@@ -2835,8 +2835,10 @@ program
 			emit({ command: "backups", action: "list", ...r });
 			if (!JSON_MODE) {
 				if (!r.backups.length) log.info("No consolidation backups.");
-				for (const b of r.backups)
-					log.raw(`  ${c.gray(b.name.padEnd(40))} ${b.mtime} ${c.gray(b.size + "B")}`);
+				for (const b of r.backups) {
+					const kind = b.kind === "tx" ? c.gray("[tx]") : "    ";
+					log.raw(`  ${kind} ${c.gray(b.name.padEnd(40))} ${b.mtime} ${c.gray(b.size + "B")}`);
+				}
 			}
 			return;
 		}

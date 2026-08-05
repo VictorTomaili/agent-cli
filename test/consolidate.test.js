@@ -169,11 +169,12 @@ test("consolidate backs up the previous core before overwriting (project)", asyn
 		body: "- **Lesson:** backed up",
 	});
 	await addLesson("git/rec", { scope: "project", cwd });
-	// first run: writes the core, there is no prior core to back up yet
+	// first run: writes the core; P0-5 tx snapshot creates the backups dir
+	// even on the first mutation (a restore point must exist BEFORE writes).
 	consolidate({ scope: "project", cwd });
 	const backupsDir = path.join(cwd, ".agents", "backups");
-	assert.equal(existsSync(backupsDir), false);
-	// second run: must create the backups dir and copy the existing core first
+	assert.equal(existsSync(backupsDir), true);
+	// second run: must also copy the existing core as a LESSONS-*.md backup
 	const r = consolidate({ scope: "project", cwd });
 	assert.equal(r.ok, true);
 	assert.ok(existsSync(backupsDir));
@@ -189,9 +190,9 @@ test("consolidate backs up the previous core under the global backups dir", asyn
 		body: "- **Lesson:** global backup",
 	});
 	await addLesson("git/rec", { scope: "global" });
-	consolidate({ scope: "global" }); // first run: writes the core
+	consolidate({ scope: "global" }); // first run: writes the core (+ P0-5 tx snapshot dir)
 	const backupsDir = path.join(HOME_TMP, ".agents", "backups");
-	assert.equal(existsSync(backupsDir), false);
+	assert.equal(existsSync(backupsDir), true);
 	const r = consolidate({ scope: "global" }); // second run: backs up the existing core
 	assert.equal(r.ok, true);
 	assert.ok(existsSync(backupsDir));
@@ -234,6 +235,35 @@ test("planConsolidation reports nothingToDo for an empty lessons dir", () => {
 	const plan = planConsolidation({ scope: "project", cwd });
 	assert.equal(plan.nothingToDo, true);
 	assert.deepEqual(plan.actions, []);
+});
+
+test("P0-5: consolidate snapshots the lessons dir before mutating (tx backup)", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-tx-"));
+	await addLesson("git/rec", {
+		scope: "project",
+		cwd,
+		body: "- **Lesson:** tx restore point",
+	});
+	const r = consolidate({ scope: "project", cwd });
+	assert.equal(r.ok, true);
+	assert.ok(r.txBackup, "expected txBackup path in the result");
+	// the tx backup must contain the original lesson file (pre-mutation)
+	const backupFile = path.join(r.txBackup, "git", "rec.md");
+	assert.ok(existsSync(backupFile), "tx backup should preserve the lesson file");
+	assert.match(readFileSync(backupFile, "utf8"), /tx restore point/);
+	// a failed tx snapshot aborts consolidation instead of mutating unbacked
+	const fsMod = await import("node:fs");
+	const origCpSync = fsMod.default.cpSync;
+	fsMod.default.cpSync = () => {
+		throw new Error("disk full");
+	};
+	try {
+		const fail = consolidate({ scope: "project", cwd });
+		assert.equal(fail.ok, false);
+		assert.match(fail.reason, /transaction backup failed/);
+	} finally {
+		fsMod.default.cpSync = origCpSync;
+	}
 });
 
 test("repeated consolidation does not duplicate a promoted lesson's pointer", async () => {

@@ -89,7 +89,6 @@ export async function collectState(opts = {}) {
 			if (pF) sessionLoad.push({ kind: pF.kind, scope: "project", path: pF.path, exists: pF.exists, filled: pF.filled, gaps: pF.gaps });
 		}
 	}
-	sessionLoad.push({ kind: "models", scope: "global", path: modelsMdPath, exists: modelsMdExists, filled: null, gaps: null });
 	if (spect.initialized || spect.partial)
 		for (const file of new Set([...(spect.load || []), ...(spect.missingFiles || [])]))
 			sessionLoad.push({

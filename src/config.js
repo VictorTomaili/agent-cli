@@ -117,6 +117,108 @@ export function isConfigCorrupt(cfg) {
 	return cfg?.[CONFIG_CORRUPT] === true;
 }
 
+/**
+ * P0-3: optimistic concurrency for config mutations.
+ *
+ * Reads the latest config, applies `mutator` to a fresh copy, and writes
+ * atomically — retrying when a concurrent writer changed the file between the
+ * read and the write (compare-and-swap on the serialized bytes). Mutations are
+ * idempotent (enable adds-if-absent, disable removes-if-present), so re-running
+ * the mutator on the freshest state converges: N concurrent `target enable`
+ * calls all succeed with no lost update.
+ *
+ * Returns the final saved config. Throws if the config is corrupt or if the
+ * retry budget is exhausted.
+ */
+/** Cross-process lock file for config mutations (P0-3). O_EXCL create is
+ *  atomic on both POSIX and Windows; retry briefly if another writer holds it. */
+function withConfigLock(fn, { timeoutMs = 2000 } = {}) {
+	const lock = CONFIG_FILE + ".lock";
+	fs.mkdirSync(AGENTS_DIR, { recursive: true });
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		try {
+			const fd = fs.openSync(lock, "wx");
+			fs.closeSync(fd);
+			break;
+		} catch (error) {
+			if (error.code !== "EEXIST") throw error;
+			if (Date.now() > deadline)
+				throw new Error("config.json is locked by another writer");
+			// brief backoff so concurrent writers don't spin hot
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+		}
+	}
+	try {
+		return fn();
+	} finally {
+		try {
+			fs.unlinkSync(lock);
+		} catch {
+			/* best-effort */
+		}
+	}
+}
+
+export function mutateConfigSync(mutator, { retries = 8 } = {}) {
+	return withConfigLock(() => {
+		for (let attempt = 0; ; attempt++) {
+		// Read the RAW bytes once — the CAS compares raw bytes, and the parse
+		// (which injects defaults) is derived from the same snapshot.
+		let raw;
+		try {
+			raw = fs.readFileSync(CONFIG_FILE, "utf8");
+		} catch {
+			raw = null; // file absent
+		}
+		const base = raw == null ? defaultConfig() : parseConfig(raw);
+		if (isConfigCorrupt(base))
+			throw new Error(
+				"config.json is corrupt; repair or remove it before changing settings",
+			);
+		const next = { ...defaultConfig(), ...base };
+		mutator(next);
+		next.version = CONFIG_VERSION;
+		next.updatedAt = new Date().toISOString();
+		fs.mkdirSync(AGENTS_DIR, { recursive: true });
+
+		// Compare-and-swap: only commit if the file still matches the raw bytes
+		// we based the mutation on. A concurrent writer between read and rename
+		// changes the bytes → retry with fresh state so idempotent mutations
+		// converge (no lost update).
+		let live;
+		try {
+			live = fs.readFileSync(CONFIG_FILE, "utf8");
+		} catch {
+			live = null;
+		}
+		if (live !== raw) {
+			if (attempt >= retries)
+				throw new Error("config.json write conflict; giving up after retries");
+			continue;
+		}
+
+		const tmp = `${CONFIG_FILE}.${process.pid}.${Date.now()}.${Math.random()
+			.toString(16)
+			.slice(2)}.tmp`;
+		try {
+			fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+			try {
+				fs.renameSync(tmp, CONFIG_FILE);
+			} catch (error) {
+				if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error.code)) throw error;
+				// Windows rename-over-existing needs the target removed first.
+				fs.rmSync(CONFIG_FILE, { force: true });
+				fs.renameSync(tmp, CONFIG_FILE);
+			}
+			return next;
+		} finally {
+			fs.rmSync(tmp, { force: true });
+		}
+		}
+	});
+}
+
 export async function saveConfig(cfg) {
 	if (isConfigCorrupt(cfg))
 		throw new Error(
@@ -156,6 +258,28 @@ export function saveConfigSync(cfg) {
 
 export function isGlobalEnabled(cfg, id) {
 	return cfg.global.includes(id);
+}
+
+// --- P0-3 atomic variants ------------------------------------------------
+// The CLI mutates via loadConfig → enable* → saveConfig, which is a
+// read-modify-write race under concurrency. These wrappers run the mutation
+// inside withConfigLock so concurrent `target enable` calls cannot lose each
+// other's updates.
+
+export function atomicEnableGlobal(id) {
+	return mutateConfigSync((cfg) => enableGlobal(cfg, id));
+}
+
+export function atomicDisableGlobal(id) {
+	return mutateConfigSync((cfg) => disableGlobal(cfg, id));
+}
+
+export function atomicEnableProjectTarget(root, id) {
+	return mutateConfigSync((cfg) => enableProjectTarget(cfg, root, id));
+}
+
+export function atomicDisableProjectTarget(root, id) {
+	return mutateConfigSync((cfg) => disableProjectTarget(cfg, root, id));
 }
 
 /**

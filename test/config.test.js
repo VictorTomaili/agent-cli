@@ -252,3 +252,14 @@ test("per-root entries override the legacy project fallback", () => {
 	const b = config.effectiveProjectIds(c, "/proj/b");
 	assert.deepEqual(b, ["claude"]); // untouched root keeps legacy only
 });
+
+test("P0-3: concurrent atomic enables all succeed with no lost update", async () => {
+	// Clear the config file so the base is empty.
+	writeFileSync(path.join(TMP, ".agents", "config.json"), "{\"version\":2,\"global\":[]}\n");
+	const ids = ["claude", "codex", "pi", "gemini", "qwen", "cline"];
+	// Fire the atomic wrappers concurrently (each runs lock + read-merge-write).
+	await Promise.all(ids.map((id) => Promise.resolve().then(() => config.atomicEnableGlobal(id))));
+	const final = config.loadConfigSync();
+	const got = [...final.global].sort();
+	assert.deepEqual(got, [...ids].sort(), "every concurrent enable must be persisted");
+});

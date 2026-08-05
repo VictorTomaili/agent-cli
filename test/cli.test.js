@@ -3,7 +3,7 @@
 // and --json contract. Each test gets an isolated AGENT_CLI_HOME.
 import { test } from "node:test";
 import assert from "node:assert";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 import {
 	mkdtempSync,
 	writeFileSync,
@@ -1151,4 +1151,27 @@ test("whoami reports identity + gaps via the CLI", () => {
 	run(["identity", "set", "AGENT_NAME", "Marvin"], { envHome: home });
 	const r = parseJson(run(["whoami", "--json"], { envHome: home }).stdout);
 	assert.equal(r.data.identity, "Marvin");
+});
+
+test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss", async () => {
+	const home = run(["init"]).home;
+	const ids = ["claude", "codex", "pi", "gemini", "qwen", "cline"];
+	const env = { ...process.env, AGENT_CLI_HOME: home };
+	const runOne = (id) =>
+		new Promise((resolve) => {
+			const child = spawn(process.execPath, [CLI, "target", "enable", id, "-g"], {
+				env,
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+			let stderr = "";
+			child.stderr.on("data", (d) => (stderr += d));
+			child.on("close", (code) => resolve({ id, code, stderr }));
+		});
+	const results = await Promise.all(ids.map(runOne));
+	for (const r of results) {
+		assert.equal(r.code, 0, `${r.id} enable failed: ${r.stderr}`);
+	}
+	const cfg = parseJson(run(["config", "--json"], { envHome: home }).stdout).data.config;
+	const got = [...cfg.global].sort();
+	assert.deepEqual(got, [...ids].sort(), "all 6 concurrent enables must be persisted");
 });

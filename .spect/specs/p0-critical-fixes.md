@@ -18,8 +18,8 @@ Fix the 5 critical findings from the multi-agent project analysis.
 - [x] Test: `pull -p` writes to project master, not global (test/cli.test.js)
 
 ### P0-3: Concurrent config write data loss (CRITICAL-3)
-- [ ] File locking or optimistic concurrency on config mutations
-- [ ] Test: 6 concurrent `target enable --global` all succeed without data loss
+- [x] File locking or optimistic concurrency on config mutations
+- [x] Test: 6 concurrent `target enable --global` all succeed without data loss (test/config.test.js unit + test/cli.test.js multi-process)
 
 ### P0-4: Pre-restore backup missing .snapshot.json (GAP-1)
 - [x] `restore()` writes `.snapshot.json` into pre-restore backup directory

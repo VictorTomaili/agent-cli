@@ -2,13 +2,12 @@ import { log, c } from "../util.js";
 import { getTarget, pathFor } from "../targets.js";
 import {
 	effectiveProjectIds,
-	enableGlobal,
-	disableGlobal,
-	enableProjectTarget,
-	disableProjectTarget,
 	loadConfig,
-	saveConfig,
 	isConfigCorrupt,
+	atomicEnableGlobal,
+	atomicDisableGlobal,
+	atomicEnableProjectTarget,
+	atomicDisableProjectTarget,
 } from "../config.js";
 import { linkTarget, unlinkTarget, targetPath } from "../pointer.js";
 
@@ -38,7 +37,7 @@ export function registerTargetCommand(
 				});
 			const scope = opts.project ? "project" : "global";
 			const enabling = action === "enable" || action === "on";
-			const cfg = await loadConfig();
+			let cfg = await loadConfig();
 			// Refuse to mutate a corrupt config — original bytes are preserved.
 			if (isConfigCorrupt(cfg))
 				fail(
@@ -82,8 +81,12 @@ export function registerTargetCommand(
 						},
 					);
 				}
-				if (scope === "global") enableGlobal(cfg, id);
-				else enableProjectTarget(cfg, root, id);
+				// P0-3: mutate config atomically (lock + read-merge-write) so
+				// concurrent enables never lose each other's update.
+				cfg =
+					scope === "global"
+						? atomicEnableGlobal(id)
+						: atomicEnableProjectTarget(root, id);
 			} else {
 				const enabledIds =
 					scope === "global" ? cfg.global : effectiveProjectIds(cfg, root);
@@ -110,10 +113,12 @@ export function registerTargetCommand(
 						},
 					);
 				}
-				if (scope === "global") disableGlobal(cfg, id);
-				else disableProjectTarget(cfg, root, id);
+				// P0-3: mutate config atomically.
+				cfg =
+					scope === "global"
+						? atomicDisableGlobal(id)
+						: atomicDisableProjectTarget(root, id);
 			}
-			await saveConfig(cfg);
 			emit({
 				command: "target",
 				action,

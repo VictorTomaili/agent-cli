@@ -1,11 +1,34 @@
 // src/commands/protocol.js — manifest + schema, extracted from cli.js (HIGH-3).
 // Injected deps: { emit, fail, program, collectCommands, EXIT, isJson }.
 
-/** Register the machine-protocol commands (manifest, schema). */
+/** Register the machine-protocol commands (manifest, schema, completion). */
 export function registerProtocolCommands(
 	program,
 	{ emit, fail, collectCommands, EXIT, isJson },
 ) {
+	program
+		.command("completion <shell>")
+		.description("Print a shell completion script (bash|zsh|fish|powershell).")
+		.action(async (shell) => {
+			const names = [...new Set(collectCommands().map((c) => c.name.split(" ")[0]))].sort();
+			const words = names.join(" ");
+			let script = null;
+			if (shell === "bash")
+				script = `_agent() { COMPREPLY=( $(compgen -W "${words}" -- "\${COMP_WORDS[1]}") ); }\ncomplete -F _agent agent\n`;
+			else if (shell === "zsh")
+				script = `#compdef agent\n_arguments '1:command:(${words})'\n`;
+			else if (shell === "fish")
+				script = `complete -c agent -f -a "${words}"\n`;
+			else if (shell === "powershell")
+				script = `Register-ArgumentCompleter -Native -CommandName agent -ScriptBlock { param($w,$c,$p) "${words}".Split(" ") | Where-Object { $_ -like "$c*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) } }\n`;
+			if (!script)
+				fail(`Unsupported shell: ${shell}. Use bash|zsh|fish|powershell`, {
+					command: "completion",
+					shell,
+				});
+			emit({ command: "completion", shell, script });
+			if (!isJson()) process.stdout.write(script);
+		});
 	program
 		.command("manifest")
 		.description(

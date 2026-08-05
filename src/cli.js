@@ -73,6 +73,7 @@ import { registerTargetCommand } from "./commands/target.js";
 import { registerInfoCommands } from "./commands/info.js";
 import { registerInspectCommands } from "./commands/inspect.js";
 import { registerProtocolCommands } from "./commands/protocol.js";
+import { registerWhereCommand } from "./commands/where.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
@@ -262,6 +263,17 @@ registerProtocolCommands(program, {
 	program,
 	collectCommands,
 	EXIT,
+	isJson: () => JSON_MODE,
+});
+registerWhereCommand(program, {
+	emit,
+	log,
+	c,
+	pretty,
+	TARGETS,
+	pathFor,
+	targetPath,
+	masterPaths,
 	isJson: () => JSON_MODE,
 });
 program
@@ -2113,32 +2125,6 @@ program
 		emit({ command: "pull", id, scope, path: p, master: masterAbs, ok: true });
 		if (!JSON_MODE)
 			log.success(`Adopted ${pretty(p)} → ${pretty(masterAbs)}`);
-	});
-
-program
-	.command("where")
-	.description("Print resolved paths for targets.")
-	.option("-g, --global")
-	.option("-p, --project")
-	.action(async (opts) => {
-		const scope = opts.project ? "project" : "global";
-		const rows = TARGETS.filter((t) => pathFor(t, scope)).map((t) => ({
-			id: t.id,
-			name: t.name,
-			path: targetPath(t, scope),
-		}));
-		const { masterAbs, masterTilde: mTilde } = masterPaths(scope);
-		emit({
-			command: "where",
-			scope,
-			master: masterAbs,
-			masterTilde: mTilde,
-			targets: rows,
-		});
-		if (!JSON_MODE) {
-			log.kv("master", c.cyan(pretty(masterAbs)));
-			for (const r of rows) log.raw(`  ${r.id.padEnd(9)} ${pretty(r.path)}`);
-		}
 	});
 
 // ---------------------------------------------------------------------------
@@ -4027,30 +4013,6 @@ program
 // ---------------------------------------------------------------------------
 // agent completion — ergonomics (config/version moved to src/commands/info.js)
 // ---------------------------------------------------------------------------
-program
-	.command("completion <shell>")
-	.description("Print a shell completion script (bash|zsh|fish|powershell).")
-	.action(async (shell) => {
-		const names = [...new Set(collectCommands().map((c) => c.name.split(" ")[0]))].sort();
-		const words = names.join(" ");
-		let script = null;
-		if (shell === "bash")
-			script = `_agent() { COMPREPLY=( $(compgen -W "${words}" -- "\${COMP_WORDS[1]}") ); }\ncomplete -F _agent agent\n`;
-		else if (shell === "zsh")
-			script = `#compdef agent\n_arguments '1:command:(${words})'\n`;
-		else if (shell === "fish")
-			script = `complete -c agent -f -a "${words}"\n`;
-		else if (shell === "powershell")
-			script = `Register-ArgumentCompleter -Native -CommandName agent -ScriptBlock { param($w,$c,$p) "${words}".Split(" ") | Where-Object { $_ -like "$c*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) } }\n`;
-		if (!script)
-			fail(`Unsupported shell: ${shell}. Use bash|zsh|fish|powershell`, {
-				command: "completion",
-				shell,
-			});
-		emit({ command: "completion", shell, script });
-		if (!JSON_MODE) process.stdout.write(script);
-	});
-
 program
 	.command("setup")
 	.description(

@@ -2857,12 +2857,17 @@ program
 			const r = memMod.backupsList({ scope });
 			emit({ command: "backups", action: "list", ...r });
 			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason || "failed to list backups");
+					process.exit(EXIT.ERROR);
+				}
 				if (!r.backups.length) log.info("No consolidation backups.");
 				for (const b of r.backups) {
 					const kind = b.kind === "tx" ? c.gray("[tx]") : "    ";
 					log.raw(`  ${kind} ${c.gray(b.name.padEnd(40))} ${b.mtime} ${c.gray(b.size + "B")}`);
 				}
 			}
+			if (!r.ok) process.exit(EXIT.ERROR);
 			return;
 		}
 		if (action === "diff") {

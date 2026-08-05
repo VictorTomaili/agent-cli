@@ -106,8 +106,11 @@ export function backupsList({ scope = "global", cwd = process.cwd() } = {}) {
 				};
 			})
 			.sort((a, b) => b.mtime.localeCompare(a.mtime));
-	} catch {
-		/* no backups dir */
+	} catch (error) {
+		// HIGH-4: only a missing backups dir is a legitimate empty list — a
+		// permission error (EACCES) must not be silently reported as "no backups".
+		if (error && error.code === "ENOENT") return { ok: true, scope, backups: [] };
+		return { ok: false, scope, reason: error && error.message ? error.message : String(error) };
 	}
 	return { ok: true, scope, backups: entries };
 }

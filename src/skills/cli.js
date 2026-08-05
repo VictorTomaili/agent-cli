@@ -17,7 +17,7 @@ import { cmdCreate } from './commands/create.js'
 import { cmdValidate, cmdPreview } from './commands/validate.js'
 import { cmdTest } from './commands/test.js'
 import { cmdRun } from './commands/run.js'
-import { cmdLock } from './commands/lock.js'
+import { cmdLock, cmdProvenance } from './commands/lock.js'
 import { cmdCapture } from './commands/capture.js'
 import { isInteractive } from './lib/interactive.js'
 import { VERSION } from './lib/version.js'
@@ -61,6 +61,7 @@ ${c.bold('Authoring')}
   ${c.cyan('skill test')} ${c.gray('<name|path>')}      validate + run SKILL.tool.js (allowlisted builtins)
   ${c.cyan('skill run')} ${c.gray('<name> [-- args]')}  execute SKILL.tool.js
   ${c.cyan('skill lock')} ${c.gray('<name> [--source]')} write provenance lock (source + content hash)
+  ${c.cyan('skill provenance')} ${c.gray('[name]')} show source/revision/hash for installed skills
   ${c.cyan('skill capture')} ${c.gray('<name> <lesson>')} append a lesson to SKILL.md
 
 ${c.gray('Source formats (install): owner/repo | github/gitlab URL | git URL | local path | npm package')}
@@ -120,6 +121,7 @@ async function main() {
     case 'test': cmdTest(rest); break
     case 'run': cmdRun(rest); break
     case 'lock': cmdLock(rest); break
+    case 'provenance': cmdProvenance(rest); break
     case 'capture': cmdCapture(rest); break
     case '-v': case '--version':
       console.log('skill-cli ' + VERSION); break

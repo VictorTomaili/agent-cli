@@ -20,6 +20,7 @@ process.env.SKILL_CLI_HOME = TMP; // paths.js prefers SKILL_CLI_HOME — isolate
 
 const install = await import("../src/skills/commands/install.js");
 const npx = await import("../src/skills/lib/npx.js");
+const lockCmd = await import("../src/skills/commands/lock.js");
 const paths = await import("../src/skills/lib/paths.js");
 
 const STORE_DIR = paths.STORE_DIR;
@@ -135,4 +136,31 @@ test("installSource throws a clear error when the source yields no skills", () =
 test("fetchSkillsToTemp rejects an empty source (source failure path)", () => {
 	delete process.env[FIXTURE_ENV];
 	assert.throws(() => npx.fetchSkillsToTemp(""), /empty source/);
+});
+
+test("HIGH-1: npx spawn pins the skills package version (no unpinned -y skills)", () => {
+	const win = npx.buildNpxSpawn("owner/repo", "win32");
+	const posix = npx.buildNpxSpawn("owner/repo", "linux");
+	const args = [...win.args, ...posix.args];
+	// every invocation must reference a pinned skills@version, never bare 'skills'
+	assert.ok(args.some((a) => /^skills@\d+\.\d+\.\d+/.test(a)), "expected pinned skills@x.y.z");
+	assert.ok(!args.some((a) => a === "skills"), "bare unpinned 'skills' is forbidden");
+	// a pinned source (owner/repo@skill) must not pass --skill '*'
+	const pinned = npx.buildNpxSpawn("owner/repo@research", "linux");
+	assert.ok(!pinned.args.includes("--skill"));
+});
+
+test("skill provenance lists source/revision/hash for locked skills", () => {
+	const { writeLock, readLock } = lockCmd;
+	// write a lock into the isolated store for the fixture skill
+	const dir = path.join(STORE_DIR, "provenance-skill");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(path.join(dir, "SKILL.md"), "---\nname: provenance-skill\n---\nbody\n");
+	const lock = writeLock(dir, "github.com/x/y@z");
+	assert.ok(lock.source);
+	assert.ok(lock.contentHash);
+	const reread = readLock("provenance-skill");
+	assert.equal(reread.source, "github.com/x/y@z");
+	assert.equal(reread.contentHash, lock.contentHash);
+	assert.ok(reread.installedAt);
 });

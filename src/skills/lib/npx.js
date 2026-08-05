@@ -37,11 +37,17 @@ export function skillPin(source) {
   return skill
 }
 
+// HIGH-1 supply-chain pin: `npx -y skills` resolves the LATEST `skills`
+// package, so a compromised/future release would change install behavior
+// without review. Pin the audited version; bump deliberately when upgrading.
+// Verified against `npm view skills versions` (latest = 1.5.22).
+export const SKILLS_PACKAGE = 'skills@1.5.22'
+
 export function buildNpxSpawn(source, platform = process.platform) {
   // pinned source (owner/repo@skill) → let the @pin select the skill (passing
   // --skill '*' here would override it and grab the whole repo). Otherwise fetch all.
   const skillArgs = skillPin(source) ? [] : ['--skill', '*']
-  const base = ['-y', 'skills', 'add', source, '--copy', '--agent', 'claude-code', ...skillArgs, '-y']
+  const base = ['-y', SKILLS_PACKAGE, 'add', source, '--copy', '--agent', 'claude-code', ...skillArgs, '-y']
   return platform === 'win32'
     ? { cmd: 'cmd.exe', args: ['/c', 'npx', ...base] }
     : { cmd: 'npx', args: base }

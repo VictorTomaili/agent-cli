@@ -6,6 +6,7 @@ import {
 	readFileSync,
 	writeFileSync,
 	existsSync,
+	symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -273,4 +274,17 @@ test("templatePaths stays within the project SPECT directory", () => {
 	const cwd = project();
 	for (const file of Object.values(templatePaths(cwd)))
 		assert.ok(file.startsWith(path.join(cwd, ".spect") + path.sep));
+});
+
+test("GAP-3: initSpect refuses a symlinked subdir that escapes the project root", async () => {
+	const cwd = project();
+	const outside = mkdtempSync(path.join(tmpdir(), "agent-spect-outside-"));
+	mkdirSync(path.join(cwd, ".spect"), { recursive: true });
+	symlinkSync(outside, path.join(cwd, ".spect", "tasks"));
+	const r = await initSpect(cwd);
+	assert.equal(r.ok, false);
+	assert.match(r.reason, /symlink escape/);
+	// nothing was written outside the project root
+	assert.equal(existsSync(path.join(outside, "README.md")), false);
+	assert.equal(existsSync(path.join(outside, "spec.md")), false);
 });

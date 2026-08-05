@@ -159,12 +159,56 @@ async function exists(file) {
 	}
 }
 
+/** Is `candidate` inside `root` (both resolved to real paths)?
+ *  For a not-yet-existing file, resolve the nearest existing ancestor and
+ *  verify it stays under root. */
+async function containedIn(root, candidate) {
+	try {
+		const rootReal = await fs.realpath(root);
+		let probe = candidate;
+		for (;;) {
+			try {
+				const candReal = await fs.realpath(probe);
+				const sep = path.sep;
+				return (
+					candReal === rootReal ||
+					candReal.startsWith(rootReal + sep)
+				);
+			} catch {
+				const parent = path.dirname(probe);
+				if (parent === probe) return false; // hit the fs root
+				probe = parent;
+			}
+		}
+	} catch {
+		return false;
+	}
+}
+
 /** Initialize project-local SPECT files without overwriting user content. */
 export async function initSpect(cwd = process.cwd()) {
 	const files = spectFiles(cwd);
+	// GAP-3: refuse to initialize into a symlinked/junctioned .spect — a link
+	// to outside the project root would make every template write escape.
+	if (await exists(files.root) && !(await containedIn(files.root, files.root))) {
+		return {
+			ok: false,
+			reason: ".spect resolves outside the project root (symlink escape)",
+			root: files.root,
+		};
+	}
 	await fs.mkdir(files.root, { recursive: true });
-	for (const dir of DIRS)
-		await fs.mkdir(path.join(files.root, dir), { recursive: true });
+	for (const dir of DIRS) {
+		const full = path.join(files.root, dir);
+		await fs.mkdir(full, { recursive: true });
+		if (!(await containedIn(files.root, full))) {
+			return {
+				ok: false,
+				reason: `${dir} resolves outside the project root (symlink escape)`,
+				root: files.root,
+			};
+		}
+	}
 	const created = [];
 	const skipped = [];
 	for (const [relative, content] of Object.entries(FILE_TEMPLATES)) {
@@ -172,6 +216,13 @@ export async function initSpect(cwd = process.cwd()) {
 		if (await exists(target)) {
 			skipped.push(relative);
 			continue;
+		}
+		if (!(await containedIn(files.root, target))) {
+			return {
+				ok: false,
+				reason: `${relative} resolves outside the project root (symlink escape)`,
+				root: files.root,
+			};
 		}
 		await fs.writeFile(target, content, "utf8");
 		created.push(relative);
@@ -184,7 +235,13 @@ async function listMarkdown(dir) {
 	const entries = await fs.readdir(dir, { withFileTypes: true });
 	return entries
 		.filter(
-			(entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".md"),
+			// GAP-3: skip symlinks/junctions — a malicious .spect could link a
+			// tasks/plan file to a path outside the project root, and writes
+			// (setTaskStatus etc.) would follow it.
+			(entry) =>
+				entry.isFile() &&
+				!entry.isSymbolicLink() &&
+				entry.name.toLowerCase().endsWith(".md"),
 		)
 		.map((entry) => path.join(dir, entry.name))
 		.sort();

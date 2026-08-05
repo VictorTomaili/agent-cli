@@ -2399,6 +2399,10 @@ program
 			const result = await spect.initSpect(cwd);
 			emit({ command: "spect", action, ...result });
 			if (!JSON_MODE) {
+				if (result.ok === false) {
+					log.error(result.reason || "SPECT init failed");
+					process.exit(EXIT.ERROR);
+				}
 				log.success(`SPECT initialized in ${pretty(result.root)}`);
 				if (result.created.length)
 					log.info(`Created: ${result.created.join(", ")}`);
@@ -2408,6 +2412,7 @@ program
 					`Next: copy .spect/templates/spec.md into .spect/specs/ and define acceptance criteria before implementation.`,
 				);
 			}
+			if (result.ok === false) process.exit(EXIT.ERROR);
 			return;
 		}
 		if (action === "status") {

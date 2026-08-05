@@ -2866,7 +2866,14 @@ program
 		if (action === "start") {
 			const r = await sess.sessionStart({ task: task ? task.join(" ") : null, cwd: process.cwd() });
 			emit({ command: "session", action, ...r });
-			if (!JSON_MODE) log.success(`Session started (${r.session.startedAt}).`);
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				log.success(`Session started (${r.session.startedAt}).`);
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
 			return;
 		}
 		if (action === "end") {

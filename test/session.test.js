@@ -39,3 +39,15 @@ test("sessionReport proposes a lesson candidate", async () => {
 	assert.match(r.lesson.topic, /session\/merge-feature-branches/);
 	assert.match(r.lesson.suggestion, /lessons capture/);
 });
+
+test("sessionStart refuses to overwrite an active session", async () => {
+	await session.sessionEnd(); // clear any prior session
+	const first = await session.sessionStart({ task: "keep me" });
+	assert.equal(first.ok, true);
+	const second = await session.sessionStart({ task: "do not clobber" });
+	assert.equal(second.ok, false);
+	assert.match(second.reason, /already active/);
+	// the original session is preserved
+	assert.equal(session.currentSession().task, "keep me");
+	await session.sessionEnd();
+});

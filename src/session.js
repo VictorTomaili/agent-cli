@@ -25,6 +25,17 @@ export function readSession() {
 
 export async function sessionStart({ task = null, cwd = process.cwd() } = {}) {
 	const info = gitInfo(cwd);
+	const existing = readSession();
+	if (existing) {
+		// Never silently discard an active session — the previous task (and any
+		// captured lesson pointers) would be lost. Return a warning so the
+		// caller (CLI/agent) can surface it before proceeding.
+		return {
+			ok: false,
+			reason: "a session is already active — run 'agent session end' first",
+			session: existing,
+		};
+	}
 	const session = {
 		startedAt: new Date().toISOString(),
 		cwd: path.resolve(cwd),

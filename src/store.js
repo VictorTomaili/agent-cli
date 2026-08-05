@@ -111,7 +111,10 @@ export async function ensureMaster() {
 			// Adopt only if the old file looks like a REAL master (headings +
 			// substance), never a pointer stub or an empty template.
 			if (old && old.trim().length >= 40 && old.includes("## ")) {
-				const merged = ensureBlocks(old);
+				// A buggy old `link` run may have prepended a pointer-stub header
+				// onto the master itself; strip it so the adopted content is clean.
+				const cleaned = stripStrayPointerHeader(old);
+				const merged = ensureBlocks(cleaned);
 				await writeMaster(merged);
 				return {
 					action: "migrated",
@@ -140,6 +143,34 @@ export async function ensureMaster() {
 	}
 	await writeMaster(ensureBlocks(STARTER));
 	return { action: "starter", seed: null, changed: true };
+}
+
+/**
+ * Remove a pointer-stub header that was mistakenly prepended onto a master
+ * file (a buggy old `link` run wrote the stub block above the real content).
+ * The stub block starts with `<!-- agent-cli-pointer -->` and contains the
+ * "pointer stub" marker; anything before the first `## ` heading or
+ * `<!-- BEGIN` is dropped when it looks like a stub, not real content.
+ */
+export function stripStrayPointerHeader(content) {
+	const lines = content.split(/\r?\n/);
+	if (lines[0]?.trim() !== "<!-- agent-cli-pointer -->") return content;
+	// Find the first line that begins real master content: a `## ` heading or a
+	// managed-block marker. A `# ` title alone is ambiguous (the stub itself has
+	// one), so we require a heading/block marker, not just any # line.
+	let start = -1;
+	for (let i = 0; i < lines.length; i++) {
+		const t = lines[i].trim();
+		if (t.startsWith("## ") || t.startsWith("<!-- BEGIN")) {
+			start = i;
+			break;
+		}
+	}
+	// Only strip if the block above actually contains the stub marker.
+	if (start <= 0) return content;
+	const stubBlock = lines.slice(0, start).join("\n");
+	if (!/pointer stub/i.test(stubBlock)) return content;
+	return lines.slice(start).join("\n");
 }
 
 /** Re-merge managed blocks into the current master (used by `agent skill refresh`). */

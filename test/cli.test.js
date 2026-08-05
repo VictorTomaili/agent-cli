@@ -1231,6 +1231,26 @@ test("init migrates an existing ~/.agents/AGENTS.md master to ~/AGENTS.md", () =
 	assert.match(stub, /agent-cli-master-pointer/);
 });
 
+test("init migration strips a stray pointer header prepended onto the old master", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-migrate-stray-"));
+	mkdirSync(path.join(home, ".agents"), { recursive: true });
+	// old master has a pointer-stub header (buggy old link) ABOVE real content
+	const oldMaster =
+		"<!-- agent-cli-pointer -->\n" +
+		"# AGENTS.md → redirected by agent-cli\n\n" +
+		"This file is a **pointer stub**.\n\n" +
+		"<!-- BEGIN agent-cli -->\n" +
+		"## agent-cli (AGENTS.md manager)\n\n" +
+		"Real content padding padding padding padding padding padding padding padding\n";
+	writeFileSync(path.join(home, ".agents", "AGENTS.md"), oldMaster);
+	writeFileSync(path.join(home, "AGENTS.md"), "<!-- agent-cli-pointer -->\n# stub\n");
+	ok(run(["init", "--json"], { envHome: home }));
+	const adopted = readFileSync(path.join(home, "AGENTS.md"), "utf8");
+	// the stray stub header is gone; the real content remains
+	assert.doesNotMatch(adopted, /pointer stub/);
+	assert.match(adopted, /Real content/);
+});
+
 test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss", async () => {
 	const home = run(["init"]).home;
 	const ids = ["claude", "codex", "pi", "gemini", "qwen", "cline"];

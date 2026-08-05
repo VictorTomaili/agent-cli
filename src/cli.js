@@ -409,6 +409,57 @@ program
 			result.steps.hooks = { error: e.message };
 		}
 
+		// 8. auto-capture environment info (OS, shell, home, ssh aliases).
+		//    Non-destructive: fills empty ENVIRONMENTS.md fields only.
+		try {
+			const envMod = await import("./env-capture.js");
+			const envResult = await envMod.captureAndApply({ cwd: process.cwd() });
+			result.steps.envCapture = {
+				filled: envResult.filled || 0,
+				detected: envResult.detected || {},
+				sshAliases: (envResult.sshAliases || []).length,
+			};
+		} catch (e) {
+			result.steps.envCapture = { error: e.message };
+		}
+
+		// 9. auto-pick model aliases from the bundled catalog so personas
+		//    are immediately usable without manual model assignment.
+		try {
+			const hooks = await import("./agents-lib.js");
+			const unresolved = await hooks.findUnresolvedModels();
+			if (unresolved.length > 0) {
+				const applied = [];
+				// Group by alias like models suggest does.
+				const byAlias = new Map();
+				for (const u of unresolved) {
+					const arr = byAlias.get(u.model) || [];
+					arr.push(u);
+					byAlias.set(u.model, arr);
+				}
+				for (const [alias, personas] of byAlias) {
+					const hint = String(alias).replace(/-model$/, "").toLowerCase();
+					let category = models.CATEGORIES.includes(hint) ? hint : null;
+					if (!category) category = "smart"; // fallback
+					const picked = models.pickForCategory(category);
+					if (picked) {
+						models.setAlias(alias, {
+							model: `${picked.provider}/${picked.id}`,
+							category,
+							thinking: picked.thinking ? "on" : undefined,
+						});
+						applied.push({ alias, model: `${picked.provider}/${picked.id}`, personas: personas.length });
+					}
+				}
+				if (applied.length > 0) {
+					models.writeModelsMd();
+					result.steps.autoModels = { applied: applied.length, aliases: applied };
+				}
+			}
+		} catch (e) {
+			result.steps.autoModels = { error: e.message };
+		}
+
 		emit(result);
 
 		if (!JSON_MODE) {

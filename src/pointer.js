@@ -242,7 +242,9 @@ export function setExpectedCtx(ctx) {
 function expectedCtx() {
 	return (
 		_ctx || {
-			masterAbs: pretty(MASTER_FILE),
+			// masterAbs must be the ABSOLUTE path (pointer files store the
+			// absolute path in master-abs); only masterTilde is tilde-shortened.
+			masterAbs: MASTER_FILE,
 			masterTilde: pretty(MASTER_FILE),
 		}
 	);

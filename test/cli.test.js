@@ -879,13 +879,15 @@ test("link reports changed/nothingToDo booleans (idempotent second run)", () => 
 
 test("brief --check exits 2 when suggested work exists", () => {
 	const home = run(["init"]).home;
+	// Create actionable state: enable then unlink a target so there's drift.
+	run(["target", "enable", "claude"], { envHome: home });
+	run(["unlink", "claude"], { envHome: home });
 	const r = run(["brief", "--check", "--offline", "--json"], {
 		envHome: home,
 	});
-	// after a fresh init there is suggested work (unfilled templates, models)
 	assert.equal(r.code, 2);
 	const j = parseJson(r.stdout);
-	assert.ok(j.data.suggestedActions.length >= 0);
+	assert.ok(j.data.suggestedActions.length >= 1);
 });
 
 test("manifest and schema commands emit the contract", () => {
@@ -987,12 +989,15 @@ test("secret set/get/list round-trip via the CLI", () => {
 
 test("env capture fills ENVIRONMENTS.md via the CLI", () => {
 	const home = run(["init"]).home;
+	// init auto-captures env; verify the fields are present.
 	const r = run(["env", "capture", "--json"], { envHome: home });
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.equal(j.data.filled, 4);
+	// After auto-init, env fields are already filled; filled may be 0 on re-run.
+	assert.ok(j.data.detected);
+	assert.ok(j.data.detected.user);
+	assert.ok(j.data.detected.os);
 });
-
 test("sync init + push + status round-trip via the CLI", { skip: !hasGitCli }, () => {
 	const home = run(["init"]).home;
 	ok(run(["sync", "init", "--json"], { envHome: home }));
@@ -1041,11 +1046,12 @@ test("env set writes a field into ENVIRONMENTS.md", () => {
 	);
 });
 
-test("models suggest lists unresolved aliases", () => {
+test("models suggest shows auto-resolved state after init", () => {
 	const home = run(["init"]).home;
+	// init auto-applies models; suggest should show 0 unresolved.
 	const r = parseJson(run(["models", "suggest", "--json"], { envHome: home }).stdout);
 	assert.equal(r.command, "models");
-	assert.ok(r.data.count >= 1);
+	assert.equal(r.data.count, 0);
 });
 
 test("brief --oneline emits a one-line summary", () => {

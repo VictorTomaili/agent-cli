@@ -41,17 +41,20 @@ test("buildActions produces structured, ordered actions", async () => {
 	assert.deepEqual(severities, [...severities].sort((a, b) => b - a));
 });
 
-test("a fresh init yields unresolved-model actions only", async () => {
+test("a fresh init auto-resolves model aliases (no unresolved actions)", async () => {
 	initHome();
 	const s = await actions.collectState();
 	const list = actions.buildActions(s);
-	// fresh home: seeded personalities use unresolved model aliases
-	assert.ok(list.some((a) => a.id.startsWith("models:set:")));
-	assert.ok(list.every((a) => a.safeToAutomate === false));
+	// init now auto-applies models from the bundled catalog, so no
+	// models:set actions should remain.
+	assert.ok(!list.some((a) => a.id.startsWith("models:set:")),
+		"init should have auto-resolved all model aliases");
 });
-
 test("suggestedStrings derives legacy shell strings", async () => {
 	initHome();
+	// After auto-init, create drift so there's at least one action.
+	run(["target", "enable", "claude", "-g"]);
+	run(["unlink", "claude"]);
 	const s = await actions.collectState();
 	const strings = actions.suggestedStrings(actions.buildActions(s));
 	assert.ok(Array.isArray(strings));
@@ -60,6 +63,8 @@ test("suggestedStrings derives legacy shell strings", async () => {
 
 test("computeEtag is stable for identical state and changes with drift", async () => {
 	initHome();
+	// A prior test may have created drift; relink so the baseline is clean.
+	run(["link", "claude"]);
 	const s1 = await actions.collectState();
 	const e1 = actions.computeEtag(s1);
 	const s2 = await actions.collectState();

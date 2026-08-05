@@ -219,6 +219,13 @@ const program = new Command();
 // Route commander's own parse/usage errors through our JSON-aware error path
 // instead of letting commander print plain text and process.exit() directly.
 program.exitOverride();
+// Suppress commander's own stderr output for parse/usage errors — our catch
+// handler below prints a single, consistent error line (or JSON envelope).
+program.configureOutput({
+	writeErr: () => {},
+	writeOut: (str) => process.stdout.write(str),
+	outputError: (str, write) => write(str),
+});
 registerTargetCommand(program, {
 	emit,
 	fail,

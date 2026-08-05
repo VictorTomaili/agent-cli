@@ -106,3 +106,30 @@ test("verifyAction reports missing verification and runs real ones", async () =>
 	});
 	assert.equal(withV.verified, true);
 });
+
+test("buildActions suggests --fetch when the live catalog is stale but not fresh", () => {
+	const base = {
+		masterContent: "x",
+		archetypeNeeded: false,
+		pointerTargets: [],
+		unresolvedModels: [],
+		stagedUpdates: [],
+		inboxCount: 0,
+		consG: { recommend: false },
+		consP: { recommend: false },
+		upd: { latest: null, upToDate: true },
+	};
+	// Fresh or never-fetched (null) → no suggestion.
+	const fresh = actions.buildActions({ ...base, liveCatalogAge: 1 });
+	assert.ok(!fresh.some((a) => a.id === "models:research:fetch"));
+
+	const never = actions.buildActions({ ...base, liveCatalogAge: null });
+	assert.ok(!never.some((a) => a.id === "models:research:fetch"));
+
+	// >= 30 days → suggestion present, safe to automate.
+	const stale = actions.buildActions({ ...base, liveCatalogAge: 30 });
+	const action = stale.find((a) => a.id === "models:research:fetch");
+	assert.ok(action, "expected models:research:fetch action for a 30-day-old catalog");
+	assert.equal(action.safeToAutomate, true);
+	assert.deepEqual(action.args, ["models", "research", "--fetch"]);
+});

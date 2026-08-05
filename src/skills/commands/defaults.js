@@ -1,14 +1,16 @@
 import c from 'picocolors'
 import { listStore } from '../lib/store.js'
-import { readGlobalConfig, writeGlobalConfig, readProjectConfig, computeEffective } from '../lib/config.js'
+import { readGlobalConfig, writeGlobalConfig, readProjectConfig, computeEffective, computeDefaults } from '../lib/config.js'
+import { GATE_DECIDE_HINT } from '../lib/gate-policy.js'
 
-// `skill active` (aliases: `status`, legacy `defaults`) — the description-only
+// `skill active` (aliases: `status`) — the description-only
 // catalog of ACTIVE skills in the current project (defaults + project allow,
 // minus deny). The agent runs this at session start: it lists each active skill's
 // name + FULL description (never the body), then the agent itself decides per
 // skill — functional → `skill cat`, context-altering → propose. Detection of
 // context-altering is the agent's judgment from the description (no flag, no fixed
-// list), so it works for any skill, including ones installed later.
+// list), so it works for any skill, including ones installed later. The decision
+// hint text is single-sourced in gate-policy.js.
 export function cmdActive() {
   const installed = listStore()
   const globalCfg = readGlobalConfig()
@@ -40,21 +42,37 @@ export function cmdActive() {
     if (s.description) console.log(c.gray('      ' + String(s.description).replace(/[\r\n]+/g, ' ').trim()))
   }
   console.log()
-  console.log(c.bold('→ For EACH skill above, decide in your reply:'))
-  console.log(c.gray('    LOAD    moves CORRECTNESS/QUALITY → run ') + c.cyan('skill cat <name>') + c.gray(' now.'))
-  console.log(c.gray('    PROPOSE moves COST, STYLE, or SPEED → ASK "enable <name>?" about ALL of them,'))
-  console.log(c.gray('            then END YOUR TURN and WAIT. That turn contains ONLY the questions — NO exploration,'))
-  console.log(c.gray('            NO tool calls, NO task work. Do NOT start the task until they answer. The wait is'))
-  console.log(c.gray('            the POINT — a trade-off is the USER') + c.gray("'s decision; it moves an axis on EVERY") )
-  console.log(c.gray('            reply, so NEVER skip and NEVER say "not relevant here".'))
-  console.log(c.gray('            Mentioning / noting / "available" is NOT asking.'))
-  console.log(c.gray('    PARAMS  if a proposed skill lists activation options (level / language / mode /'), )
-  console.log(c.gray('            format / strictness), ask the user to choose them in the SAME proposal — do not pick'))
-  console.log(c.gray('            for them. Gate stays up until enable decision + parameters are both given.'))
-  console.log(c.gray('    SKIP    moves NONE of the above.'))
-  console.log(c.yellow('  ⚠ Breaking the gate: starting the task / exploring before the user answers,'))
-  console.log(c.yellow('    "would delay it", "user has a clear request", "I will just do the task",'))
-  console.log(c.yellow('    "not relevant here". → ASK first, then END your turn.'))
+  for (const line of GATE_DECIDE_HINT.split('\n')) {
+    if (line.startsWith('  ⚠')) console.log(c.yellow(line))
+    else if (line.startsWith('→')) console.log(c.bold(line))
+    else console.log(c.gray(line))
+  }
+}
+
+// `skill defaults` (plural, legacy alias of `default` management) — list the
+// skills marked as global defaults. Distinct from `skill active` (which lists
+// ACTIVE skills incl. project allow/deny): defaults are the auto-load + global
+// active-by-default set.
+export function cmdDefaults() {
+  const installed = listStore()
+  const globalCfg = readGlobalConfig()
+  const names = computeDefaults(installed, globalCfg)
+
+  console.log(c.bold('skill defaults') + c.gray(' — global defaults (active by default + auto-load in every project).'))
+  console.log()
+  if (!names.length) {
+    console.log(c.gray('  No default skills. Mark one: ') + c.cyan('skill default <name>'))
+    return
+  }
+  for (const name of names) {
+    const s = installed.find(x => x.name === name)
+    if (!s) continue
+    const trg = s.triggers.length ? '  ' + c.gray('/' + s.triggers.join(', /')) : ''
+    console.log('  ' + c.yellow('★') + ' ' + c.bold(s.name) + trg)
+    if (s.description) console.log(c.gray('      ' + String(s.description).replace(/[\r\n]+/g, ' ').trim()))
+  }
+  console.log()
+  console.log(c.gray('Remove: ') + c.cyan('skill undefault <name>'))
 }
 
 // `skill default <name>` — mark a skill as a default (active by default in every

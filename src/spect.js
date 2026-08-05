@@ -257,3 +257,221 @@ export function templatePaths(cwd = process.cwd()) {
 			]),
 	);
 }
+
+// ---------------------------------------------------------------------------
+// Executable task workflow — parse `- [ ] TASK-001 [REQ-001] <title>` checklists
+// ---------------------------------------------------------------------------
+
+const TASK_ID =
+	/^(\s*-\s+)\[([ xX])\]\s+([A-Za-z0-9][\w.-]*)((?:\s+\[([^\]]+)\])*)\s*(.*)$/;
+const REQ_IN_BRACKETS = /\[(REQ-[\w.-]+)\]/g;
+const REQ_LINE = /^\s*[-*]\s*REQ-([\w.-]+):\s*(.*)$/;
+const VERIFY_LINE = /^\s*[-*]\s*Verification:\s*(.*)$/;
+
+/** Parse a single task checklist line, or null when it is not a task. */
+export function parseTaskLine(line) {
+	const m = TASK_ID.exec(line);
+	if (!m) return null;
+	return {
+		done: m[2].toLowerCase() === "x",
+		id: m[3],
+		reqs: [...(m[4] || "").matchAll(REQ_IN_BRACKETS)].map((x) => x[1]),
+		title: (m[6] || "").trim(),
+	};
+}
+
+/** Parse every task checkbox across `tasks/*.md`, in file/line order. */
+export async function parseTasks(cwd = process.cwd()) {
+	const { tasks: tasksDir } = spectFiles(cwd);
+	const files = await listMarkdown(tasksDir);
+	const out = [];
+	for (const file of files) {
+		const content = await fs.readFile(file, "utf8");
+		content.split(/\r?\n/).forEach((line, idx) => {
+			const t = parseTaskLine(line);
+			if (t) out.push({ ...t, file, line: idx + 1 });
+		});
+	}
+	return out;
+}
+
+/** Mark a task done/open by its stable id. */
+export async function setTaskStatus(cwd, id, done) {
+	const files = await listMarkdown(spectFiles(cwd).tasks);
+	for (const file of files) {
+		const content = await fs.readFile(file, "utf8");
+		const lines = content.split(/\r?\n/);
+		for (let i = 0; i < lines.length; i++) {
+			const t = parseTaskLine(lines[i]);
+			if (!t || t.id !== id || t.done === done) continue;
+			lines[i] = lines[i].replace(
+				/^(\s*-\s+)\[[ xX]\]/,
+				`$1${done ? "[x]" : "[ ]"}`,
+			);
+			await fs.writeFile(file, lines.join("\n"), "utf8");
+			return { ok: true, id, done, file };
+		}
+	}
+	return { ok: false, reason: `no task with id '${id}'` };
+}
+
+/** Parse REQ definitions (+ Verification lines) from a spec document. */
+export function parseSpecReqs(content) {
+	const reqs = [];
+	let cur = null;
+	for (const line of content.split(/\r?\n/)) {
+		const rm = REQ_LINE.exec(line);
+		if (rm) {
+			if (cur) reqs.push(cur);
+			cur = { id: `REQ-${rm[1]}`, criterion: rm[2].trim(), verification: null };
+			continue;
+		}
+		if (cur) {
+			const vm = VERIFY_LINE.exec(line);
+			if (vm) cur.verification = vm[1].trim();
+		}
+	}
+	if (cur) reqs.push(cur);
+	return reqs;
+}
+
+/** Parse every spec under `specs/*.md` (id = filename base). */
+export async function parseSpecs(cwd = process.cwd()) {
+	const { specs: specsDir } = spectFiles(cwd);
+	const files = await listMarkdown(specsDir);
+	const specs = [];
+	for (const file of files) {
+		const content = await fs.readFile(file, "utf8");
+		specs.push({ id: path.basename(file, ".md"), file, reqs: parseSpecReqs(content) });
+	}
+	return specs;
+}
+
+/** Cross-reference integrity: dangling task REQs vs orphan spec REQs. */
+export async function validateSpect(cwd = process.cwd()) {
+	const specs = await parseSpecs(cwd);
+	const tasks = await parseTasks(cwd);
+	const specReqIds = new Set(specs.flatMap((s) => s.reqs.map((r) => r.id)));
+	const taskReqIds = new Set(tasks.flatMap((t) => t.reqs));
+	const issues = [];
+	for (const t of tasks)
+		for (const r of t.reqs)
+			if (!specReqIds.has(r))
+				issues.push({ type: "dangling-task-req", task: t.id, req: r, file: t.file });
+	for (const s of specs)
+		for (const r of s.reqs)
+			if (!taskReqIds.has(r.id))
+				issues.push({ type: "orphan-req", spec: s.id, req: r.id });
+	return {
+		ok: issues.length === 0,
+		issues,
+		counts: { specs: specs.length, tasks: tasks.length, reqs: specReqIds.size },
+	};
+}
+
+/** Per-REQ acceptance-criteria coverage report. */
+export async function reportSpect(cwd = process.cwd(), { spec } = {}) {
+	const specs = await parseSpecs(cwd);
+	const filtered = spec ? specs.filter((s) => s.id === spec) : specs;
+	if (spec && filtered.length === 0)
+		return { ok: false, reason: `no such spec: '${spec}'` };
+	const tasks = await parseTasks(cwd);
+	const reqs = [];
+	for (const s of filtered)
+		for (const r of s.reqs) {
+			const linked = tasks.filter((t) => t.reqs.includes(r.id));
+			const implemented = linked.length > 0;
+			const verified = !!r.verification;
+			reqs.push({
+				req: r.id,
+				spec: s.id,
+				criterion: r.criterion,
+				implemented,
+				verified,
+				tasks: linked.map((t) => ({ id: t.id, done: t.done })),
+				status: implemented && verified ? "done" : implemented ? "in-progress" : "defined",
+			});
+		}
+	return {
+		ok: true,
+		spec: spec || "all",
+		reqs,
+		summary: {
+			total: reqs.length,
+			done: reqs.filter((r) => r.status === "done").length,
+			inProgress: reqs.filter((r) => r.status === "in-progress").length,
+			defined: reqs.filter((r) => r.status === "defined").length,
+		},
+	};
+}
+
+/** REQ → TASK → verification traceability for one spec. */
+export async function traceSpect(specId, cwd = process.cwd()) {
+	const specs = await parseSpecs(cwd);
+	const spec = specs.find((s) => s.id === specId);
+	if (!spec) return { ok: false, reason: `no such spec: '${specId}'` };
+	const tasks = await parseTasks(cwd);
+	const reqs = spec.reqs.map((r) => {
+		const linked = tasks.filter((t) => t.reqs.includes(r.id));
+		return {
+			id: r.id,
+			criterion: r.criterion,
+			verification: r.verification,
+			verified: !!r.verification,
+			implemented: linked.length > 0,
+			tasks: linked.map((t) => ({ id: t.id, done: t.done, file: t.file })),
+		};
+	});
+	const issues = [];
+	for (const r of reqs) {
+		if (!r.implemented)
+			issues.push({ type: "orphan-req", req: r.id, detail: "defined but no task implements it" });
+		if (!r.verified)
+			issues.push({ type: "unverified-req", req: r.id, detail: "no Verification line in the spec" });
+	}
+	return { ok: true, spec: specId, file: spec.file, reqs, issues };
+}
+
+/** The next unchecked task, with its REQ acceptance criteria. */
+export async function nextTask(cwd = process.cwd()) {
+	const tasks = await parseTasks(cwd);
+	const next = tasks.find((t) => !t.done);
+	if (!next) return { ok: true, nothingToDo: true, taskCount: tasks.length };
+	const specs = await parseSpecs(cwd);
+	const acceptance = next.reqs.map((r) => {
+		const found = specs.find((s) => s.reqs.some((x) => x.id === r));
+		const rr = found?.reqs.find((x) => x.id === r);
+		return rr ? { req: r.id, criterion: rr.criterion, spec: found.id } : { req: r.id, criterion: null, spec: null };
+	});
+	return { ok: true, task: next, acceptance };
+}
+
+/** Mark a task done and suggest a lesson + snapshot (the close loop). */
+export async function closeTask(cwd, id) {
+	const r = await setTaskStatus(cwd, id, true);
+	if (!r.ok) return r;
+	return {
+		ok: true,
+		id,
+		file: r.file,
+		lesson: {
+			topic: `spect/${id.toLowerCase()}`,
+			suggestion: `agent lessons add spect/${id.toLowerCase()} --body '<what was learned>'`,
+		},
+		snapshotSuggestion: "agent snapshot",
+	};
+}
+
+/** Compact headline for `brief`/status surfaces. */
+export async function spectHeadline(cwd = process.cwd()) {
+	const insp = await inspectSpect(cwd);
+	const tasks = await parseTasks(cwd);
+	const open = tasks.filter((t) => !t.done).length;
+	return {
+		initialized: insp.initialized || insp.partial,
+		counts: insp.counts,
+		taskCount: tasks.length,
+		open,
+		done: tasks.length - open,
+	};
+}

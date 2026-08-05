@@ -1,10 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import readline from 'node:readline'
 import c from 'picocolors'
 import { STORE_DIR } from '../lib/paths.js'
 import { parseSkillMd } from '../lib/frontmatter.js'
 import { fetchSkillsToTemp } from '../lib/npx.js'
 import { sanitizeSkillName } from '../lib/store.js'
+import { writeLock } from './lock.js'
+import { cmdEnable } from './enable.js'
 
 // Local paths are resolved to absolute BEFORE switching to the temp cwd, so
 // npx skills looks them up relative to the user's cwd, not the temp dir.
@@ -57,6 +60,8 @@ export function installSource(source) {
       fs.cpSync(srcSkillDir, dest, { recursive: true })
       // remember the source so `skill update` can re-fetch it later
       fs.writeFileSync(path.join(dest, '.source'), resolved + '\n')
+      // provenance lock (source + SKILL.md content hash) — `skill lock` re-reads it
+      writeLock(dest, resolved)
       moved.push({ name, reinstalled })
     }
     for (const s of skipped) console.log(c.yellow('  ⚠ skipped ') + c.bold(s) + c.gray(' (not a safe skill name)'))
@@ -91,11 +96,32 @@ export function cmdInstall(args) {
     console.error(c.gray('  (in a terminal with no source → interactive search: skill search)'))
     process.exit(1)
   }
+  let moved
   try {
-    installSource(source)
+    moved = installSource(source)
   } catch (e) {
     console.error(c.red(e.message))
     console.error(c.gray('Check the source (owner/repo, URL, path, npm package).'))
     process.exit(1)
+  }
+  // Interactive installs (real terminal) offer to enable each freshly-installed
+  // skill in this project — the fetch is passive, so a TTY user is almost always
+  // about to run `skill enable` anyway. Skipped for non-TTY (agents/CI) and `-y`.
+  const yes = args.includes('-y') || args.includes('--yes')
+  if (!yes && process.stdin.isTTY && moved && moved.length) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    const names = moved.map(m => m.name)
+    const list = names.join(', ')
+    rl.question(c.cyan('Enable ') + c.bold(list) + c.cyan(' in this project now? [y/N] '), (ans) => {
+      rl.close()
+      const a = ans.trim().toLowerCase()
+      if (a === 'y' || a === 'yes') {
+        for (const n of names) {
+          try { cmdEnable([n]) } catch { /* keep going */ }
+        }
+      } else {
+        console.log(c.gray('  Skipped. Enable later with: ') + c.cyan('skill enable <name>'))
+      }
+    })
   }
 }

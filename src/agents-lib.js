@@ -359,6 +359,23 @@ export async function validateAgent(filePath) {
 
 export { pretty };
 
+/** Agents whose frontmatter `model:` is an unresolved alias (validateAgent warning). */
+export async function findUnresolvedModels(cwd = process.cwd()) {
+	const list = await listAgents({ includeProject: false, cwd });
+	const unresolved = [];
+	for (const a of list) {
+		if (!a.model) continue;
+		const v = await validateAgent(a.path);
+		if (v.warnings && v.warnings.some((w) => w.includes("unresolved")))
+			unresolved.push({
+				name: a.name,
+				model: a.model,
+				guidance: `agent models set ${a.model} <provider/model>`,
+			});
+	}
+	return unresolved;
+}
+
 const ARCHETYPE_FIELDS = ["AGENT_ROLE", "AGENT_MISSION", "AGENT_PERSONA"];
 
 /** From an identityInventory result, compute the onboarding/gap summary for brief/doctor.

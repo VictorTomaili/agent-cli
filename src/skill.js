@@ -7,6 +7,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { HOME, exists, ensureDir, writeFile } from "./util.js";
+import { VERSION as SKILL_VERSION } from "./skills/lib/version.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const SKILL_ROOT = path.resolve(__dirname, "skills");
@@ -100,19 +101,11 @@ export async function ensureSkillStore() {
 	return { ok: true, actions, store: SKILL_STORE, config: SKILL_CONFIG };
 }
 
-/** Report the integrated skill implementation as part of this app. */
+/** Report the integrated skill implementation as part of this app.
+ *  Version is read statically (no subprocess) — status/brief/doctor no longer
+ *  pay a Node child process per call. */
 export function skillVersion() {
-	try {
-		const r = runSkill(["--version"]);
-		const m = r.stdout.match(/(\d+\.\d+\.\d+)/);
-		return {
-			version: m?.[1] ?? null,
-			source: "integrated",
-			bin: null,
-		};
-	} catch {
-		return { version: null, source: "integrated", bin: null };
-	}
+	return { version: SKILL_VERSION ?? null, source: "integrated", bin: null };
 }
 
 export const PATHS = {

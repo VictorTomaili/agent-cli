@@ -22,6 +22,7 @@ function copyDir(src, dst, skipNames) {
 	fs.mkdirSync(dst, { recursive: true });
 	for (const e of fs.readdirSync(src, { withFileTypes: true })) {
 		if (skipNames && skipNames.has(e.name)) continue;
+		if (e.name.startsWith(".secrets.")) continue; // never back up encrypted secrets
 		const s = path.join(src, e.name);
 		const d = path.join(dst, e.name);
 		if (e.isDirectory()) copyDir(s, d, skipNames);
@@ -102,6 +103,83 @@ function validateSnapshot(src) {
 	} catch {
 		return false;
 	}
+}
+
+function fileMap(dir) {
+	const out = {};
+	const stack = [dir];
+	while (stack.length) {
+		const d = stack.pop();
+		let entries = [];
+		try {
+			entries = fs.readdirSync(d, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const e of entries) {
+			if (e.name === ".snapshot.json") continue;
+			const p = path.join(d, e.name);
+			const rel = path.relative(dir, p).split(path.sep).join("/");
+			if (e.isDirectory()) stack.push(p);
+			else out[rel] = fs.readFileSync(p, "utf8");
+		}
+	}
+	return out;
+}
+
+/** File-level diff of a snapshot vs the current brain (no writes). */
+export function snapshotDiff(name) {
+	const src = snapshotWithinRoot(name);
+	if (!src) return { ok: false, reason: "invalid snapshot name" };
+	if (!fs.existsSync(src)) return { ok: false, reason: "no such snapshot" };
+	const snap = fileMap(src);
+	const brain = fileMap(BRAIN);
+	const changed = [];
+	const added = [];
+	const removed = [];
+	// added = in the current brain but not the snapshot (new since snapshot)
+	// removed = in the snapshot but gone from the brain (deleted since snapshot)
+	for (const rel of Object.keys(brain)) if (!(rel in snap)) added.push(rel);
+	for (const rel of Object.keys(snap)) if (!(rel in brain)) removed.push(rel);
+	for (const rel of Object.keys(brain))
+		if (rel in snap && brain[rel] !== snap[rel]) changed.push(rel);
+	return { ok: true, name, changed, added, removed };
+}
+
+/** Compare two snapshots (a vs b) at the file level. */
+export function diffSnapshots(a, b) {
+	const sa = snapshotWithinRoot(a);
+	const sb = snapshotWithinRoot(b);
+	if (!sa || !sb) return { ok: false, reason: "invalid snapshot name" };
+	if (!fs.existsSync(sa)) return { ok: false, reason: `no such snapshot: ${a}` };
+	if (!fs.existsSync(sb)) return { ok: false, reason: `no such snapshot: ${b}` };
+	const ma = fileMap(sa);
+	const mb = fileMap(sb);
+	const changed = [];
+	const added = [];
+	const removed = [];
+	for (const rel of Object.keys(ma)) {
+		if (!(rel in mb)) removed.push(rel);
+		else if (mb[rel] !== ma[rel]) changed.push(rel);
+	}
+	for (const rel of Object.keys(mb)) if (!(rel in ma)) added.push(rel);
+	return { ok: true, a, b, changed, added, removed };
+}
+
+/** Keep at most `n` snapshots, removing the oldest. Returns pruned names. */
+export function pruneSnapshots(n) {
+	if (!(n >= 1)) return { pruned: [] };
+	const list = listSnapshots();
+	const excess = list.slice(n); // oldest first (list is newest-first)
+	for (const name of excess) {
+		const p = path.join(SNAP_DIR, name);
+		try {
+			fs.rmSync(p, { recursive: true, force: true });
+		} catch {
+			/* ignore */
+		}
+	}
+	return { pruned: excess };
 }
 
 export function restore(name) {

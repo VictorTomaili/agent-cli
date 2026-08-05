@@ -12,7 +12,13 @@ import { cmdUpdate } from './commands/update.js'
 import { cmdRemove } from './commands/remove.js'
 import { cmdSearch } from './commands/search.js'
 import { cmdManager } from './commands/manager.js'
-import { cmdActive, cmdDefault, cmdUndefault } from './commands/defaults.js'
+import { cmdActive, cmdDefault, cmdUndefault, cmdDefaults } from './commands/defaults.js'
+import { cmdCreate } from './commands/create.js'
+import { cmdValidate, cmdPreview } from './commands/validate.js'
+import { cmdTest } from './commands/test.js'
+import { cmdRun } from './commands/run.js'
+import { cmdLock } from './commands/lock.js'
+import { cmdCapture } from './commands/capture.js'
 import { isInteractive } from './lib/interactive.js'
 import { VERSION } from './lib/version.js'
 
@@ -47,6 +53,15 @@ ${c.bold('Usage (agent)')}
 ${c.bold('Maintenance')}
   ${c.cyan('skill update')} ${c.gray('[name|--all]')} refresh store from source
   ${c.cyan('skill remove')} ${c.gray('<name> [-y]')}  remove from store (prompt unless -y / non-TTY)
+
+${c.bold('Authoring')}
+  ${c.cyan('skill create')} ${c.gray('<name> [-d dir] [--tool]')}  scaffold a skill (SKILL.md [+ SKILL.tool.js])
+  ${c.cyan('skill validate')} ${c.gray('<name|path>')}   check frontmatter + body
+  ${c.cyan('skill preview')} ${c.gray('<name|path>')}   render what the agent would load
+  ${c.cyan('skill test')} ${c.gray('<name|path>')}      validate + run SKILL.tool.js (allowlisted builtins)
+  ${c.cyan('skill run')} ${c.gray('<name> [-- args]')}  execute SKILL.tool.js
+  ${c.cyan('skill lock')} ${c.gray('<name> [--source]')} write provenance lock (source + content hash)
+  ${c.cyan('skill capture')} ${c.gray('<name> <lesson>')} append a lesson to SKILL.md
 
 ${c.gray('Source formats (install): owner/repo | github/gitlab URL | git URL | local path | npm package')}
 ${c.gray('Test (no real ~ touched): SKILL_CLI_HOME=/tmp/sktest skill init -g')}
@@ -87,10 +102,11 @@ async function main() {
       }
       await cmdSearch(rest)
       break
-    case 'enable': cmdEnable(rest); break
-    case 'disable': cmdDisable(rest); break
+    case 'enable': case 'on': cmdEnable(rest); break
+    case 'disable': case 'off': cmdDisable(rest); break
     case 'list': case 'ls': cmdList(rest); break
-    case 'active': case 'status': case 'defaults': cmdActive(rest); break
+    case 'active': case 'status': cmdActive(rest); break
+    case 'defaults': case 'defs': cmdDefaults(rest); break
     case 'default': case 'def': cmdDefault(rest); break
     case 'undefault': case 'undef': cmdUndefault(rest); break
     case 'show': case 'info': cmdShow(rest); break
@@ -98,6 +114,13 @@ async function main() {
     case 'trigger': cmdTrigger(rest); break
     case 'update': cmdUpdate(rest); break
     case 'remove': case 'rm': case 'uninstall': cmdRemove(rest); break
+    case 'create': cmdCreate(rest); break
+    case 'validate': cmdValidate(rest); break
+    case 'preview': cmdPreview(rest); break
+    case 'test': cmdTest(rest); break
+    case 'run': cmdRun(rest); break
+    case 'lock': cmdLock(rest); break
+    case 'capture': cmdCapture(rest); break
     case '-v': case '--version':
       console.log('skill-cli ' + VERSION); break
     default:

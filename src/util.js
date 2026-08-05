@@ -34,6 +34,13 @@ export const log = {
 // re-export colors for command formatting
 export { c };
 
+/** Remove ANSI escape sequences (SGR/CSI) from a string — JSON must be plain. */
+const ANSI_RE =
+	/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+export function stripAnsi(s) {
+	return String(s ?? "").replace(ANSI_RE, "");
+}
+
 // --- fs helpers ---
 export async function exists(p) {
 	try {

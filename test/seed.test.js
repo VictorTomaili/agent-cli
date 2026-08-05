@@ -236,3 +236,38 @@ test("diffLines treats null inputs as empty", () => {
 	assert.deepEqual(seed.diffLines(null, "a").split("\n"), ["+a"]);
 	assert.deepEqual(seed.diffLines("a", null).split("\n"), ["-a"]);
 });
+
+test("applyStaged applies matching files, backs up, refuses diverged, clears when clean", async () => {
+	const seedDir = makeSeedDir();
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-apply-"));
+	await seed.stageSeeds({ home, seedDir, version: "0.2.0" });
+	mkdirSync(path.join(home, "agents"), { recursive: true });
+	// clean apply for scout.md; diverge planner.md
+	writeFileSync(
+		path.join(home, "agents", "scout.md"),
+		readFileSync(path.join(home, "update-0.2.0", "agents", "scout.md"), "utf8"),
+	);
+	writeFileSync(path.join(home, "agents", "planner.md"), "USER EDITED\n");
+	const r = await seed.applyStaged("0.2.0", { home });
+	assert.equal(r.ok, true);
+	assert.ok(r.applied.includes("agents/scout.md"));
+	assert.ok(r.backedUp.includes("agents/scout.md"));
+	assert.ok(r.skipped.some((s) => s.rel === "agents/planner.md"));
+	// divergence → staged payload NOT cleared
+	assert.ok(existsSync(path.join(home, "update-0.2.0")));
+	// now clear the divergence and apply again → cleared
+	writeFileSync(
+		path.join(home, "agents", "planner.md"),
+		readFileSync(path.join(home, "update-0.2.0", "agents", "planner.md"), "utf8"),
+	);
+	const r2 = await seed.applyStaged("0.2.0", { home });
+	assert.equal(r2.ok, true);
+	assert.ok(!existsSync(path.join(home, "update-0.2.0")));
+});
+
+test("applyStaged rejects an unknown version", async () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-apply-none-"));
+	const r = await seed.applyStaged("9.9.9", { home });
+	assert.equal(r.ok, false);
+	assert.match(r.reason, /no staged update/);
+});

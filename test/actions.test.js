@@ -1,0 +1,103 @@
+// Structured session-contract tests: buildActions / suggestedStrings / etag / run.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+process.env.AGENT_CLI_HOME = mkdtempSync(path.join(tmpdir(), "agent-actions-"));
+const actions = await import("../src/actions.js");
+const CLI = path.resolve("src/cli.js");
+
+function run(args) {
+	const r = spawnSync(process.execPath, [CLI, ...args], {
+		encoding: "utf8",
+		env: { ...process.env },
+	});
+	assert.equal(r.status, 0, `${args.join(" ")} failed: ${r.stderr}`);
+	return r.stdout;
+}
+
+function initHome() {
+	run(["init"]);
+}
+
+test("buildActions produces structured, ordered actions", async () => {
+	initHome();
+	const s = await actions.collectState();
+	const list = actions.buildActions(s);
+	assert.ok(Array.isArray(list));
+	for (const a of list) {
+		assert.equal(typeof a.id, "string");
+		assert.ok(["critical", "high", "medium", "low"].includes(a.severity));
+		assert.equal(typeof a.safeToAutomate, "boolean");
+		assert.equal(typeof a.idempotent, "boolean");
+		assert.ok(a.command === "agent" || a.command === "npm");
+		assert.ok(Array.isArray(a.args));
+	}
+	// sorted by severity desc
+	const severities = list.map((a) => actions.ACTION_SEVERITY[a.severity]);
+	assert.deepEqual(severities, [...severities].sort((a, b) => b - a));
+});
+
+test("a fresh init yields unresolved-model actions only", async () => {
+	initHome();
+	const s = await actions.collectState();
+	const list = actions.buildActions(s);
+	// fresh home: seeded personalities use unresolved model aliases
+	assert.ok(list.some((a) => a.id.startsWith("models:set:")));
+	assert.ok(list.every((a) => a.safeToAutomate === false));
+});
+
+test("suggestedStrings derives legacy shell strings", async () => {
+	initHome();
+	const s = await actions.collectState();
+	const strings = actions.suggestedStrings(actions.buildActions(s));
+	assert.ok(Array.isArray(strings));
+	assert.ok(strings.length >= 1);
+});
+
+test("computeEtag is stable for identical state and changes with drift", async () => {
+	initHome();
+	const s1 = await actions.collectState();
+	const e1 = actions.computeEtag(s1);
+	const s2 = await actions.collectState();
+	assert.equal(actions.computeEtag(s2), e1);
+	const different = actions.computeEtag({ ...s1, drift: ["claude"] });
+	assert.notEqual(different, e1);
+});
+
+test("applySafe runs safe actions and stops at the first unsafe one", async () => {
+	initHome();
+	run(["target", "enable", "claude", "-g"]);
+	run(["unlink", "claude"]); // create pointer drift
+	const s = await actions.collectState();
+	const list = actions.buildActions(s);
+	const linkAction = list.find((a) => a.id === "link:claude");
+	assert.ok(linkAction, "expected a link:claude action");
+	assert.equal(linkAction.safeToAutomate, true);
+	const res = actions.applySafe(list);
+	assert.ok(res.applied >= 1);
+	assert.ok(res.receipts.some((r) => r.id === "link:claude" && r.applied));
+	// after the fix, the pointer is restored
+	const status = JSON.parse(run(["status", "--json"])).data;
+	const claude = status.targets.find((t) => t.id === "claude");
+	assert.equal(claude.global.state, "pointer");
+});
+
+test("runAction executes an agent command", async () => {
+	const r = actions.runAction({ command: "agent", args: ["--version"] });
+	assert.equal(r.ok, true);
+	assert.match(r.stdout.trim(), /^\d+\.\d+\.\d+$/);
+});
+
+test("verifyAction reports missing verification and runs real ones", async () => {
+	const none = actions.verifyAction({ id: "x", verification: null });
+	assert.equal(none.verified, null);
+	const withV = actions.verifyAction({
+		id: "y",
+		verification: { command: "agent", args: ["--version"] },
+	});
+	assert.equal(withV.verified, true);
+});

@@ -52,15 +52,47 @@ export function compareVersions(a, b) {
 }
 
 /**
+ * Pure cache read — never hits the network and never mutates cfg. Used by
+ * read-only commands (brief/doctor/update list) unless --refresh is passed.
+ * Returns { latest, upToDate, checkedAt, cached, refreshed }.
+ */
+export function readCachedUpdate(cfg, installedVersion) {
+	const cached = cfg?.updateCheck;
+	if (cached?.latestVersion) {
+		return {
+			latest: cached.latestVersion,
+			upToDate: compareVersions(installedVersion, cached.latestVersion) >= 0,
+			checkedAt: cached.checkedAt,
+			cached: true,
+			refreshed: false,
+		};
+	}
+	return {
+		latest: null,
+		upToDate: null,
+		checkedAt: null,
+		cached: false,
+		refreshed: false,
+	};
+}
+
+/**
  * Resolve the latest version, using a daily cache in cfg.updateCheck. Mutates cfg
  * when a fresh fetch succeeds. Returns { latest, upToDate, checkedAt, cached, refreshed }.
  * - upToDate is true when installed >= latest; null when latest is unknown.
+ * - offline: never hits the network (stale cache or unknown only).
  */
 export async function ensureUpdateCheck(
 	cfg,
 	pkgName,
 	installedVersion,
-	{ force = false, timeoutMs = 3000, now = Date.now(), fetchImpl } = {},
+	{
+		force = false,
+		timeoutMs = 3000,
+		now = Date.now(),
+		fetchImpl,
+		offline = false,
+	} = {},
 ) {
 	const cached = cfg?.updateCheck;
 	const cacheFresh =
@@ -77,6 +109,9 @@ export async function ensureUpdateCheck(
 			refreshed: false,
 		};
 	}
+
+	// Offline: never hit the network; use stale cache or report unknown.
+	if (offline) return readCachedUpdate(cfg, installedVersion);
 
 	const latest = await fetchLatestVersion(pkgName, { timeoutMs, fetchImpl });
 	if (latest) {

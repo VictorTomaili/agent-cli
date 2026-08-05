@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import {
 	exists,
 	readFile,
+	writeFile,
 	ensureDir,
 	AGENTS_DIR,
 	resolveContained,
@@ -273,4 +274,52 @@ export async function clearStaged(version, { home = AGENTS_DIR } = {}) {
 	if (!(await exists(dir))) return { ok: false, reason: "not found", version };
 	await fs.rm(dir, { recursive: true, force: true });
 	return { ok: true, version, path: dir };
+}
+
+/**
+ * Apply a staged update payload into the live brain. Non-destructive: a live
+ * file that differs from the staged content is REFUSED (manual merge), and every
+ * applied file is backed up to `backups/apply-<version>/` first. Clears the staged
+ * payload on success. Returns { applied, skipped, backedUp }.
+ */
+export async function applyStaged(version, { home = AGENTS_DIR } = {}) {
+	const payload = (await listStagedUpdates({ home })).find(
+		(s) => s.version === version,
+	);
+	if (!payload) return { ok: false, reason: `no staged update for ${version}` };
+	const applied = [];
+	const skipped = [];
+	const backedUp = [];
+	for (const rel of payload.files) {
+		const staged = await readStagedFile(version, rel, { home });
+		const livePath = resolveContained(home, rel);
+		if (!livePath || staged == null) {
+			skipped.push({ rel, reason: "invalid or missing staged file" });
+			continue;
+		}
+		if (await exists(livePath)) {
+			const live = await readFile(livePath);
+			if (live !== staged) {
+				// diverged (user content or older seed) — refuse to clobber.
+				skipped.push({ rel, reason: "diverged — manual merge required" });
+				continue;
+			}
+			const backupDir = path.join(home, "backups", `apply-${version}`);
+			const backupFile = path.join(backupDir, rel);
+			await ensureDir(path.dirname(backupFile));
+			await writeFile(backupFile, live);
+			backedUp.push(rel);
+		}
+		await writeFile(livePath, staged);
+		applied.push(rel);
+	}
+	if (skipped.length === 0) await clearStaged(version, { home });
+	return {
+		ok: true,
+		version,
+		applied,
+		skipped,
+		backedUp,
+		diffStat: { applied: applied.length, skipped: skipped.length },
+	};
 }

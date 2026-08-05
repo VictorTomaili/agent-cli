@@ -16,6 +16,7 @@ import path from "node:path";
 // store under a throwaway temp dir — no real ~/.skill-cli is touched.
 const TMP = mkdtempSync(path.join(tmpdir(), "agent-skill-install-"));
 process.env.AGENT_CLI_HOME = TMP;
+process.env.SKILL_CLI_HOME = TMP; // paths.js prefers SKILL_CLI_HOME — isolate from any ambient value
 
 const install = await import("../src/skills/commands/install.js");
 const npx = await import("../src/skills/lib/npx.js");

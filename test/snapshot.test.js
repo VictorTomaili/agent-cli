@@ -66,3 +66,31 @@ test("restore rejects traversal and malformed snapshot names before mutation", (
 	assert.equal(malformed.reason, "invalid snapshot contents");
 	assert.equal(readFileSync(path.join(brain(), "AGENTS.md"), "utf8"), before);
 });
+
+test("snapshotDiff lists added/changed/removed against the current brain", () => {
+	const r1 = snap.snapshot();
+	writeFileSync(path.join(brain(), "NEW.md"), "new\n");
+	writeFileSync(path.join(brain(), "AGENTS.md"), "# master v2\n");
+	const d = snap.snapshotDiff(r1.name);
+	assert.equal(d.ok, true);
+	assert.ok(d.added.includes("NEW.md"));
+	assert.ok(d.changed.includes("AGENTS.md"));
+});
+
+test("diffSnapshots compares two snapshots at the file level", () => {
+	const a = snap.snapshot();
+	writeFileSync(path.join(brain(), "AGENTS.md"), "# master v3\n");
+	const b = snap.snapshot();
+	const d = snap.diffSnapshots(a.name, b.name);
+	assert.equal(d.ok, true);
+	assert.ok(d.changed.includes("AGENTS.md"));
+});
+
+test("pruneSnapshots keeps at most n and removes the oldest", () => {
+	snap.snapshot();
+	snap.snapshot();
+	const before = snap.listSnapshots().length;
+	const { pruned } = snap.pruneSnapshots(1);
+	assert.ok(pruned.length >= before - 1);
+	assert.ok(snap.listSnapshots().length <= 1);
+});

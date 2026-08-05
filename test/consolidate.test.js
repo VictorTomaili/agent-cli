@@ -15,8 +15,14 @@ const HOME_TMP = mkdtempSync(path.join(tmpdir(), "agent-con-home-"));
 process.env.AGENT_CLI_HOME = HOME_TMP;
 
 const { assess, consolidate } = await import("../src/consolidate.js");
-const { addLesson, listLessons, coreFile, parseFM } = await import(
-	"../src/lessons-lib.js"
+const {
+	addLesson,
+	listLessons,
+	coreFile,
+	parseFM,
+} = await import("../src/lessons-lib.js");
+const { planConsolidation, applyPlanAction } = await import(
+	"../src/consolidate.js"
 );
 
 test("assess on empty project dir → low score, not recommend", async () => {
@@ -74,10 +80,11 @@ test("assess reflects promotable count", async () => {
 	assert.ok(a.metrics.valueOpportunity > 0);
 });
 
-test("consolidate with no lessons dir → ok:false", () => {
+test("consolidate with no lessons dir is a healthy no-op", () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con4-"));
 	const r = consolidate({ scope: "project", cwd });
-	assert.equal(r.ok, false);
+	assert.equal(r.ok, true);
+	assert.equal(r.nothingToDo, true);
 	assert.equal(r.reason, "no lessons dir");
 });
 
@@ -189,6 +196,44 @@ test("consolidate backs up the previous core under the global backups dir", asyn
 	assert.equal(r.ok, true);
 	assert.ok(existsSync(backupsDir));
 	assert.ok(readdirSync(backupsDir).some((n) => n.endsWith(".md")));
+});
+
+test("planConsolidation lists per-file actions with reasons", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-plan-"));
+	await addLesson("git/r", { scope: "project", cwd, body: "- **Lesson:** r" });
+	await addLesson("git/r", { scope: "project", cwd }); // occurrences 2 → promote
+	await addLesson("git/single", { scope: "project", cwd }); // occurrences 1 → mark
+	const plan = planConsolidation({ scope: "project", cwd });
+	assert.equal(plan.ok, true);
+	const promote = plan.actions.find((a) => a.rel === "git/r.md");
+	assert.equal(promote.action, "promote");
+	assert.match(promote.reason, /occurrences 2/);
+	const mark = plan.actions.find((a) => a.rel === "git/single.md");
+	assert.equal(mark.action, "mark");
+});
+
+test("applyPlanAction applies a single planned action", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-plan-apply-"));
+	await addLesson("git/p", { scope: "project", cwd, body: "- **Lesson:** p" });
+	await addLesson("git/p", { scope: "project", cwd });
+	const plan = planConsolidation({ scope: "project", cwd });
+	const promote = plan.actions.find((a) => a.rel === "git/p.md");
+	const r = applyPlanAction("project", cwd, promote.id);
+	assert.equal(r.ok, true);
+	assert.equal(r.applied.action, "promote");
+	// the lesson file is now marked promoted
+	const items = await listLessons({ includeProject: true, cwd });
+	const p = items.find((i) => i.path === "git/p");
+	assert.equal(p.promoted, true);
+	const missing = applyPlanAction("project", cwd, "plan-999");
+	assert.equal(missing.ok, false);
+});
+
+test("planConsolidation reports nothingToDo for an empty lessons dir", () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-plan-empty-"));
+	const plan = planConsolidation({ scope: "project", cwd });
+	assert.equal(plan.nothingToDo, true);
+	assert.deepEqual(plan.actions, []);
 });
 
 test("repeated consolidation does not duplicate a promoted lesson's pointer", async () => {

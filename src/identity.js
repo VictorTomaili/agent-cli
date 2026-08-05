@@ -30,8 +30,24 @@ export async function applyIdentity(
 	{ scope = "global", cwd = process.cwd() } = {},
 ) {
 	const fp = idFile(scope, cwd);
-	await writeFile(fp, identityContent(key));
-	return { file: fp, identity: key };
+	// Preserve a user-set <AGENT_NAME> across re-applies — the archetype template
+	// always emits an empty name, so a plain overwrite would clobber it (G6).
+	let existingName = null;
+	try {
+		const m = /<AGENT_NAME>([^<]*)<\/AGENT_NAME>/.exec(await readFile(fp));
+		if (m && m[1].trim()) existingName = m[1].trim();
+	} catch {
+		/* file absent */
+	}
+	let content = identityContent(key);
+	if (existingName) {
+		content = content.replace(
+			/<AGENT_NAME><\/AGENT_NAME>/,
+			`<AGENT_NAME>${existingName}</AGENT_NAME>`,
+		);
+	}
+	await writeFile(fp, content);
+	return { file: fp, identity: key, namePreserved: Boolean(existingName) };
 }
 export async function applySoul(
 	key,

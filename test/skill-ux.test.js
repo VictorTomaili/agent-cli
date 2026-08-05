@@ -8,6 +8,7 @@ import path from "node:path";
 // src/skills/lib/paths.js resolves HOME (and every derived path) to the temp dir.
 const TMP = mkdtempSync(path.join(tmpdir(), "agent-skill-ux-"));
 process.env.AGENT_CLI_HOME = TMP;
+process.env.SKILL_CLI_HOME = TMP; // paths.js prefers SKILL_CLI_HOME — isolate from any ambient value
 
 const { AGENTS_BLOCK, injectBlock } = await import(
   "../src/skills/lib/agents-md.js"

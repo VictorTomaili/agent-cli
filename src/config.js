@@ -73,6 +73,7 @@ export function defaultConfig() {
 		seedVersion: null, // agent-cli version whose seed defaults were last installed/staged
 		seedFiles: [], // seed paths known at the last install/stage, for deletion reconciliation
 		updateCheck: null, // cached npm latest-version check: { latestVersion, checkedAt }
+		sync: null, // git-backed brain sync: { remote, autoCommit, excluded, lastPull }
 		updatedAt: null,
 	};
 }

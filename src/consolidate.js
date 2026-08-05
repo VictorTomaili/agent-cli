@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ensureDir, HOME } from "./util.js";
-import { lessonsRoot, coreFile, parseFM } from "./lessons-lib.js";
+import { lessonsRoot, coreFile, parseFM, buildFM } from "./lessons-lib.js";
 
 const BACKUP_DIR_GLOBAL = path.join(HOME, ".agents", "backups");
 
@@ -250,7 +250,17 @@ export function consolidate({
 	const pt = promoteThreshold ?? cfg.promoteThreshold;
 	const dir = lessonsRoot(scope, cwd);
 	const corePath = coreFile(scope, cwd);
-	if (!fs.existsSync(dir)) return { ok: false, reason: "no lessons dir", dir };
+	// No lessons dir = a healthy empty state, not a failure: cron/monitor loops
+	// must treat "nothing to do" as exit 0 (see docs/contract.md).
+	if (!fs.existsSync(dir))
+		return {
+			ok: true,
+			nothingToDo: true,
+			reason: "no lessons dir",
+			scope,
+			dir,
+		};
+
 
 	const files = walkSync(dir);
 	let promoted = 0;
@@ -339,4 +349,73 @@ export function consolidate({
 			core: core.length,
 		},
 	};
+}
+
+/** Per-file consolidation plan (no writes) with stable plan-action ids. */
+export function planConsolidation({
+	scope = "global",
+	cwd = process.cwd(),
+	promoteThreshold,
+} = {}) {
+	const cfg = loadConsolidateConfig();
+	const pt = promoteThreshold ?? cfg.promoteThreshold;
+	const dir = lessonsRoot(scope, cwd);
+	if (!fs.existsSync(dir)) return { ok: true, nothingToDo: true, scope, actions: [] };
+	const files = walkSync(dir);
+	const actions = [];
+	for (const fp of files) {
+		const raw = fs.readFileSync(fp, "utf8");
+		const { fm, body } = parseFM(raw);
+		const occ = parseInt(fm.occurrences || "1", 10) || 1;
+		const isMarked = String(fm.marked || "false") === "true";
+		const rel = path.relative(dir, fp).split(path.sep).join("/");
+		let action;
+		let reason;
+		if (String(fm.promoted || "false") === "true") {
+			action = "keep";
+			reason = "already promoted";
+		} else if (occ >= pt) {
+			action = "promote";
+			reason = `occurrences ${occ} >= ${pt}`;
+		} else if (isMarked) {
+			action = "delete";
+			reason = "marked, still single-occurrence";
+		} else {
+			action = "mark";
+			reason = "start grace (single occurrence)";
+		}
+		actions.push({
+			id: `plan-${String(actions.length + 1).padStart(3, "0")}`,
+			path: fp,
+			rel,
+			action,
+			reason,
+			occurrences: occ,
+		});
+	}
+	return { ok: true, scope, promoteThreshold: pt, actions };
+}
+
+/** Apply ONE planned action by id (targeted; mirrors the full consolidation rules). */
+export function applyPlanAction(scope, cwd, planId) {
+	const plan = planConsolidation({ scope, cwd });
+	const action = plan.actions.find((a) => a.id === planId);
+	if (!action) return { ok: false, reason: `no such plan action: ${planId}` };
+	if (action.action === "keep") return { ok: true, applied: action, changed: false };
+	const raw = fs.readFileSync(action.path, "utf8");
+	const { fm, body } = parseFM(raw);
+	if (action.action === "promote") {
+		const core = [...readCore(coreFile(scope, cwd))];
+		if (!hasPointer(core, action.rel)) {
+			const summary = (body.trim().split(/\r?\n/)[0] || path.basename(action.rel, ".md")).replace(/^[-*]\s+/, "");
+			core.push(`- ${summary} — \`lessons/${action.rel}\``);
+		}
+		writeCore(coreFile(scope, cwd), core, scope);
+		fs.writeFileSync(action.path, buildFM({ ...fm, promoted: "true", marked: "false" }) + body, "utf8");
+	} else if (action.action === "mark") {
+		fs.writeFileSync(action.path, buildFM({ ...fm, marked: "true" }) + body, "utf8");
+	} else if (action.action === "delete") {
+		fs.unlinkSync(action.path);
+	}
+	return { ok: true, applied: action, changed: true };
 }

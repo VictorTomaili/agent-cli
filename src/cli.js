@@ -13,12 +13,14 @@ import {
 	log,
 	pretty,
 	MASTER_FILE,
+	CONFIG_FILE,
 	AGENTS_DIR,
 	exists,
 	readFile,
 	writeFile,
 	resolveContained,
 } from "./util.js";
+import { envelope, serializeEnvelope, EXIT } from "./envelope.js";
 import { TARGETS, getTarget, targetsWithScope, pathFor } from "./targets.js";
 import {
 	loadConfig,
@@ -51,6 +53,7 @@ import {
 	scaffoldAgent,
 	identityInventory,
 	computeOnboarding,
+	findUnresolvedModels,
 	identityFilePath,
 	GLOBAL_AGENTS_DIR,
 	projectAgentsDir,
@@ -85,16 +88,69 @@ const PKG_NAME = PKG.name;
 }
 
 let JSON_MODE = false;
+let JSON_COMPACT = false;
+let QUIET = false;
+
+// Normalize `--json=compact` → `--json --compact` so `--json` stays a plain
+// boolean flag. (An optional-value flag like `--json [mode]` would swallow the
+// next command token: `--json status` → json="status" and the subcommand is lost.)
+if (process.argv.includes("--json=compact")) {
+	process.argv = process.argv.flatMap((a) =>
+		a === "--json=compact" ? ["--json", "--compact"] : [a],
+	);
+}
+
+/** Route non-error log.* channels to no-ops for --quiet/--silent. */
+function silenceInfoLogs() {
+	for (const k of Object.keys(log)) {
+		if (k === "error") continue;
+		log[k] = () => {};
+	}
+}
+
+/** Serialize a command payload into the versioned envelope on stdout.
+ *  A payload with explicit `ok:false` (e.g. update clear, restore, triage)
+ *  is emitted as a failure envelope with a top-level `error`. */
 function emit(obj) {
-	if (JSON_MODE) console.log(JSON.stringify(obj, null, 2));
+	if (!JSON_MODE) return obj;
+	const { command, ...rest } = obj;
+	if (rest.ok === false) {
+		console.log(
+			serializeEnvelope(
+				envelope({
+					command,
+					data: rest,
+					error:
+						rest.error || rest.reason || `command '${command}' failed`,
+				}),
+				{ compact: JSON_COMPACT },
+			),
+		);
+		return obj;
+	}
+	console.log(
+		serializeEnvelope(envelope({ command, data: rest }), {
+			compact: JSON_COMPACT,
+		}),
+	);
 	return obj;
 }
 
 function fail(message, details = {}) {
-	if (JSON_MODE)
-		console.log(JSON.stringify({ ok: false, error: message, ...details }));
-	else log.error(message);
-	process.exit(1);
+	if (JSON_MODE) {
+		const { command, ...rest } = details;
+		console.log(
+			serializeEnvelope(
+				envelope({
+					command: command ?? "error",
+					data: rest,
+					error: message,
+				}),
+				{ compact: JSON_COMPACT },
+			),
+		);
+	} else log.error(message);
+	process.exit(EXIT.ERROR);
 }
 
 function ctxPaths() {
@@ -120,7 +176,7 @@ function masterPaths(scope = "global", cwd = process.cwd()) {
 
 /** Scan argv for a global --json flag (survives commander parse errors). */
 function argvWantsJson() {
-	return process.argv.includes("--json");
+	return process.argv.some((a) => a === "--json" || a.startsWith("--json="));
 }
 
 /** Remove the integrated skill-cli block from the master (used by `init --no-skill`).
@@ -136,23 +192,6 @@ async function stripSkillBlockFromMaster() {
 	return true;
 }
 
-/** Agents whose frontmatter `model:` is an unresolved alias (validateAgent warning). */
-async function findUnresolvedModels(cwd = process.cwd()) {
-	const list = await listAgents({ includeProject: false, cwd });
-	const unresolved = [];
-	for (const a of list) {
-		if (!a.model) continue;
-		const v = await validateAgent(a.path);
-		if (v.warnings && v.warnings.some((w) => w.includes("unresolved")))
-			unresolved.push({
-				name: a.name,
-				model: a.model,
-				guidance: `agent models set ${a.model} <provider/model>`,
-			});
-	}
-	return unresolved;
-}
-
 function selectedTargets(scope, ids) {
 	const pool = targetsWithScope(scope);
 	if (ids && ids.length) {
@@ -160,6 +199,17 @@ function selectedTargets(scope, ids) {
 		return pool.filter((t) => set.has(t.id));
 	}
 	return pool;
+}
+
+/** Pre-mutation safety snapshot (best-effort). Returns the snapshot name. */
+async function preSnapshot(label) {
+	try {
+		const { snapshot } = await import("./snapshot.js");
+		const r = snapshot();
+		return r.name;
+	} catch {
+		return null;
+	}
 }
 
 const program = new Command();
@@ -179,9 +229,27 @@ program
 	)
 	.version(VERSION, "-v, --version")
 	.option("--json", "Emit machine-readable JSON (AI/CI friendly)")
+	.option("--compact", "With --json: emit compact (single-line) JSON")
+	.option("-q, --quiet", "Suppress informational output (errors still print)")
+	.option("--silent", "Alias for --quiet")
 	.hook("preAction", (cmd) => {
-		JSON_MODE = !!cmd.optsWithGlobals().json;
+		const o = cmd.optsWithGlobals();
+		JSON_MODE = !!o.json;
+		JSON_COMPACT = !!o.compact;
+		QUIET = !!o.quiet || !!o.silent;
+		if (QUIET) silenceInfoLogs();
 		setExpectedCtx(ctxPaths());
+	})
+	// `agent sync auto on`: after any successful (non-exiting) command, best-effort
+	// auto-commit when auto-commit is enabled. process.exit() paths skip this.
+	.hook("postAction", async () => {
+		try {
+			const sync = await import("./sync.js");
+			const cfg = await loadConfig();
+			if (sync.autoCommitEnabled(cfg)) await sync.maybeAutoSync(cfg);
+		} catch {
+			/* best-effort */
+		}
 	});
 
 // ---------------------------------------------------------------------------
@@ -352,8 +420,20 @@ program
 	.option("-p, --project", "Current project (./) scope only")
 	.option("-t, --target <ids...>", "Restrict to target ids")
 	.option("--force", "Overwrite native (non-pointer) content (destructive)")
+	.option("--overwrite", "alias for --force")
 	.action(async (opts) => {
 		const cfg = await loadConfig();
+		if (opts.global && opts.project)
+			fail("Use either -g/--global or -p/--project, not both", { command: "link" });
+		if (opts.target) {
+			const known = new Set(TARGETS.map((t) => t.id));
+			const unknown = opts.target.filter((id) => !known.has(id));
+			if (unknown.length)
+				fail(
+					`Unknown target id${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. Known ids: ${[...known].sort().join(", ")}`,
+					{ command: "link", target: unknown },
+				);
+		}
 		const scopes = [];
 		if (opts.global) scopes.push("global");
 		if (opts.project) scopes.push("project");
@@ -371,11 +451,13 @@ program
 				const r = await linkTarget(t, scope, {
 					masterAbs,
 					masterTilde,
-					force: !!opts.force,
+					force: !!opts.force || !!opts.overwrite,
 				});
 				out.results.push({ id: t.id, name: t.name, scope, ...r });
 			}
 		}
+		out.changed = out.results.some((r) => r.linked);
+		out.nothingToDo = out.results.every((r) => !r.linked);
 		emit(out);
 		if (!JSON_MODE) {
 			const linked = out.results.filter((r) => r.linked).length;
@@ -384,7 +466,7 @@ program
 			log.success(`${linked} linked, ${ok} up-to-date`);
 			if (blocked.length)
 				for (const b of blocked)
-					log.warn(`${b.name}: native content — pull first or use --force`);
+					log.warn(`${b.name}: native content — pull first or use --overwrite`);
 		}
 	});
 
@@ -396,6 +478,17 @@ program
 	.option("-t, --target <ids...>")
 	.action(async (opts) => {
 		const cfg = await loadConfig();
+		if (opts.global && opts.project)
+			fail("Use either -g/--global or -p/--project, not both", { command: "unlink" });
+		if (opts.target) {
+			const known = new Set(TARGETS.map((t) => t.id));
+			const unknown = opts.target.filter((id) => !known.has(id));
+			if (unknown.length)
+				fail(
+					`Unknown target id${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. Known ids: ${[...known].sort().join(", ")}`,
+					{ command: "unlink", target: unknown },
+				);
+		}
 		const scopes = [];
 		if (opts.global) scopes.push("global");
 		if (opts.project) scopes.push("project");
@@ -414,6 +507,8 @@ program
 				out.results.push({ id: t.id, name: t.name, scope, ...r });
 			}
 		}
+		out.changed = out.results.some((r) => r.unlinked);
+		out.nothingToDo = out.results.every((r) => !r.unlinked);
 		emit(out);
 		if (!JSON_MODE) {
 			const n = out.results.filter((r) => r.unlinked).length;
@@ -577,7 +672,7 @@ program
 program
 	.command("edit [kind]")
 	.description(
-		"Open a unified home file in $EDITOR. kind: agents (default) | soul | identity | user | lessons | environments",
+		"Open a unified home file in $EDITOR. kind: agents (default) | soul | identity | user | lessons | environments | models",
 	)
 	.option("--print-path", "Just print the resolved path and exit (creates no file)")
 	.option(
@@ -587,11 +682,15 @@ program
 	.action(async (kind, opts) => {
 		const scope = opts.project ? "project" : "global";
 		let target = scope === "project" ? projectMasterPath() : MASTER_FILE;
-		if (kind && kind !== "agents") {
+		if (kind === "models") {
+			const modelsMod = await import("./models.js");
+			target = modelsMod.MODELS_MD;
+			if (!opts.printPath && !(await exists(target))) modelsMod.writeModelsMd();
+		} else if (kind && kind !== "agents") {
 			target = identityFilePath(kind, scope);
 			if (!target) {
 				fail(
-					`Unknown kind: ${kind}. Use: agents|soul|identity|user|lessons|environments`,
+					`Unknown kind: ${kind}. Use: agents|soul|identity|user|lessons|environments|models`,
 				);
 			}
 			// --print-path only computes the path — it must not create the file.
@@ -628,12 +727,14 @@ program
 	});
 
 program
-	.command("agents [action] [name]")
+	.command("agents [action] [name] [rest...]")
 	.description(
-		"Manage reusable sub-agent personalities: list | show <name> | new <name> | validate [name] | path",
+		"Manage reusable sub-agent personalities: list | show | new | validate | path | roster | edit | rename | remove | export | import | delegate",
 	)
 	.option("-p, --project", "project-local scope (for new)")
-	.action(async (action, name, opts) => {
+	.option("--name <name>", "(import) override the personality name")
+	.option("--task <text>", "(delegate) task text for the delegation prompt")
+	.action(async (action, name, rest, opts) => {
 		action = action || "list";
 		const cwd = process.cwd();
 		if (action === "list") {
@@ -730,7 +831,114 @@ program
 			if (!valid) process.exit(1);
 			return;
 		}
-		fail(`Unknown action: ${action}. Use list|show|new|validate|path`);
+		if (action === "roster") {
+			const agentsList = await listAgents({ includeProject: true, cwd });
+			const modelsMod = await import("./models.js");
+			const aliases = modelsMod.getAliases();
+			const rows = agentsList.map((a) => ({
+				...a,
+				resolvedModel: a.model ? (aliases[a.model]?.model ?? null) : null,
+				aliasResolved: a.model ? Boolean(aliases[a.model]) : true,
+			}));
+			emit({ command: "agents", action: "roster", count: rows.length, agents: rows });
+			if (!JSON_MODE)
+				for (const r of rows)
+					log.raw(
+						`  ${c.bold(r.name.padEnd(16))} ${r.model ?? c.gray("—")} → ${r.resolvedModel ?? c.yellow("UNRESOLVED")} ${c.gray("(" + r.scope + ")")}`,
+					);
+			return;
+		}
+		if (action === "edit") {
+			if (!name) fail("Usage: agent agents edit <name>");
+			const a = await showAgent(name, { cwd });
+			if (!a) fail(`No agent named '${name}'`);
+			emit({ command: "agents", action: "edit", name, path: a.path });
+			const editor =
+				process.env.VISUAL ||
+				process.env.EDITOR ||
+				(process.platform === "win32" ? "notepad" : "vi");
+			const r = spawnSync(editor, [a.path], { stdio: "inherit", shell: true });
+			if (r.error || r.status !== 0) process.exit(r.status != null ? r.status : 1);
+			return;
+		}
+		if (action === "rename") {
+			const [newName] = rest || [];
+			if (!name || !newName) fail("Usage: agent agents rename <old> <new>");
+			const a = await showAgent(name, { cwd });
+			if (!a) fail(`No agent named '${name}'`);
+			const content = await (await import("./util.js")).readFile(a.path);
+			const updated = content.replace(
+				/^name:\s*.*$/m,
+				`name: ${newName}`,
+			);
+			const fspMod = await import("node:fs/promises");
+			const newPath = path.join(path.dirname(a.path), `${newName}.md`);
+			await fspMod.writeFile(newPath, updated, "utf8");
+			if (newPath !== a.path) await fspMod.rm(a.path, { force: true });
+			emit({ command: "agents", action: "rename", from: name, to: newName, path: newPath });
+			if (!JSON_MODE) log.success(`Renamed '${name}' → '${newName}' (${pretty(newPath)})`);
+			return;
+		}
+		if (action === "remove") {
+			if (!name) fail("Usage: agent agents remove <name>");
+			const a = await showAgent(name, { cwd });
+			if (!a) fail(`No agent named '${name}'`);
+			const fspMod = await import("node:fs/promises");
+			await fspMod.rm(a.path, { force: true });
+			emit({ command: "agents", action: "remove", name, path: a.path });
+			if (!JSON_MODE) log.success(`Removed ${pretty(a.path)}`);
+			return;
+		}
+		if (action === "export") {
+			if (!name) fail("Usage: agent agents export <name>");
+			const a = await showAgent(name, { cwd });
+			if (!a) fail(`No agent named '${name}'`);
+			const fspMod = await import("node:fs/promises");
+			const content = await fspMod.readFile(a.path, "utf8");
+			if (JSON_MODE) emit({ command: "agents", action: "export", name, path: a.path, content });
+			else process.stdout.write(content);
+			return;
+		}
+		if (action === "import") {
+			if (!name) fail("Usage: agent agents import <path.md> [--name <new>]");
+			const fspMod = await import("node:fs/promises");
+			const content = await fspMod.readFile(name, "utf8");
+			let finalName = opts.name || name;
+			const m = /^name:\s*(\S+)/m.exec(content);
+			if (m && !opts.name) finalName = m[1];
+			const targetDir = projectAgentsDir(cwd);
+			await (await import("./util.js")).ensureDir(targetDir);
+			const target = path.join(targetDir, `${finalName}.md`);
+			await fspMod.writeFile(target, content, "utf8");
+			emit({ command: "agents", action: "import", name: finalName, path: target });
+			if (!JSON_MODE) log.success(`Imported '${finalName}' → ${pretty(target)}`);
+			return;
+		}
+		if (action === "delegate") {
+			if (!name) fail("Usage: agent agents delegate prepare <name> --task <text>");
+			const a = await showAgent(name, { cwd });
+			if (!a) fail(`No agent named '${name}'`);
+			const fspMod = await import("node:fs/promises");
+			const content = await fspMod.readFile(a.path, "utf8");
+			const task = opts.task || "(task not provided)";
+			const prompt = [
+				`You are delegating to the "${name}" sub-agent.`,
+				`Description: ${a.description}`,
+				a.model ? `Model alias: ${a.model}` : null,
+				"",
+				"## Task",
+				task,
+				"",
+				"## Personality (embed for the sub-agent)",
+				content,
+			]
+				.filter(Boolean)
+				.join("\n");
+			emit({ command: "agents", action: "delegate", name, task, prompt });
+			if (!JSON_MODE) process.stdout.write(prompt + "\n");
+			return;
+		}
+		fail(`Unknown action: ${action}. Use list|show|new|validate|path|roster|edit|rename|remove|export|import|delegate`);
 	});
 
 program
@@ -740,6 +948,10 @@ program
 	)
 	.option("-p, --project", "project scope")
 	.option("--soul <variant>", "also apply this soul variant")
+	.option(
+		"--fallback",
+		"apply the default archetype for an unknown id (both modes)",
+	)
 	.action(async (action, rest, opts) => {
 		const id = await import("./identity.js");
 		action = action || "list";
@@ -769,11 +981,13 @@ program
 			}
 			const known = id.listIdentities().some((i) => i.key === key);
 			const resolved = known ? null : "general-purpose";
-			if (!known && !JSON_MODE) {
+			if (!known && !opts.fallback) {
 				fail(
-					`Unknown identity '${key}' (would resolve to default 'general-purpose'). Use: agent identity list`,
+					`Unknown identity '${key}' (would resolve to default 'general-purpose'). Pass --fallback to apply it. Use: agent identity list`,
+					{ command: "identity", action, key },
 				);
 			}
+			const pre = await preSnapshot("identity-apply");
 			const r = await id.applyIdentity(key, { scope, cwd });
 			let soul = null;
 			if (opts.soul) {
@@ -785,6 +999,7 @@ program
 				action,
 				...r,
 				soul,
+				...(pre ? { preSnapshot: pre } : {}),
 				...(known ? {} : { fallback: true, resolved }),
 			});
 			if (!JSON_MODE)
@@ -816,6 +1031,10 @@ program
 		"Soul variants: list | apply <variant> | set <section> <value...>. -p project.",
 	)
 	.option("-p, --project", "project scope")
+	.option(
+		"--fallback",
+		"apply the default variant for an unknown id (both modes)",
+	)
 	.action(async (action, rest, opts) => {
 		const id = await import("./identity.js");
 		action = action || "list";
@@ -835,16 +1054,19 @@ program
 			}
 			const known = id.listSouls().some((s) => s.key === key);
 			const resolved = known ? null : "pragmatist";
-			if (!known && !JSON_MODE) {
+			if (!known && !opts.fallback) {
 				fail(
-					`Unknown soul '${key}' (would resolve to default 'pragmatist'). Use: agent soul list`,
+					`Unknown soul '${key}' (would resolve to default 'pragmatist'). Pass --fallback to apply it. Use: agent soul list`,
+					{ command: "soul", action, key },
 				);
 			}
+			const pre = await preSnapshot("soul-apply");
 			const r = await id.applySoul(key, { scope, cwd });
 			emit({
 				command: "soul",
 				action,
 				...r,
+				...(pre ? { preSnapshot: pre } : {}),
 				...(known ? {} : { fallback: true, resolved }),
 			});
 			if (!JSON_MODE) log.success(`Soul '${key}' → ${pretty(r.file)}`);
@@ -874,6 +1096,7 @@ program
 	)
 	.option("-p, --project", "project scope")
 	.option("--force", "overwrite an existing non-empty USER.md")
+	.option("--replace", "alias for --force")
 	.action(async (action, rest, opts) => {
 		const id = await import("./identity.js");
 		const arc = await import("./archetypes.js");
@@ -881,8 +1104,9 @@ program
 		const scope = opts.project ? "project" : "global";
 		const cwd = process.cwd();
 		const file = identityFilePath("user", scope, cwd);
+		const replace = opts.force || opts.replace;
 		if (action === "apply") {
-			if (!opts.force && (await exists(file))) {
+			if (!replace && (await exists(file))) {
 				const existing = await readFile(file);
 				if (existing && existing.trim()) {
 					fail(
@@ -989,12 +1213,16 @@ program
 		if (action === "resolve") {
 			const alias = rest[0];
 			const r = alias ? m.getAlias(alias) : null;
+			if (!r)
+				fail(`No such model alias: '${alias}'`, {
+					command: "models",
+					action,
+					alias,
+				});
 			emit({ command: "models", action, alias, resolved: r });
 			if (!JSON_MODE)
 				log.raw(
-					r
-						? `${alias} → ${r.model}${r.thinking ? " @" + r.thinking : ""}`
-						: `${alias} not found`,
+					`${alias} → ${r.model}${r.thinking ? " @" + r.thinking : ""}`,
 				);
 			return;
 		}
@@ -1004,7 +1232,74 @@ program
 			if (!JSON_MODE) log.success(`Wrote ${pretty(f)}`);
 			return;
 		}
-		fail(`Unknown action: ${action}. Use list|set|resolve|write`);
+		if (action === "suggest") {
+			const unresolved = await findUnresolvedModels();
+			const rows = unresolved.map((u) => ({
+				name: u.name,
+				model: u.model,
+				suggestion: u.guidance,
+			}));
+			emit({ command: "models", action: "suggest", count: rows.length, unresolved: rows });
+			if (!JSON_MODE) {
+				if (!rows.length) log.success("All model aliases resolve.");
+				else {
+					for (const r of rows)
+						log.raw(`  ${c.bold(r.name.padEnd(14))} ${r.model} — ${c.cyan(r.suggestion)}`);
+					log.dim("Confirm provider choices with the user, then run the suggested commands.");
+				}
+			}
+			return;
+		}
+		if (action === "lint") {
+			const unresolved = await findUnresolvedModels();
+			const aliases = m.getAliases();
+			const agents = await listAgents({ includeProject: true });
+			const used = new Set(agents.filter((a) => a.model).map((a) => a.model));
+			const unused = Object.keys(aliases).filter((a) => !used.has(a));
+			emit({
+				command: "models",
+				action: "lint",
+				unresolved,
+				unused,
+				counts: { aliases: Object.keys(aliases).length, unresolved: unresolved.length, unused: unused.length },
+			});
+			if (!JSON_MODE) {
+				for (const u of unresolved) log.warn(`unresolved: ${u.name} → ${u.model} (${u.guidance})`);
+				if (unused.length) log.dim(`unused aliases: ${unused.join(", ")}`);
+				if (!unresolved.length && !unused.length) log.success("Aliases clean.");
+			}
+			return;
+		}
+		if (action === "usage") {
+			const aliases = m.getAliases();
+			const agents = await listAgents({ includeProject: true });
+			const reverse = {};
+			for (const a of agents) {
+				if (!a.model) continue;
+				(reverse[a.model] ||= []).push(a.name);
+			}
+			const rows = Object.entries(aliases).map(([alias, v]) => ({
+				alias,
+				model: v.model,
+				usedBy: reverse[alias] || [],
+			}));
+			emit({ command: "models", action: "usage", aliases: rows });
+			if (!JSON_MODE)
+				for (const r of rows)
+					log.raw(`  ${c.bold(r.alias.padEnd(14))} ${r.model} ${c.gray("by: " + (r.usedBy.join(", ") || "—"))}`);
+			return;
+		}
+		if (action === "test") {
+			const alias = rest[0];
+			if (!alias) fail("Usage: agent models test <alias>");
+			const r = m.getAlias(alias);
+			if (!r) fail(`No such alias: ${alias}`);
+			emit({ command: "models", action: "test", alias, ...r, valid: true });
+			if (!JSON_MODE)
+				log.success(`Alias '${alias}' → ${r.model}${r.thinking ? " @" + r.thinking : ""}`);
+			return;
+		}
+		fail(`Unknown action: ${action}. Use list|set|resolve|write|suggest|lint|usage|test`);
 	});
 
 program
@@ -1043,9 +1338,13 @@ program
 	)
 	.option("-p, --project", "project scope")
 	.option("-b, --body <text>", "lesson body (for add)")
-	.option("--file <n>", "inbox index to file (triage)")
+	.option("--file <n>", "inbox index to file (triage; legacy alias of --index)")
+	.option("--index <n>", "inbox index to file (triage)")
 	.option("--delete <n>", "inbox index to delete (triage)")
+	.option("--plan", "(triage) map each inbox capture to a candidate lesson topic")
 	.option("--clear", "delete ALL inbox captures (with the inbox action)")
+	.option("--kind <k>", "(search) kind filter: lessons|identity|spect|all")
+	.option("--inbox", "(capture) write a raw inbox capture for later triage")
 	.action(async (action, name, opts) => {
 		const {
 			listLessons,
@@ -1055,6 +1354,7 @@ program
 			fileInboxItem,
 			deleteInboxItem,
 			clearInbox,
+			addInboxCapture,
 		} = await import("./lessons-lib.js");
 		action = action || "list";
 		const scope = opts.project ? "project" : "global";
@@ -1077,6 +1377,13 @@ program
 		if (action === "add") {
 			if (!name) {
 				fail("Usage: agent lessons add <topic/descriptive-name>");
+			}
+			if (opts.inbox) {
+				const r = await addInboxCapture(name, { body: opts.body, scope, cwd });
+				emit({ command: "lessons", action, inbox: true, ...r });
+				if (!JSON_MODE)
+					log.success(`Captured to inbox → ${pretty(r.file)} (triage: agent lessons triage --plan)`);
+				return;
 			}
 			const r = await addLesson(name, { body: opts.body, scope, cwd });
 			emit({ command: "lessons", action, ...r });
@@ -1122,18 +1429,65 @@ program
 			return;
 		}
 		if (action === "triage") {
-			if (opts.file != null) {
-				if (!name) {
-					fail("Usage: agent lessons triage --file <i> <topic/name>");
+			if (opts.plan) {
+				const items = await inboxLessons({ includeProject: true, cwd });
+				const plans = [];
+				for (let i = 0; i < items.length; i++) {
+					const content = await (async () => {
+						try {
+							return await readFile(items[i].file);
+						} catch {
+							return "";
+						}
+					})();
+					// candidate topic from `- Capture: <topic>` or the first body line.
+					// Skip the YAML frontmatter block (between the leading `---` markers)
+					// so fields like `sourceSession:` are never picked as the topic.
+					const capture = /^-\s*Capture:\s*(.+)$/m.exec(content);
+					const lines = content.split(/\r?\n/).map((l) => l.trim());
+					let inFm = false;
+					let fmCount = 0;
+					const first = lines.find((l) => {
+						if (l.startsWith("---")) {
+							inFm = !inFm;
+							fmCount++;
+							return false;
+						}
+						return !inFm && l && !l.startsWith("#") && !l.startsWith("-") && !l.startsWith("---");
+					});
+					const topic = (capture ? capture[1] : first || items[i].name.replace(/\.md$/, "")).trim();
+					plans.push({
+						index: i,
+						scope: items[i].scope,
+						file: items[i].file,
+						candidate: topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+						topic,
+					});
 				}
-				const r = await fileInboxItem(parseInt(opts.file, 10), name, { cwd });
+				emit({ command: "lessons", action: "triage", op: "plan", plans });
+				if (!JSON_MODE) {
+					if (!plans.length) log.info("Inbox empty.");
+					for (const p of plans)
+						log.raw(
+							`  [${p.index}] ${pretty(p.file)} → ${c.cyan(p.candidate)}${c.gray("  (" + p.topic + ")")}`,
+						);
+					log.dim("File one: agent lessons triage --index <i> <topic>");
+				}
+				return;
+			}
+			const fileIndex = opts.index != null ? opts.index : opts.file;
+			if (fileIndex != null) {
+				if (!name) {
+					fail("Usage: agent lessons triage --index <i> <topic/name>");
+				}
+				const r = await fileInboxItem(parseInt(fileIndex, 10), name, { cwd });
 				emit({ command: "lessons", action: "triage", op: "file", ...r });
 				if (!r.ok) {
 					if (!JSON_MODE) log.error(r.reason);
 					process.exit(1);
 				}
 				if (!JSON_MODE)
-					log.success(`Filed inbox #${opts.file} → ${pretty(r.filedTo)}`);
+					log.success(`Filed inbox #${fileIndex} → ${pretty(r.filedTo)}`);
 				return;
 			}
 			if (opts.delete != null) {
@@ -1166,7 +1520,47 @@ program
 			}
 			return;
 		}
-		fail(`Unknown action: ${action}. Use list|add|show|inbox|triage`);
+		if (action === "search") {
+			if (!name) fail("Usage: agent lessons search <query>");
+			const search = await import("./search.js");
+			const r = await search.searchLessons(name, {
+				includeProject: true,
+				cwd,
+			});
+			emit({ command: "lessons", action: "search", ...r });
+			if (!JSON_MODE) {
+				if (!r.results.length) log.info("No lesson matches.");
+				for (const hit of r.results)
+					log.raw(
+						`  ${c.bold(String(hit.score).padStart(3))} [${hit.scope}] ${pretty(hit.path)} ×${hit.occurrences}${hit.marked ? c.yellow(" ⚠marked") : ""}`,
+					);
+			}
+			return;
+		}
+		if (action === "capture") {
+			if (!name) fail("Usage: agent lessons capture <topic> [--inbox|--direct]");
+			const memMod = await import("./memory.js");
+			const info = memMod.gitInfo(cwd);
+			if (opts.inbox) {
+				const r = await addInboxCapture(name, {
+					body: opts.body,
+					scope,
+					cwd,
+					repo: info.repo,
+					branch: info.branch,
+				});
+				emit({ command: "lessons", action: "capture", mode: "inbox", ...r });
+				if (!JSON_MODE) log.success(`Captured to inbox → ${pretty(r.file)}`);
+				return;
+			}
+			const r = await addLesson(name, { body: opts.body, scope, cwd });
+			emit({ command: "lessons", action: "capture", mode: "direct", ...r });
+			if (!JSON_MODE) log.success(`Captured → ${pretty(r.file)}`);
+			return;
+		}
+		fail(
+			`Unknown action: ${action}. Use list|add|show|inbox|triage|search|capture`,
+		);
 	});
 
 program
@@ -1181,10 +1575,37 @@ program
 	)
 	.option("--dry-run", "preview without writing")
 	.option("--threshold <n>", "occurrences required to promote to core")
+	.option("--plan", "list planned per-file actions with reasons (no writes)")
+	.option("--apply <plan-id>", "apply one planned action by id")
 	.action(async (opts) => {
 		const con = await import("./consolidate.js");
 		const scope = opts.project ? "project" : "global";
 		const cwd = process.cwd();
+		if (opts.plan || opts.apply) {
+			const plan = con.planConsolidation({ scope, cwd });
+			if (opts.apply) {
+				const r = con.applyPlanAction(scope, cwd, opts.apply);
+				emit({ command: "consolidate", action: "apply", planId: opts.apply, ...r });
+				if (!JSON_MODE) {
+					if (!r.ok) {
+						log.error(r.reason);
+						process.exit(EXIT.ERROR);
+					}
+					log.success(`Applied ${opts.apply} (${r.applied.action}) → ${pretty(r.applied.path)}`);
+				}
+				if (!r.ok) process.exit(EXIT.ERROR);
+				return;
+			}
+			emit({ command: "consolidate", action: "plan", ...plan });
+			if (!JSON_MODE) {
+				if (plan.nothingToDo) log.info("Nothing to consolidate.");
+				for (const a of plan.actions)
+					log.raw(
+						`  ${a.id.padEnd(10)} ${a.action.padEnd(8)} ${a.rel} ${c.gray("(" + a.reason + ")")}`,
+					);
+			}
+			return;
+		}
 		if (opts.check) {
 			const a = con.assess({ scope, cwd });
 			emit({ command: "consolidate", check: true, ...a });
@@ -1204,6 +1625,7 @@ program
 			}
 			return;
 		}
+		const pre = !opts.dryRun && !opts.check ? await preSnapshot("consolidate") : null;
 		const r = con.consolidate({
 			scope,
 			cwd,
@@ -1212,9 +1634,19 @@ program
 				? parseInt(opts.threshold, 10)
 				: undefined,
 		});
-		emit({ command: "consolidate", ...r });
+		// "nothing to do" is a healthy no-op, not a failure (cron-safe).
+		if (r.ok && r.nothingToDo == null && r.stats)
+			r.nothingToDo =
+				r.stats.promoted === 0 &&
+				r.stats.deleted === 0 &&
+				r.stats.marked === 0;
+		emit({
+			command: "consolidate",
+			...r,
+			...(pre ? { preSnapshot: pre } : {}),
+		});
 		if (!r.ok) {
-			if (JSON_MODE) process.exit(1);
+			if (JSON_MODE) process.exit(EXIT.ERROR);
 			fail(r.reason);
 		}
 		if (!JSON_MODE) {
@@ -1267,9 +1699,16 @@ program
 			name: t.name,
 			path: targetPath(t, scope),
 		}));
-		emit({ command: "where", scope, master: MASTER_FILE, targets: rows });
+		const { masterAbs, masterTilde: mTilde } = masterPaths(scope);
+		emit({
+			command: "where",
+			scope,
+			master: masterAbs,
+			masterTilde: mTilde,
+			targets: rows,
+		});
 		if (!JSON_MODE) {
-			log.kv("master", c.cyan(pretty(MASTER_FILE)));
+			log.kv("master", c.cyan(pretty(masterAbs)));
 			for (const r of rows) log.raw(`  ${r.id.padEnd(9)} ${pretty(r.path)}`);
 		}
 	});
@@ -1282,7 +1721,9 @@ program
 	.description(
 		"Shipped-default updates: list staged payloads + npm latest version (default), stage seeds, diff <version> [--file <rel>], or clear <version>.",
 	)
-	.option("--force", "force a fresh npm version check")
+	.option("--force", "force a fresh npm version check (writes config.json)")
+	.option("--offline", "never hit the network; use the cached check only")
+	.option("--no-network", "alias for --offline")
 	.option(
 		"--file <rel>",
 		"restrict diff to one staged file (relative, e.g. agents/scout.md)",
@@ -1306,10 +1747,20 @@ program
 			return;
 		}
 		if (action === "list") {
-			const upd = await npm.ensureUpdateCheck(cfg, PKG_NAME, VERSION, {
-				force: !!opts.force,
-			});
-			if (upd.refreshed) await saveConfig(cfg);
+			const offline =
+				opts.offline ||
+				opts.network === false ||
+				process.env.AGENT_OFFLINE === "1";
+			let upd;
+			if (opts.force && !offline) {
+				upd = await npm.ensureUpdateCheck(cfg, PKG_NAME, VERSION, {
+					force: true,
+					offline,
+				});
+				if (upd.refreshed) await saveConfig(cfg);
+			} else {
+				upd = npm.readCachedUpdate(cfg, VERSION);
+			}
 			const staged = await seed.listStagedUpdates({ home: AGENTS_DIR });
 			emit({
 				command: "update",
@@ -1407,22 +1858,91 @@ program
 				}
 			return;
 		}
-		fail(`Unknown action: ${action}. Use list|diff|stage|clear <version>`);
+		if (action === "apply") {
+			if (!version) fail("Usage: agent update apply <version>");
+			const pre = await preSnapshot("update-apply");
+			const r = await seed.applyStaged(version, { home: AGENTS_DIR });
+			emit({
+				command: "update",
+				action: "apply",
+				...r,
+				...(pre ? { preSnapshot: pre } : {}),
+			});
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				log.success(`Applied ${r.applied.length} file(s) from update-${version}`);
+				if (r.backedUp.length)
+					log.dim(`Backed up: ${r.backedUp.join(", ")}`);
+				if (r.skipped.length)
+					for (const s of r.skipped)
+						log.warn(`Skipped ${s.rel}: ${s.reason}`);
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
+			return;
+		}
+		fail(`Unknown action: ${action}. Use list|diff|stage|clear|apply <version>`);
+	});
+
+program
+	.command("upgrade")
+	.description(
+		"Apply all staged seed updates, then re-link pointers and refresh skill blocks.",
+	)
+	.action(async () => {
+		const seed = await import("./seed.js");
+		const staged = await seed.listStagedUpdates({ home: AGENTS_DIR });
+		const applied = [];
+		const failed = [];
+		for (const s of staged) {
+			const r = await seed.applyStaged(s.version, { home: AGENTS_DIR });
+			if (r.ok) applied.push({ version: s.version, ...r });
+			else failed.push({ version: s.version, reason: r.reason });
+		}
+		// re-link + refresh skill blocks after applying seeds
+		const cfg = await loadConfig();
+		const { masterAbs, masterTilde } = ctxPaths();
+		let relinked = 0;
+		for (const id of cfg.global) {
+			const t = getTarget(id);
+			if (!t) continue;
+			const lr = await linkTarget(t, "global", { masterAbs, masterTilde });
+			if (lr.linked || lr.unchanged) relinked++;
+		}
+		const blocks = await refreshBlocks();
+		emit({
+			command: "upgrade",
+			applied,
+			failed,
+			relinked,
+			blocksRefreshed: blocks.changed,
+		});
+		if (!JSON_MODE) {
+			for (const a of applied)
+				log.success(`update-${a.version}: applied ${a.applied.length}, skipped ${a.skipped.length}`);
+			for (const f of failed) log.warn(`update-${f.version}: ${f.reason}`);
+			log.kv("relinked", relinked);
+			log.kv("skill blocks", blocks.changed ? "refreshed" : "current");
+		}
 	});
 
 // ---------------------------------------------------------------------------
 // agent spect — project-local specification-driven development
 // ---------------------------------------------------------------------------
 program
-	.command("spect [action]")
+	.command("spect [action] [rest...]")
 	.description(
-		"Initialize or inspect project-local SPECT workflow (.spect): specs, plans, tasks, and templates.",
+		"SPECT workflow (.spect): init|status|task list|done|open, validate, report, next, close, trace.",
 	)
-	.action(async (action) => {
+	.option("--spec <id>", "restrict report/task-list to one spec id")
+	.action(async (action, rest, opts) => {
 		const spect = await import("./spect.js");
+		const cwd = process.cwd();
 		action = action || "status";
 		if (action === "init") {
-			const result = await spect.initSpect(process.cwd());
+			const result = await spect.initSpect(cwd);
 			emit({ command: "spect", action, ...result });
 			if (!JSON_MODE) {
 				log.success(`SPECT initialized in ${pretty(result.root)}`);
@@ -1437,7 +1957,7 @@ program
 			return;
 		}
 		if (action === "status") {
-			const result = await spect.inspectSpect(process.cwd());
+			const result = await spect.inspectSpect(cwd);
 			emit({ command: "spect", action, ...result });
 			if (!JSON_MODE)
 				log.kv(
@@ -1448,7 +1968,607 @@ program
 				);
 			return;
 		}
-		fail(`Unknown action: ${action}. Use init|status`);
+		if (action === "task") {
+			const sub = rest[0];
+			const id = rest[1];
+			if (sub === "list" || !sub) {
+				const tasks = await spect.parseTasks(cwd);
+				const filtered = opts.spec
+					? tasks.filter((t) => t.reqs.includes(opts.spec))
+					: tasks;
+				emit({
+					command: "spect",
+					action: "task",
+					op: "list",
+					taskCount: filtered.length,
+					open: filtered.filter((t) => !t.done).length,
+					tasks: filtered,
+				});
+				if (!JSON_MODE) {
+					if (!filtered.length) log.info("No tasks.");
+					for (const t of filtered)
+						log.raw(
+							`  ${t.done ? c.green("[x]") : c.gray("[ ]")} ${c.bold(t.id.padEnd(9))} ${t.reqs.length ? c.gray("[" + t.reqs.join(", ") + "] ") : ""}${t.title}`,
+					);
+					log.dim(
+						`${filtered.filter((t) => !t.done).length} open — mark: agent spect task done|open <TASK-xxx>`,
+					);
+				}
+				return;
+			}
+			if (sub === "done" || sub === "open") {
+				if (!id) fail("Usage: agent spect task done|open <TASK-xxx>");
+				const r = await spect.setTaskStatus(cwd, id, sub === "done");
+				emit({ command: "spect", action: "task", op: sub, ...r });
+				if (!r.ok) {
+					if (!JSON_MODE) log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				if (!JSON_MODE)
+					log.success(`${id} → ${sub === "done" ? "done" : "open"} (${pretty(r.file)})`);
+				return;
+			}
+			fail(`Unknown task op: ${sub}. Use list|done|open`);
+		}
+		if (action === "validate") {
+			const r = await spect.validateSpect(cwd);
+			emit({ command: "spect", action, ...r });
+			if (!JSON_MODE) {
+				if (r.ok) log.success("SPECT cross-references are consistent.");
+				else
+					for (const i of r.issues)
+						log.warn(`${i.type}: ${i.req} (${i.task || i.spec || ""})`);
+			}
+			if (!r.ok) process.exit(EXIT.WORK);
+			return;
+		}
+		if (action === "report") {
+			const r = await spect.reportSpect(cwd, { spec: opts.spec });
+			emit({ command: "spect", action, ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				log.raw(c.bold(`REQ coverage (${r.spec}):`));
+				for (const q of r.reqs)
+					log.raw(
+						`  ${c.green(q.status === "done" ? "✓" : "○")} ${q.req.padEnd(9)} ${q.status.padEnd(12)} ${q.criterion}`,
+					);
+				log.dim(`${r.summary.done}/${r.summary.total} done`);
+			}
+			return;
+		}
+		if (action === "next") {
+			const r = await spect.nextTask(cwd);
+			emit({ command: "spect", action, ...r });
+			if (!JSON_MODE) {
+				if (r.nothingToDo) log.success("All tasks complete.");
+				else {
+					log.raw(c.bold(`Next: ${r.task.id} — ${r.task.title}`));
+					log.kv("file", pretty(r.task.file));
+					for (const a of r.acceptance)
+						log.raw(`  ${c.cyan(a.req)} ${a.criterion ?? "(no criterion)"}`);
+				}
+			}
+			return;
+		}
+		if (action === "close") {
+			const id = rest[0];
+			if (!id) fail("Usage: agent spect close <TASK-xxx>");
+			const r = await spect.closeTask(cwd, id);
+			emit({ command: "spect", action, ...r });
+			if (!r.ok) {
+				if (!JSON_MODE) log.error(r.reason);
+				process.exit(EXIT.ERROR);
+			}
+			if (!JSON_MODE) {
+				log.success(`Closed ${id} — ${pretty(r.file)}`);
+				log.dim(r.lesson.suggestion);
+				log.dim(r.snapshotSuggestion);
+			}
+			return;
+		}
+		if (action === "trace") {
+			const specId = rest[0];
+			if (!specId) fail("Usage: agent spect trace <SPEC-id>");
+			const r = await spect.traceSpect(specId, cwd);
+			emit({ command: "spect", action, ...r });
+			if (!r.ok) {
+				if (!JSON_MODE) log.error(r.reason);
+				process.exit(EXIT.ERROR);
+			}
+			if (!JSON_MODE) {
+				for (const q of r.reqs)
+					log.raw(
+						`  ${q.implemented ? c.green("✓") : c.gray("○")} ${q.id.padEnd(9)} ${q.tasks.map((t) => t.id).join(", ") || c.gray("(no task)")} ${q.verified ? c.green("verified") : c.yellow("unverified")}`,
+					);
+				if (r.issues.length) for (const i of r.issues) log.warn(`${i.type}: ${i.req}`);
+			}
+			return;
+		}
+		fail(
+			`Unknown action: ${action}. Use init|status|task|validate|report|next|close|trace`,
+		);
+	});
+
+program
+	.command("search <query>")
+	.description(
+		"Search lessons, identity files, and SPECT docs by relevance.",
+	)
+	.option("--kind <k>", "lessons|identity|spect|all (default all)")
+	.option("--project", "include the project scope")
+	.option("--limit <n>", "max results")
+	.action(async (query, opts) => {
+		const search = await import("./search.js");
+		const r = await search.searchAll(query, {
+			kind: opts.kind || "all",
+			project: !!opts.project,
+			limit: opts.limit ? parseInt(opts.limit, 10) : 10,
+		});
+		emit({ command: "search", ...r });
+		if (!JSON_MODE) {
+			if (!r.results.length) log.info("No matches.");
+			for (const hit of r.results) {
+				log.raw(
+					`  ${c.bold(String(hit.score).padStart(3))} ${pretty(hit.path)} ${c.gray("[" + hit.kind + "]")}`,
+				);
+				if (hit.excerpt) log.dim(hit.excerpt);
+			}
+		}
+	});
+
+// ---------------------------------------------------------------------------
+// agent sync — git-backed brain portability
+// ---------------------------------------------------------------------------
+program
+	.command("sync <action> [arg]")
+	.description(
+		"Git-backed brain sync: init|push|pull|status|log|diff|rollback|auto. Secrets are never synced.",
+	)
+	.option("--remote <url>", "(init) set the git remote")
+	.option("--take <side>", "(pull) conflict resolution: local|remote")
+	.option("--message <text>", "(push) commit message")
+	.option("--commit <hash>", "(diff|rollback) commit to inspect/restore")
+	.option("--limit <n>", "(log) max entries")
+	.option("--on", "(auto) enable auto-commit after mutations")
+	.option("--off", "(auto) disable auto-commit")
+	.action(async (action, arg, opts) => {
+		const sync = await import("./sync.js");
+		const cfg = await loadConfig();
+		let r;
+		switch (action) {
+			case "init":
+				r = await sync.syncInit({ remote: opts.remote });
+				cfg.sync = {
+					remote: r.remote ?? cfg.sync?.remote ?? null,
+					autoCommit: !!cfg.sync?.autoCommit,
+					excluded: null,
+					lastPull: cfg.sync?.lastPull ?? null,
+				};
+				await saveConfig(cfg);
+				break;
+			case "push":
+				r = await sync.syncPush({ message: opts.message });
+				break;
+			case "pull":
+				r = await sync.syncPull({ take: opts.take });
+				if (r.ok) {
+					cfg.sync = { ...(cfg.sync || {}), lastPull: new Date().toISOString() };
+					await saveConfig(cfg);
+				}
+				break;
+			case "status":
+				r = await sync.syncStatus();
+				break;
+			case "log":
+				r = await sync.syncLog({ limit: opts.limit ? parseInt(opts.limit, 10) : 20 });
+				break;
+			case "diff":
+				r = await sync.syncDiff({ commit: opts.commit });
+				break;
+			case "rollback":
+				r = await sync.syncRollback({ commit: opts.commit || arg });
+				break;
+			case "auto":
+				{
+					const posOn = arg === "on" || arg === "1";
+					const posOff = arg === "off" || arg === "0";
+					if (opts.on === undefined && opts.off === undefined && !posOn && !posOff) {
+						r = { ok: true, enabled: sync.autoCommitEnabled(cfg) };
+						break;
+					}
+					const on = posOn || !!opts.on;
+					sync.setAutoCommit(cfg, on);
+					await saveConfig(cfg);
+					r = { ok: true, enabled: on };
+				}
+				break;
+			default:
+				fail(
+					`Unknown sync action: ${action}. Use init|push|pull|status|log|diff|rollback|auto`,
+					{ command: "sync", action },
+				);
+		}
+		// Re-link pointers after a pull/rollback so stubs match the restored master.
+		if (r && r.relink) {
+			const { masterAbs, masterTilde } = ctxPaths();
+			let relinked = 0;
+			for (const id of cfg.global) {
+				const t = getTarget(id);
+				if (!t) continue;
+				const lr = await linkTarget(t, "global", { masterAbs, masterTilde });
+				if (lr.linked || lr.unchanged) relinked++;
+			}
+			r.relinked = relinked;
+		}
+		emit({ command: "sync", action, ...r });
+		if (!JSON_MODE) {
+			if (!r.ok && r.reason) log.error(r.reason);
+			else if (action === "push")
+				log.success(
+					r.changed
+						? `Pushed ${r.commit}${r.pushed ? " → remote" : " (local only)"} (${r.files.length} files)`
+						: "Nothing to push.",
+				);
+			else if (action === "pull")
+				log.success(
+					`Pulled${r.conflict ? ` (resolved: ${r.resolved ?? "manual"})` : ""} — ${r.relinked ?? 0} pointers re-linked.`,
+				);
+			else if (action === "status")
+				log.raw(
+					`branch ${r.branch} @ ${r.head} ahead ${r.ahead} behind ${r.behind} dirty ${r.dirtyFiles.length}`,
+				);
+			else if (action === "log")
+				for (const e of r.entries) log.raw(`  ${c.gray(e.hash)} ${e.date} ${e.message}`);
+			else if (action === "diff" && r.summary) log.raw(r.summary);
+			else if (action === "auto") log.success(`auto-commit ${r.enabled ? "on" : "off"}`);
+			else if (action === "init") log.success(`Sync repo ready at ${pretty(r.dir)}`);
+			else if (action === "rollback") log.success(`Restored ${r.commit} — re-linked pointers.`);
+		}
+		if (r && !r.ok && !r.nothingToDo) process.exit(EXIT.ERROR);
+	});
+
+// ---------------------------------------------------------------------------
+// agent secret — machine-local encrypted store (never synced)
+// ---------------------------------------------------------------------------
+program
+	.command("secret <action> [name] [value...]")
+	.description(
+		"Machine-local encrypted secrets: set|get|list|rm|env. Never synced or surfaced.",
+	)
+	.option("-p, --project", "project scope")
+	.action(async (action, name, value, opts) => {
+		const sec = await import("./secrets.js");
+		const scope = opts.project ? "project" : "global";
+		if (action === "set") {
+			if (!name || !value.length) fail("Usage: agent secret set <name> <value>");
+			const r = sec.setSecret(name, value.join(" "), { scope });
+			emit({ command: "secret", action, ...r });
+			if (!JSON_MODE) log.success(`Secret '${name}' stored (${scope}).`);
+			return;
+		}
+		if (action === "get") {
+			if (!name) fail("Usage: agent secret get <name>");
+			try {
+				const v = sec.getSecret(name, { scope });
+				emit({ command: "secret", action, name, value: v });
+				if (!JSON_MODE) process.stdout.write(v + "\n");
+			} catch (e) {
+				fail(e.message, { command: "secret", action, name });
+			}
+			return;
+		}
+		if (action === "list") {
+			const names = sec.listSecretNames({ scope });
+			emit({ command: "secret", action, scope, names, count: names.length });
+			if (!JSON_MODE) {
+				if (!names.length) log.info("No secrets.");
+				for (const n of names) log.raw(`  ${n}`);
+			}
+			return;
+		}
+		if (action === "rm") {
+			if (!name) fail("Usage: agent secret rm <name>");
+			const r = sec.rmSecret(name, { scope });
+			emit({ command: "secret", action, ...r });
+			if (!JSON_MODE)
+				log.success(r.existed ? `Removed '${name}'.` : `No such secret '${name}'.`);
+			return;
+		}
+		if (action === "env") {
+			const env = sec.secretEnv({ scope });
+			emit({ command: "secret", action, scope, env, count: env.length });
+			if (!JSON_MODE) for (const l of env) process.stdout.write(l + "\n");
+			return;
+		}
+		fail(
+			`Unknown secret action: ${action}. Use set|get|list|rm|env`,
+			{ command: "secret", action },
+		);
+	});
+
+// ---------------------------------------------------------------------------
+// agent env capture — fill ENVIRONMENTS.md from detected machine facts
+// ---------------------------------------------------------------------------
+program
+	.command("env <action> [rest...]")
+	.description("Environment: capture (detect + fill ENVIRONMENTS.md) | set <Field> <value>.")
+	.option("-p, --project", "project scope")
+	.action(async (action, rest, opts) => {
+		if (action === "set") {
+			const field = rest?.[0];
+			const value = (rest?.slice(1) || []).join(" ");
+			if (!field || !value) fail("Usage: agent env set <Field> <value>");
+			const envc = await import("./env-capture.js");
+			const r = await envc.setEnvironmentField(field, value, {
+				scope: opts.project ? "project" : "global",
+				cwd: process.cwd(),
+			});
+			emit({ command: "env", action: "set", ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				log.success(`ENVIRONMENTS.md: ${r.field}: ${r.value}`);
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
+			return;
+		}
+		if (action !== "capture")
+			fail(`Unknown env action: ${action}. Use capture|set`, { command: "env", action });
+		const envc = await import("./env-capture.js");
+		const r = await envc.captureAndApply({
+			scope: opts.project ? "project" : "global",
+			cwd: process.cwd(),
+		});
+		emit({ command: "env", action: "capture", ...r });
+		if (!JSON_MODE) {
+			if (!r.ok) {
+				log.error(r.reason);
+				process.exit(EXIT.ERROR);
+			}
+			log.success(
+				`ENVIRONMENTS.md: filled ${r.filled} field(s) → ${pretty(r.file)}`,
+			);
+			if (r.sshAliases.length) log.kv("ssh aliases", r.sshAliases.join(", "));
+		}
+		if (!r.ok) process.exit(EXIT.ERROR);
+	});
+
+// ---------------------------------------------------------------------------
+// agent memory / backups / session — the memory loop
+// ---------------------------------------------------------------------------
+program
+	.command("memory <action>")
+	.description(
+		"Memory loop: check (honor consolidate.prompt) | maintain (snapshot→triage→consolidate).",
+	)
+	.option("--apply", "(check) run consolidate when prompt=auto and recommended")
+	.option("-p, --project", "project scope")
+	.action(async (action, opts) => {
+		const memMod = await import("./memory.js");
+		const scope = opts.project ? "project" : "global";
+		if (action === "check") {
+			const r = await memMod.memoryCheck({ scope });
+			if (opts.apply && r.action === "consolidate") {
+				const conMod = await import("./consolidate.js");
+				const applied = conMod.consolidate({ scope });
+				r.applied = applied.ok ? applied.stats : null;
+			}
+			emit({ command: "memory", action: "check", ...r });
+			if (!JSON_MODE)
+				log.raw(
+					`prompt=${r.prompt} → action=${r.action} (score ${r.consolidate.score}, recommend ${r.consolidate.recommend})`,
+				);
+			return;
+		}
+		if (action === "maintain") {
+			const r = await memMod.memoryMaintain({ scope: opts.project ? "project" : "all" });
+			emit({ command: "memory", action: "maintain", ...r });
+			if (!JSON_MODE)
+				log.success(
+					`Snapshot ${r.snapshot} · ${r.inbox} inbox · ${r.consolidated.length} scope(s) consolidated.`,
+				);
+			return;
+		}
+		fail(`Unknown memory action: ${action}. Use check|maintain`, { command: "memory", action });
+	});
+
+program
+	.command("backups <action> [name]")
+	.description("Consolidation backup history: list | diff <name>.")
+	.option("-p, --project", "project scope")
+	.action(async (action, name, opts) => {
+		const memMod = await import("./memory.js");
+		const scope = opts.project ? "project" : "global";
+		if (action === "list") {
+			const r = memMod.backupsList({ scope });
+			emit({ command: "backups", action: "list", ...r });
+			if (!JSON_MODE) {
+				if (!r.backups.length) log.info("No consolidation backups.");
+				for (const b of r.backups)
+					log.raw(`  ${c.gray(b.name.padEnd(40))} ${b.mtime} ${c.gray(b.size + "B")}`);
+			}
+			return;
+		}
+		if (action === "diff") {
+			if (!name) fail("Usage: agent backups diff <name>");
+			const r = memMod.backupsDiff(name, { scope });
+			emit({ command: "backups", action: "diff", ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				for (const line of r.diff.split("\n")) {
+					const colored = line.startsWith("+")
+						? c.green(line)
+						: line.startsWith("-")
+							? c.red(line)
+							: c.gray(line);
+					process.stdout.write(colored + "\n");
+				}
+			}
+			return;
+		}
+		fail(`Unknown backups action: ${action}. Use list|diff`, { command: "backups", action });
+	});
+
+program
+	.command("session <action> [task...]")
+	.description(
+		"Session lifecycle: start [task] | end | report (lesson candidate).",
+	)
+	.action(async (action, task) => {
+		const sess = await import("./session.js");
+		if (action === "start") {
+			const r = await sess.sessionStart({ task: task ? task.join(" ") : null, cwd: process.cwd() });
+			emit({ command: "session", action, ...r });
+			if (!JSON_MODE) log.success(`Session started (${r.session.startedAt}).`);
+			return;
+		}
+		if (action === "end") {
+			const r = await sess.sessionEnd();
+			emit({ command: "session", action, ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				log.success(`Session ended (${Math.round(r.durationMs / 1000)}s).`);
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
+			return;
+		}
+		if (action === "report") {
+			const r = await sess.sessionReport();
+			emit({ command: "session", action, ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				log.raw(`task: ${r.session.task ?? "(none)"}`);
+				log.dim(r.lesson.suggestion);
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
+			return;
+		}
+		fail(`Unknown session action: ${action}. Use start|end|report`, { command: "session", action });
+	});
+
+// ---------------------------------------------------------------------------
+// agent handoff / whoami — delegation artifacts + identity summary
+// ---------------------------------------------------------------------------
+program
+	.command("handoff <action> [id]")
+	.description(
+		"Delegation artifacts: create --to <name> --task <text> | list | show <id> | accept <id> | close <id> [--lesson <topic>]",
+	)
+	.option("--to <name>", "(create) target agent")
+	.option("--task <text>", "(create) task text")
+	.option("--context <text>", "(create) context")
+	.option("--lesson <topic>", "(close) file a lesson on close")
+	.action(async (action, id, opts) => {
+		const h = await import("./handoff.js");
+		if (action === "create") {
+			const r = await h.createHandoff({
+				to: opts.to,
+				task: opts.task,
+				context: opts.context,
+				cwd: process.cwd(),
+			});
+			emit({ command: "handoff", action, ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				log.success(`Handoff ${r.id} → ${r.to}: ${pretty(r.file)}`);
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
+			return;
+		}
+		if (action === "list") {
+			const list = await h.listHandoffs();
+			emit({ command: "handoff", action, count: list.length, handoffs: list });
+			if (!JSON_MODE) {
+				if (!list.length) log.info("No handoffs.");
+				for (const x of list)
+					log.raw(`  ${c.bold(x.id.padEnd(20))} ${x.status.padEnd(9)} → ${x.to} ${c.gray(x.task)}`);
+			}
+			return;
+		}
+		if (action === "show") {
+			if (!id) fail("Usage: agent handoff show <id>");
+			const r = await h.showHandoff(id);
+			emit({ command: "handoff", action, ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				process.stdout.write(r.content + "\n");
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
+			return;
+		}
+		if (action === "accept" || action === "close") {
+			if (!id) fail(`Usage: agent handoff ${action} <id>`);
+			const r =
+				action === "accept"
+					? await h.acceptHandoff(id)
+					: await h.closeHandoff(id, { lesson: opts.lesson, cwd: process.cwd() });
+			emit({ command: "handoff", action, ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				log.success(`${id} → ${r.status}`);
+				if (r.lesson?.file) log.dim(`Lesson: ${pretty(r.lesson.file)}`);
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
+			return;
+		}
+		fail(
+			`Unknown handoff action: ${action}. Use create|list|show|accept|close`,
+			{ command: "handoff", action },
+		);
+	});
+
+program
+	.command("whoami")
+	.description(
+		"One-line identity summary: <AGENT_NAME>, soul variant, and any field gaps.",
+	)
+	.action(async () => {
+		const inv = await identityInventory({ scope: "global", cwd: process.cwd() });
+		const gaps = {};
+		for (const f of inv.files) if (f.gaps && f.gaps.length) gaps[f.kind] = f.gaps;
+		const identityFile = inv.files.find((f) => f.kind === "identity");
+		let who = null;
+		if (identityFile?.exists) {
+			const content = await readFile(identityFile.path);
+			const m = /<AGENT_NAME>([^<]*)<\/AGENT_NAME>/.exec(content);
+			who = m && m[1].trim() ? m[1].trim() : null;
+		}
+		const soulFile = inv.files.find((f) => f.kind === "soul");
+		let soulVariant = null;
+		if (soulFile?.exists) {
+			const content = await readFile(soulFile.path);
+			const m = /\(Soul variant: ([^)]+)\)/.exec(content);
+			soulVariant = m ? m[1].trim() : null;
+		}
+		emit({ command: "whoami", identity: who, soul: soulVariant, gaps });
+		if (!JSON_MODE) {
+			log.raw(`  ${c.bold(who || "(name unset)")}${soulVariant ? c.gray(" · " + soulVariant) : ""}`);
+			if (Object.keys(gaps).length) log.warn(`Gaps: ${JSON.stringify(gaps)}`);
+			else log.success("Identity complete.");
+		}
 	});
 
 // ---------------------------------------------------------------------------
@@ -1457,8 +2577,9 @@ program
 program
 	.command("skill [args...]")
 	.description(
-		"Integrated skill manager: setup|refresh|status, or pass commands such as list, active, show, cat, install, enable, disable, update, and remove.",
+		"Integrated skill manager: setup|refresh|status|active|gate, or pass commands such as list, show, cat, install, enable, disable, update, remove.",
 	)
+	.allowUnknownOption(true) // skill sub-commands accept their own flags (e.g. gate --task)
 	.action(async (args) => {
 		const sub = args[0];
 		if (sub === "setup") {
@@ -1505,20 +2626,98 @@ program
 			}
 			return;
 		}
-		// passthrough
-		if (JSON_MODE) {
-			// JSON mode: capture the skill output and wrap it in a single JSON
-			// envelope so stdout stays one parseable value.
-			const r = runSkill(args);
+		if (sub === "active") {
+			const sg = await import("./skills-gate.js");
+			const effective = sg.effectiveSkills(process.cwd());
+			const installed = sg.listSkills();
+			const active = installed.filter((s) => effective.includes(s.name));
 			emit({
 				command: "skill",
-				passthrough: true,
-				args,
-				output: r.stdout,
-				error: r.stderr,
-				code: r.code,
-				ok: r.ok,
+				sub: "active",
+				active: active.map((s) => ({
+					name: s.name,
+					description: s.description,
+					activation: s.activation,
+					triggers: s.triggers,
+				})),
+				effective,
 			});
+			if (!JSON_MODE)
+				for (const s of active)
+					log.raw(
+						`  ${c.bold(s.name.padEnd(18))} ${s.description} ${c.gray("[" + s.activation.mode + "]")}`,
+					);
+			return;
+		}
+		if (sub === "gate") {
+			const sg = await import("./skills-gate.js");
+			const op = args[1];
+			if (op === "ack") {
+				const flags = args.slice(2);
+				const readFlag = (flag) => {
+					const i = flags.indexOf(flag);
+					return i >= 0 ? flags[i + 1] : null;
+				};
+				const enable = (readFlag("--enable") || "").split(",").filter(Boolean);
+				const disable = (readFlag("--disable") || "").split(",").filter(Boolean);
+				const session = flags.includes("--session");
+				const remember = flags.includes("--remember");
+				const r = sg.gateAck({
+					enable,
+					disable,
+					session,
+					remember,
+					cwd: process.cwd(),
+				});
+				emit({ command: "skill", sub: "gate", op: "ack", ...r });
+				if (!JSON_MODE) log.success(`Gate ack ${r.decisionId}`);
+				return;
+			}
+			if (op === "status") {
+				const r = sg.gateStatus(process.cwd());
+				emit({ command: "skill", sub: "gate", op: "status", ...r });
+				if (!JSON_MODE)
+					log.raw(`effective: ${r.effective.join(", ") || "(none)"}`);
+				return;
+			}
+			const task = op === "--task" ? args[2] : null;
+			if (!task)
+				fail(
+					"Usage: agent skill gate --task <text> | gate ack --enable a --disable b [--session|--remember] | gate status",
+				);
+			const r = sg.gateForTask(task, process.cwd());
+			emit({ command: "skill", sub: "gate", ...r });
+			if (!JSON_MODE) {
+				log.kv("autoLoad", r.autoLoad.join(", ") || "(none)");
+				log.kv("ask", r.ask.join(", ") || "(none)");
+				log.kv("manual", r.manual.join(", ") || "(none)");
+				for (const q of r.questions)
+					log.warn(`? ${q.name}: ${q.question}`);
+			}
+			return;
+		}
+		// passthrough
+		if (JSON_MODE) {
+			// JSON mode: capture the skill output and wrap it in the envelope so
+			// stdout stays one parseable value. The child's stderr/code are DATA,
+			// not the envelope error — the child's exit code is forwarded below.
+			const r = runSkill(args);
+			console.log(
+				serializeEnvelope(
+					envelope({
+						command: "skill",
+						data: {
+							passthrough: true,
+							args,
+							output: r.stdout,
+							error: r.stderr,
+							code: r.code,
+							ok: r.ok,
+						},
+					}),
+					{ compact: JSON_COMPACT },
+				),
+			);
 			process.exit(typeof r.code === "number" ? r.code : r.ok ? 0 : 1);
 		}
 		const r = runSkill(args, { stdio: "inherit" });
@@ -1529,14 +2728,47 @@ program
 // agent doctor
 // ---------------------------------------------------------------------------
 program
-	.command("snapshot")
-	.description("Snapshot the whole ~/.agents brain to backups/snapshots/<ts>/.")
-	.action(async () => {
-		const { snapshot: snap } = await import("./snapshot.js");
+	.command("snapshot [action] [args...]")
+	.description(
+		"Snapshot the brain; or: snapshot diff <a> <b>; --retain <n> prunes old snapshots.",
+	)
+	.option("--retain <n>", "keep at most n snapshots (prune older)")
+	.action(async (action, args, opts) => {
+		const {
+			snapshot: snap,
+			diffSnapshots,
+			pruneSnapshots,
+		} = await import("./snapshot.js");
+		if (action === "diff") {
+			const [a, b] = args || [];
+			if (!a || !b) fail("Usage: agent snapshot diff <a> <b>");
+			const r = diffSnapshots(a, b);
+			emit({ command: "snapshot", action: "diff", ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				log.kv("changed", r.changed.length);
+				log.kv("added", r.added.length);
+				log.kv("removed", r.removed.length);
+				for (const f of r.changed) log.raw(`  ~ ${f}`);
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
+			return;
+		}
 		const r = snap();
-		emit({ command: "snapshot", ...r });
-		if (!JSON_MODE)
+		let pruned = [];
+		if (opts.retain) pruned = pruneSnapshots(parseInt(opts.retain, 10)).pruned;
+		emit({
+			command: "snapshot",
+			...r,
+			...(pruned.length ? { pruned } : {}),
+		});
+		if (!JSON_MODE) {
 			log.success(`Snapshot ${r.name}: ${r.files} files → ${pretty(r.path)}`);
+			if (pruned.length) log.dim(`Pruned ${pruned.length} old snapshot(s)`);
+		}
 	});
 
 program
@@ -1555,26 +2787,63 @@ program
 program
 	.command("restore [name]")
 	.description(
-		"Restore the brain from a snapshot (latest non-pre-restore if no name).",
+		"Restore the brain from a snapshot (latest non-pre-restore if no name). --diff previews.",
 	)
-	.action(async (name) => {
-		const { restore, listSnapshots } = await import("./snapshot.js");
-		const list = listSnapshots();
-		const target =
-			name || list.find((n) => !n.startsWith("pre-restore-")) || list[0];
-		if (!target) {
-			fail("No snapshot to restore.");
+	.option("--relink", "re-link pointer stubs after restoring")
+	.option("--diff", "preview file-level differences without restoring")
+	.action(async (name, opts) => {
+		const { restore, listSnapshots, snapshotDiff } = await import("./snapshot.js");
+		const latest = () =>
+			listSnapshots().find((n) => !n.startsWith("pre-restore-")) || null;
+		if (opts.diff) {
+			const target = name || latest();
+			if (!target) fail("No snapshot to diff.");
+			const r = snapshotDiff(target);
+			emit({ command: "restore", diff: true, name: target, ...r });
+			if (!JSON_MODE) {
+				if (!r.ok) {
+					log.error(r.reason);
+					process.exit(EXIT.ERROR);
+				}
+				for (const f of r.changed) log.raw(`  ~ ${f}`);
+				for (const f of r.added) log.raw(`  + ${f}`);
+				for (const f of r.removed) log.raw(`  - ${f}`);
+			}
+			if (!r.ok) process.exit(EXIT.ERROR);
+			return;
 		}
+		const list = listSnapshots();
+		const target = name || list.find((n) => !n.startsWith("pre-restore-")) || list[0];
+		if (!target) fail("No snapshot to restore.");
+		const pre = await preSnapshot("restore");
 		const r = restore(target);
-		emit({ command: "restore", ...r });
+		let relinked = 0;
+		if (r.ok && opts.relink) {
+			const cfg = await loadConfig();
+			const { masterAbs, masterTilde } = ctxPaths();
+			for (const id of cfg.global) {
+				const t = getTarget(id);
+				if (!t) continue;
+				const lr = await linkTarget(t, "global", { masterAbs, masterTilde });
+				if (lr.linked || lr.unchanged) relinked++;
+			}
+		}
+		emit({
+			command: "restore",
+			...r,
+			...(relinked ? { relinked } : {}),
+			...(pre ? { preSnapshot: pre } : {}),
+		});
 		if (!r.ok) {
 			if (!JSON_MODE) log.error(r.reason);
-			process.exit(1);
+			process.exit(EXIT.ERROR);
 		}
-		if (!JSON_MODE)
+		if (!JSON_MODE) {
 			log.success(
 				`Restored ${r.name} (pre-restore backup: ${pretty(r.preRestoreBackup)})`,
 			);
+			if (relinked) log.dim(`${relinked} pointer(s) re-linked.`);
+		}
 	});
 
 program
@@ -1582,7 +2851,12 @@ program
 	.description(
 		"Diagnose master, pointers, skill-cli, staged updates, and npm version.",
 	)
-	.option("--force", "force a fresh npm version check")
+	.option("--force", "force a fresh npm version check (writes config.json)")
+	.option("--refresh", "alias for --force")
+	.option("--offline", "never hit the network; use the cached check only")
+	.option("--no-network", "alias for --offline")
+	.option("--plan", "include the structured action plan in the payload")
+	.option("--fix-safe", "apply the safeToAutomate action prefix")
 	.action(async (opts = {}) => {
 		const cfg = await loadConfig();
 		const issues = [];
@@ -1626,6 +2900,19 @@ program
 		});
 		if (!skillOk)
 			issues.push("skill-cli unavailable — run `agent skill setup`.");
+
+		// project skill.config health (false-green guard — doctor must not report
+		// all-clear when a broken project skill.config would break the skill gate).
+		const sgMod = await import("./skills-gate.js");
+		const projSkillConfig = sgMod.readProjectConfig(process.cwd());
+		const skillConfigOk = !projSkillConfig || projSkillConfig.ok !== false;
+		checks.push({
+			check: "skill-config",
+			ok: skillConfigOk,
+			detail: projSkillConfig && projSkillConfig.ok === false ? "corrupt project skill.config" : "ok",
+		});
+		if (!skillConfigOk)
+			issues.push("project skill.config is corrupt — repair or remove it");
 
 		// #1 identity files filled?
 		const inv = await identityInventory({
@@ -1726,12 +3013,22 @@ program
 				detail: "old path clean",
 			});
 		}
-		// npm latest version (daily-cached; --force to refresh)
+		// npm latest version (cached by default; --force/--refresh to hit network)
 		const npm = await import("./npm-check.js");
-		const upd = await npm.ensureUpdateCheck(cfg, PKG_NAME, VERSION, {
-			force: !!opts.force,
-		});
-		if (upd.refreshed) await saveConfig(cfg);
+		const offline =
+			opts.offline ||
+			opts.network === false ||
+			process.env.AGENT_OFFLINE === "1";
+		let upd;
+		if ((opts.force || opts.refresh) && !offline) {
+			upd = await npm.ensureUpdateCheck(cfg, PKG_NAME, VERSION, {
+				force: true,
+				offline,
+			});
+			if (upd.refreshed) await saveConfig(cfg);
+		} else {
+			upd = npm.readCachedUpdate(cfg, VERSION);
+		}
 		checks.push({
 			check: "npm-update",
 			ok: !upd.latest || upd.upToDate,
@@ -1758,7 +3055,21 @@ program
 				`${staged.length} staged update payload(s) under ~/.agents/update-* — review with the user and migrate (see: agent update list).`,
 			);
 
-		const out = { command: "doctor", ok: issues.length === 0, issues, checks };
+		let plan = null;
+		let fix = null;
+		if (opts.plan || opts.fixSafe) {
+			const actMod = await import("./actions.js");
+			const s = await actMod.collectState({ offline: true });
+			plan = actMod.buildActions(s);
+			if (opts.fixSafe) fix = actMod.applySafe(plan);
+		}
+		const out = {
+			command: "doctor",
+			issues,
+			checks,
+			...(plan ? { plan } : {}),
+			...(fix ? { fix: { receipts: fix.receipts, applied: fix.applied, skipped: fix.skipped } } : {}),
+		};
 		emit(out);
 		if (!JSON_MODE) {
 			for (const ck of checks) {
@@ -1771,7 +3082,7 @@ program
 				for (const i of issues) log.warn(i);
 			} else log.success("All checks passed.");
 		}
-		if (issues.length) process.exit(2);
+		if (issues.length) process.exit(EXIT.WORK);
 	});
 
 // ---------------------------------------------------------------------------
@@ -1782,7 +3093,26 @@ program
 	.description(
 		"AI session brief: machine-readable state + suggested next actions.",
 	)
-	.action(async () => {
+	.option("--refresh", "force a fresh npm update check (writes config.json)")
+	.option("--offline", "never hit the network; use the cached check only")
+	.option("--no-network", "alias for --offline")
+	.option(
+		"--check",
+		"exit 2 when suggested work exists, else 0 (CI/cron primitive)",
+	)
+	.option("--next", "emit only the highest-priority action")
+	.option("--plan", "emit the full ordered action plan (default; no writes)")
+	.option(
+		"--apply-safe",
+		"execute safeToAutomate actions, stop before user/destructive",
+	)
+	.option("--for <task>", "task-aware retrieval: attach relevant search hits")
+	.option(
+		"--since <etag>",
+		"return no actions when the state etag is unchanged (cache)",
+	)
+	.option("--oneline", "one-line status for shell prompts")
+	.action(async (opts) => {
 		const cfg = await loadConfig();
 		const masterContent = await readMaster();
 		const installed = await detectInstalled();
@@ -1791,8 +3121,20 @@ program
 		const consG = conMod.assess({ scope: "global", cwd: process.cwd() });
 		const consP = conMod.assess({ scope: "project", cwd: process.cwd() });
 		const npm = await import("./npm-check.js");
-		const upd = await npm.ensureUpdateCheck(cfg, PKG_NAME, VERSION);
-		if (upd.refreshed) await saveConfig(cfg);
+		const offline =
+			opts.offline ||
+			opts.network === false ||
+			process.env.AGENT_OFFLINE === "1";
+		let upd;
+		if (opts.refresh && !offline) {
+			upd = await npm.ensureUpdateCheck(cfg, PKG_NAME, VERSION, {
+				force: true,
+				offline,
+			});
+			if (upd.refreshed) await saveConfig(cfg);
+		} else {
+			upd = npm.readCachedUpdate(cfg, VERSION);
+		}
 		const seed = await import("./seed.js");
 		const stagedUpdates = await seed.listStagedUpdates({ home: AGENTS_DIR });
 		const idMod = await import("./identity.js");
@@ -1813,6 +3155,10 @@ program
 		const modelsMdExists = await exists(modelsMdPath);
 		const spectMod = await import("./spect.js");
 		const spect = await spectMod.inspectSpect(process.cwd());
+		const spectHeadline =
+			spect.initialized || spect.partial
+				? await spectMod.spectHeadline(process.cwd())
+				: null;
 		const { gapReport, archetypeNeeded, gapRecommended } =
 			computeOnboarding(invG);
 		const onboarding = {
@@ -1917,27 +3263,85 @@ program
 			});
 			if (cls.state !== "pointer") drift.push(id);
 		}
-		const suggested = [];
-		if (archetypeNeeded) suggested.push("agent onboard suggest");
-		if (masterContent == null) suggested.push("agent init");
-		for (const target of pointerTargets) {
-			if (target.state === "native")
-				suggested.push(`agent pull ${target.id} && agent link ${target.id}`);
-			else if (target.state !== "pointer")
-				suggested.push(`agent link ${target.id}`);
+		// Structured executable actions (the session contract) + legacy strings.
+		const actMod = await import("./actions.js");
+		const actionsList = actMod.buildActions({
+			masterContent,
+			archetypeNeeded,
+			pointerTargets,
+			consG,
+			consP,
+			upd,
+			stagedUpdates,
+			inboxCount,
+			unresolvedModels,
+		});
+		const suggested = actMod.suggestedStrings(actionsList);
+		const etag = actMod.computeEtag({
+			masterContent,
+			drift,
+			archetypeNeeded,
+			unresolvedModels,
+			consG,
+			consP,
+			stagedUpdates,
+			inboxCount,
+			upd,
+		});
+		// --for: task-aware retrieval (search over the brain).
+		let forTask = null;
+		if (opts.forTask) {
+			const searchMod = await import("./search.js");
+			const sr = await searchMod.searchAll(opts.forTask, { project: true });
+			forTask = { query: opts.forTask, hits: sr.results.slice(0, 5) };
 		}
-		if (!isSkillAvailable()) suggested.push("agent skill setup");
-		if (consG.recommend) suggested.push("agent consolidate");
-		if (consP.recommend) suggested.push("agent consolidate -p");
+		// --apply-safe: run the safe prefix now, emit receipts, and exit.
+		if (opts.applySafe) {
+			const res = actMod.applySafe(actionsList);
+			emit({
+				command: "brief",
+				applySafe: true,
+				receipts: res.receipts,
+				applied: res.applied,
+				skipped: res.skipped,
+				stoppedAt: res.stoppedAt,
+			});
+			if (!JSON_MODE)
+				for (const r of res.receipts)
+					log.raw(
+						`  ${r.applied ? c.green("✓") : c.gray("·")} ${r.id}${r.skipped ? c.yellow(" (not safe)") : ""}`,
+					);
+			const attempted = res.receipts.filter((r) => !r.skipped);
+			process.exit(attempted.some((r) => !r.applied) ? EXIT.ERROR : EXIT.OK);
+		}
+
+		const blockers = [];
+		if (masterContent == null) blockers.push("master missing — run `agent init`");
+		const warnings = [];
+		if (archetypeNeeded) warnings.push("identity onboarding incomplete");
+		if (unresolvedModels.length)
+			warnings.push(`${unresolvedModels.length} unresolved model alias(es)`);
+		if (consG.recommend || consP.recommend)
+			warnings.push("lesson consolidation recommended");
 		if (upd.latest && !upd.upToDate)
-			suggested.push(`npm i -g ${PKG_NAME}@latest`);
-		if (stagedUpdates.length) suggested.push("agent update list");
-		if (inboxCount >= 10) suggested.push("agent lessons inbox (triage)");
-		for (const u of unresolvedModels) suggested.push(u.guidance);
+			warnings.push(`agent-cli ${upd.latest} available`);
 
 		const out = {
 			tool: "agent-cli",
 			version: VERSION,
+			schemaVersion: "1.1.0",
+			health:
+				masterContent == null ||
+				drift.length > 0 ||
+				archetypeNeeded ||
+				unresolvedModels.length > 0
+					? "degraded"
+					: "ready",
+			warnings,
+			blockers,
+			etag,
+			actions: actionsList,
+			...(forTask ? { forTask } : {}),
 			master: {
 				path: pretty(MASTER_FILE),
 				absolute: MASTER_FILE,
@@ -1991,8 +3395,38 @@ program
 			},
 			project: {
 				spect,
+				...(spectHeadline ? { spectHeadline } : {}),
 			},
 		};
+		// surface the active session + open handoffs, if any.
+		const sessMod = await import("./session.js");
+		const session = sessMod.currentSession();
+		if (session && !opts.since) out.session = session;
+		if (!opts.since) {
+			const handoffMod = await import("./handoff.js");
+			const openHandoffs = (await handoffMod.listHandoffs({ status: "open" })).length;
+			if (openHandoffs) out.handoffs = { open: openHandoffs };
+		}
+		// --since: unchanged state → no actions (etag cache).
+		if (opts.since && opts.since === etag) {
+			out.actions = [];
+			out.suggestedActions = [];
+			out.unchanged = true;
+		}
+		// --next: highest-priority action only.
+		if (opts.next) out.actions = out.actions.length ? [out.actions[0]] : [];
+		if (opts.oneline) {
+			emit({
+				command: "brief",
+				oneline: true,
+				onelineText: `v${VERSION} ${out.health === "ready" ? "✓" : "!"} ${out.actions.length} action${out.actions.length === 1 ? "" : "s"}${out.drift.length ? ` drift:${out.drift.join(",")}` : ""}`,
+				health: out.health,
+				actions: out.actions.length,
+				drift: out.drift.length,
+			});
+			if (opts.check) process.exit(out.actions.length ? EXIT.WORK : EXIT.OK);
+			return;
+		}
 		emit(out);
 		if (!JSON_MODE) {
 			log.raw(`${c.bold("agent-cli")} ${c.gray("v" + VERSION)} — brief`);
@@ -2103,25 +3537,769 @@ program
 			if (!suggested.length && !gapRecommended)
 				log.success("Everything in sync.");
 		}
+		if (opts.check) process.exit(out.actions.length ? EXIT.WORK : EXIT.OK);
 	});
+
+// ---------------------------------------------------------------------------
+// agent run / agent action verify — execute the session contract
+// ---------------------------------------------------------------------------
+program
+	.command("run [ids...]")
+	.description(
+		"Execute brief actions by id (agent run link:claude …); --safe limits to safeToAutomate.",
+	)
+	.option("--safe", "only run safeToAutomate actions")
+	.action(async (ids, opts) => {
+		const actMod = await import("./actions.js");
+		const s = await actMod.collectState();
+		const all = actMod.buildActions(s);
+		const byId = new Map(all.map((a) => [a.id, a]));
+		const selected = ids.length ? ids.map((id) => byId.get(id)).filter(Boolean) : all;
+		if (ids.length && selected.length !== ids.length) {
+			const missing = ids.filter((id) => !byId.has(id));
+			fail(`Unknown action id${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`, {
+				command: "run",
+				missing,
+			});
+		}
+		const toRun = opts.safe ? selected.filter((a) => a.safeToAutomate) : selected;
+		const res = actMod.applySafe(toRun);
+		emit({
+			command: "run",
+			ids: toRun.map((a) => a.id),
+			receipts: res.receipts,
+			applied: res.applied,
+			skipped: res.skipped,
+		});
+		if (!JSON_MODE)
+			for (const r of res.receipts)
+				log.raw(
+					`  ${r.applied ? c.green("✓") : c.gray("·")} ${r.id}${r.stderr ? c.yellow(" — " + r.stderr) : ""}`,
+				);
+		// no-op (nothing attempted) and full success both exit 0; a failed action exits 1.
+		const attempted = res.receipts.filter((r) => !r.skipped);
+		process.exit(attempted.some((r) => !r.applied) ? EXIT.ERROR : EXIT.OK);
+	});
+
+program
+	.command("action <sub> [id]")
+	.description("Action feedback loop: verify <id> (run its verification command).")
+	.action(async (sub, id) => {
+		if (sub !== "verify") fail(`Unknown action sub: ${sub}. Use verify`, { command: "action", sub });
+		if (!id) fail("Usage: agent action verify <action-id>");
+		const actMod = await import("./actions.js");
+		const s = await actMod.collectState();
+		const action = actMod.buildActions(s).find((a) => a.id === id);
+		if (!action) fail(`Unknown action id: ${id}`, { command: "action", sub, id });
+		const r = actMod.verifyAction(action);
+		emit({
+			command: "action",
+			sub: "verify",
+			id,
+			verified: r.verified,
+			reason: r.reason,
+			code: r.code,
+			output: r.output,
+		});
+		if (!JSON_MODE)
+			log.raw(
+				`${r.verified == null ? "No verification command." : r.verified ? "✓ verified" : "✗ not verified"} ${id}`,
+			);
+		process.exit(r.verified === false ? EXIT.ERROR : EXIT.OK);
+	});
+
+// ---------------------------------------------------------------------------
+// agent config / version / completion — ergonomics
+// ---------------------------------------------------------------------------
+program
+	.command("config")
+	.description("Print the config path + effective settings (config.json).")
+	.action(async () => {
+		const cfg = await loadConfig();
+		emit({ command: "config", path: CONFIG_FILE, config: cfg });
+		if (!JSON_MODE) {
+			log.kv("path", pretty(CONFIG_FILE));
+			log.kv("global", cfg.global.join(", ") || "(none)");
+			log.kv("seedVersion", cfg.seedVersion ?? "(none)");
+			log.kv("skillManaged", String(cfg.skillManaged));
+			log.kv("sync", cfg.sync ? "configured" : "(none)");
+		}
+	});
+
+program
+	.command("version")
+	.description("Print the installed agent-cli version.")
+	.action(async () => {
+		emit({ command: "version", version: VERSION });
+		if (!JSON_MODE) log.raw(VERSION);
+	});
+
+program
+	.command("completion <shell>")
+	.description("Print a shell completion script (bash|zsh|fish|powershell).")
+	.action(async (shell) => {
+		const names = [...new Set(collectCommands().map((c) => c.name.split(" ")[0]))].sort();
+		const words = names.join(" ");
+		let script = null;
+		if (shell === "bash")
+			script = `_agent() { COMPREPLY=( $(compgen -W "${words}" -- "\${COMP_WORDS[1]}") ); }\ncomplete -F _agent agent\n`;
+		else if (shell === "zsh")
+			script = `#compdef agent\n_arguments '1:command:(${words})'\n`;
+		else if (shell === "fish")
+			script = `complete -c agent -f -a "${words}"\n`;
+		else if (shell === "powershell")
+			script = `Register-ArgumentCompleter -Native -CommandName agent -ScriptBlock { param($w,$c,$p) "${words}".Split(" ") | Where-Object { $_ -like "$c*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) } }\n`;
+		if (!script)
+			fail(`Unsupported shell: ${shell}. Use bash|zsh|fish|powershell`, {
+				command: "completion",
+				shell,
+			});
+		emit({ command: "completion", shell, script });
+		if (!JSON_MODE) process.stdout.write(script);
+	});
+
+program
+	.command("setup")
+	.description(
+		"One-pass setup: init, detect targets, suggest models, snapshot, and readiness.",
+	)
+	.action(async () => {
+		const steps = {};
+		const cfg = await loadConfig();
+		// 1. master
+		const master = await readMaster();
+		if (master == null) {
+			const init = await (async () => {
+				// reuse the init command's action via direct orchestration below
+				const { ensureMaster } = await import("./store.js");
+				const m = await ensureMaster();
+				if (m.skipped) return { skipped: m.skipped };
+				const installed = await detectInstalled();
+				for (const id of installed) {
+					const t = getTarget(id);
+					if (t && t.global) enableGlobal(cfg, id);
+				}
+				await saveConfig(cfg);
+				return { master: m.action, targets: installed };
+			})();
+			steps.init = init;
+		} else {
+			steps.init = { existing: true };
+		}
+		// 2. skill store
+		steps.skill = await ensureSkillStore();
+		// 3. models suggest
+		const unresolved = await findUnresolvedModels();
+		steps.models = { unresolved: unresolved.map((u) => u.name), count: unresolved.length };
+		// 4. snapshot
+		const { snapshot: snap } = await import("./snapshot.js");
+		steps.snapshot = snap().name;
+		// 5. readiness
+		const doctorMod = await import("./actions.js");
+		const s = await doctorMod.collectState({ offline: true });
+		steps.readiness = {
+			health: s.masterContent == null ? "degraded" : s.drift.length || s.archetypeNeeded ? "degraded" : "ready",
+			actions: doctorMod.buildActions(s).length,
+		};
+		emit({ command: "setup", steps });
+		if (!JSON_MODE) {
+			log.success(`Setup complete — ${steps.readiness.health}, ${steps.readiness.actions} action(s) pending.`);
+			log.kv("models", `${steps.models.count} unresolved`);
+			log.dim(`Next: agent brief --check · agent models suggest · agent brief --apply-safe`);
+		}
+	});
+
+// ---------------------------------------------------------------------------
+// Composite commands: day-start / session-start / stats / archetype / template
+// / project / models lint|usage|test
+// ---------------------------------------------------------------------------
+program
+	.command("day-start")
+	.description("Session-start composite: effective skills + brief actions in one pass.")
+	.option("--offline", "never hit the network")
+	.option("--check", "exit 2 when actions exist")
+	.action(async (opts) => {
+		const sg = await import("./skills-gate.js");
+		const actMod = await import("./actions.js");
+		const s = await actMod.collectState({ offline: !!opts.offline });
+		const actions = actMod.buildActions(s);
+		const effectiveSkills = sg.effectiveSkills(process.cwd());
+		const health =
+			s.masterContent == null || s.drift.length || s.archetypeNeeded
+				? "degraded"
+				: "ready";
+		emit({
+			command: "day-start",
+			health,
+			actions,
+			suggestedActions: actMod.suggestedStrings(actions),
+			effectiveSkills,
+			sessionLoad: s.sessionLoad,
+		});
+		if (!JSON_MODE) {
+			log.raw(
+				`${c.bold("day-start")} — ${c.gray(health)} · ${actions.length} action(s) · ${effectiveSkills.length} active skill(s)`,
+			);
+			for (const a of actions) log.raw(`  ${a.id}${a.safeToAutomate ? c.green(" ✓safe") : ""}`);
+		}
+		if (opts.check) process.exit(actions.length ? EXIT.WORK : EXIT.OK);
+	});
+
+program
+	.command("session-start [task...]")
+	.description("Start a session and emit the brief actions (session + day-start).")
+	.option("--offline", "never hit the network")
+	.action(async (task, opts) => {
+		const sess = await import("./session.js");
+		const sr = await sess.sessionStart({
+			task: task ? task.join(" ") : null,
+			cwd: process.cwd(),
+		});
+		const actMod = await import("./actions.js");
+		const s = await actMod.collectState({ offline: !!opts.offline });
+		const actions = actMod.buildActions(s);
+		emit({
+			command: "session-start",
+			session: sr.session,
+			actions,
+			suggestedActions: actMod.suggestedStrings(actions),
+		});
+		if (!JSON_MODE)
+			log.success(`Session started — ${actions.length} action(s) pending.`);
+	});
+
+program
+	.command("stats")
+	.description("Local, privacy-safe usage stats: snapshots, backups, lessons, config age.")
+	.action(async () => {
+		const { listSnapshots } = await import("./snapshot.js");
+		const memMod = await import("./memory.js");
+		const { listLessons } = await import("./lessons-lib.js");
+		const sessMod = await import("./session.js");
+		const cfg = await loadConfig();
+		const snaps = listSnapshots();
+		const backups = memMod.backupsList().backups;
+		const lessons = await listLessons({ includeProject: true });
+		const session = sessMod.readSession();
+		emit({
+			command: "stats",
+			snapshots: snaps.length,
+			backups: backups.length,
+			lessons: lessons.length,
+			updatedAt: cfg.updatedAt,
+			session: session ? { startedAt: session.startedAt, task: session.task } : null,
+		});
+		if (!JSON_MODE) {
+			log.kv("snapshots", snaps.length);
+			log.kv("backups", backups.length);
+			log.kv("lessons", lessons.length);
+			log.kv("config updated", cfg.updatedAt ?? "(never)");
+		}
+	});
+
+program
+	.command("archetype <action> [arg]")
+	.description("Identity/soul archetypes: list | export <id> | import <file>.")
+	.option("-p, --project", "project scope (for import)")
+	.action(async (action, arg, opts) => {
+		const arc = await import("./archetypes.js");
+		const idMod = await import("./identity.js");
+		if (action === "list") {
+			emit({
+				command: "archetype",
+				action,
+				identities: idMod.listIdentities(),
+				souls: idMod.listSouls(),
+			});
+			if (!JSON_MODE) {
+				for (const i of idMod.listIdentities())
+					log.raw(`  ${c.bold("identity")} ${i.key.padEnd(18)} ${i.label}`);
+				for (const s of idMod.listSouls())
+					log.raw(`  ${c.bold("soul")}     ${s.key.padEnd(18)} ${s.label}`);
+			}
+			return;
+		}
+		if (action === "export") {
+			if (!arg) fail("Usage: agent archetype export <identity|soul-id>");
+			const isSoul = idMod.listSouls().some((s) => s.key === arg);
+			const content = isSoul ? arc.soulContent(arg) : arc.identityContent(arg);
+			emit({ command: "archetype", action, kind: isSoul ? "soul" : "identity", id: arg, content });
+			if (!JSON_MODE) process.stdout.write(content + "\n");
+			return;
+		}
+		if (action === "import") {
+			if (!arg) fail("Usage: agent archetype import <file>");
+			const fsp = await import("node:fs/promises");
+			let content;
+			try {
+				content = await fsp.readFile(arg, "utf8");
+			} catch {
+				fail(`Not found: ${arg}`);
+			}
+			if (!/^# IDENTITY\.md/m.test(content))
+				fail(`Not a valid identity archetype file: ${arg}`);
+			const scope = opts.project ? "project" : "global";
+			const file = idMod.idFile(scope);
+			await writeFile(file, content);
+			emit({ command: "archetype", action, name: arg, file });
+			if (!JSON_MODE) log.success(`Imported archetype → ${pretty(file)}`);
+			return;
+		}
+		fail(`Unknown archetype action: ${action}. Use list|export|import`, {
+			command: "archetype",
+			action,
+		});
+	});
+
+program
+	.command("template install <source>")
+	.description("Install a personality bundle (agents/*.md) from a local dir or git URL.")
+	.action(async (source) => {
+		const fsp = await import("node:fs/promises");
+		const { spawnSync } = await import("node:child_process");
+		const os = await import("node:os");
+		let bundleDir = null;
+		let tmp = null;
+		if (await exists(path.resolve(source))) {
+			bundleDir = path.resolve(source);
+		} else {
+			tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agent-template-"));
+			const r = spawnSync("git", ["clone", "--depth", "1", source, path.join(tmp, "bundle")], {
+				encoding: "utf8",
+			});
+			if (!r.ok || r.status !== 0)
+				fail(`template fetch failed: ${(r.stderr || "").slice(0, 300)}`);
+			bundleDir = path.join(tmp, "bundle");
+		}
+		const candidates = [path.join(bundleDir, "agents"), bundleDir];
+		const installed = [];
+		for (const dir of candidates) {
+			let entries = [];
+			try {
+				entries = await fsp.readdir(dir);
+			} catch {
+				continue;
+			}
+			for (const e of entries) {
+				if (!e.endsWith(".md")) continue;
+				const content = await fsp.readFile(path.join(dir, e), "utf8");
+				const m = /^name:\s*(\S+)/m.exec(content);
+				const name = (m ? m[1] : e.replace(/\.md$/, "")).replace(/[^A-Za-z0-9._-]/g, "");
+				const target = path.join(AGENTS_DIR, "agents", `${name}.md`);
+				await writeFile(target, content);
+				installed.push(name);
+			}
+		}
+		if (tmp) await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+		emit({ command: "template", action: "install", source, installed });
+		if (!JSON_MODE) {
+			if (!installed.length) log.info("No agents/*.md found in the bundle.");
+			for (const n of installed) log.success(`Installed ${n}`);
+		}
+	});
+
+program
+	.command("project <action>")
+	.description(
+		"Project tooling: detect (fingerprint) | init (scaffold project .agents) | doctor (pointer health vs global).",
+	)
+	.option("-p, --project", "scope (default project)")
+	.action(async (action) => {
+		const cwd = process.cwd();
+		const fsp = await import("node:fs/promises");
+		if (action === "detect") {
+			const out = { name: path.basename(cwd), git: false, packageManager: null, files: {} };
+			try {
+				await fsp.access(path.join(cwd, ".git"));
+				out.git = true;
+			} catch {}
+			for (const [k, f] of [
+				["package.json", "npm"],
+				["pyproject.toml", "poetry"],
+				["go.mod", "go"],
+				["Cargo.toml", "cargo"],
+				["Gemfile", "bundler"],
+				["pom.xml", "maven"],
+			]) {
+				try {
+					await fsp.access(path.join(cwd, f));
+					out.packageManager = out.packageManager ?? k === "package.json" ? "npm" : k;
+					out.files[f] = true;
+				} catch {}
+			}
+			emit({ command: "project", action, ...out });
+			if (!JSON_MODE) {
+				log.kv("name", out.name);
+				log.kv("git", out.git ? "yes" : "no");
+				log.kv("packageManager", out.packageManager ?? "(none)");
+			}
+			return;
+		}
+		if (action === "init") {
+			const { ensureMaster } = await import("./store.js");
+			// project master at [cwd]/.agents/AGENTS.md
+			const masterPath = projectMasterPath(cwd);
+			const created = [];
+			const arc = await import("./archetypes.js");
+			const files = [
+				["AGENTS.md", "# Project agent\n\n> Managed by agent-cli (project scope).\n"],
+				["IDENTITY.md", arc.identityContent(arc.DEFAULT_IDENTITY)],
+				["SOUL.md", arc.soulContent(arc.DEFAULT_SOUL)],
+				["USER.md", arc.userContent()],
+				["LESSONS.md", arc.lessonsContent()],
+				["ENVIRONMENTS.md", arc.environmentsContent()],
+			];
+			for (const [name, content] of files) {
+				const fp = path.join(path.dirname(masterPath), name);
+				if (await exists(fp)) continue;
+				await writeFile(fp, content);
+				created.push(name);
+			}
+			emit({ command: "project", action, master: masterPath, created });
+			if (!JSON_MODE) {
+				log.success(`Project .agents scaffolded at ${pretty(path.dirname(masterPath))}`);
+				if (created.length) log.dim(`Created: ${created.join(", ")}`);
+			}
+			return;
+		}
+		if (action === "doctor") {
+			const issues = [];
+			const checks = [];
+			const masterPath = projectMasterPath(cwd);
+			const masterOk = await exists(masterPath);
+			checks.push({ check: "project-master-exists", ok: masterOk, detail: pretty(masterPath) });
+			if (!masterOk) issues.push("project master missing — run agent project init");
+			const cfg = await loadConfig();
+			const projIds = effectiveProjectIds(cfg);
+			for (const id of projIds) {
+				const t = getTarget(id);
+				if (!t || !t.project) continue;
+				const cls = await classify(t, "project");
+				checks.push({ check: `pointer:${id}`, ok: cls.state === "pointer", detail: cls.state + " " + pretty(cls.path) });
+				if (cls.state !== "pointer") issues.push(`${id} project pointer ${cls.state} — run agent link -p`);
+			}
+			emit({ command: "project", action: "doctor", issues, checks });
+			if (!JSON_MODE)
+				for (const c of checks)
+					log.raw(`  ${c.ok ? c.green("✓") : c.red("✗")} ${c.check.padEnd(24)} ${c.gray(c.detail)}`);
+			if (issues.length) process.exit(EXIT.WORK);
+			return;
+		}
+		fail(`Unknown project action: ${action}. Use detect|init|doctor`, {
+			command: "project",
+			action,
+		});
+	});
+
+// ---------------------------------------------------------------------------
+// agent manifest / schema — machine-readable command surface + contract
+// ---------------------------------------------------------------------------
+function collectCommands(cmd = program, prefix = "") {
+	const rows = [];
+	for (const sub of cmd.commands) {
+		const name = prefix ? `${prefix} ${sub.name()}` : sub.name();
+		rows.push({
+			name,
+			description: sub.description(),
+			options: (sub.options || []).map((o) => o.flags),
+		});
+		rows.push(...collectCommands(sub, name));
+	}
+	return rows;
+}
+
+// ---------------------------------------------------------------------------
+// agent serve / watch / hooks / automation — reactive & scheduled automation
+// ---------------------------------------------------------------------------
+program
+	.command("serve")
+	.description("Run the MCP server over stdio (MCP tools: brief, doctor, search, snapshot, status, spect).")
+	.option("--mcp", "explicit: serve MCP (default)")
+	.action(async (opts) => {
+		const serve = await import("./serve.js");
+		// MCP speaks raw JSON-RPC — never emit the envelope here.
+		JSON_MODE = false;
+		await serve.serve();
+	});
+
+program
+	.command("watch")
+	.description("Watch agent state (~/.agents, .agents, skill.config, .spect) and print change events.")
+	.option("--interval <ms>", "poll interval ms (default 1000)")
+	.action(async (opts) => {
+		const auto = await import("./automation.js");
+		const interval = Math.max(200, parseInt(opts.interval || "1000", 10) || 1000);
+		const targets = auto.watchTargets(process.cwd());
+		let last = auto.fingerprintAll(targets);
+		if (!JSON_MODE) {
+			log.raw(c.bold("watch") + c.gray(" — " + targets.map((t) => t.type).join(", ") + ` (poll ${interval}ms). Ctrl+C to stop.`));
+		}
+		// eslint-disable-next-line no-constant-condition
+		while (true) {
+			await new Promise((r) => setTimeout(r, interval));
+			const now = auto.fingerprintAll(targets);
+			const events = auto.diffFingerprints(last, now);
+			last = now;
+			for (const e of events) {
+				if (JSON_MODE) process.stdout.write(JSON.stringify({ type: e.type, path: e.path }) + "\n");
+				else log.raw(`  ${c.cyan(e.type.padEnd(7))} ${pretty(e.path)}`);
+			}
+		}
+	});
+
+program
+	.command("hooks <action>")
+	.description("Manage git hooks: install | remove | list. Hooks re-point agent files after merge/checkout.")
+	.option("--git", "git hooks (default)")
+	.option("--with-automation", "also run `automation run --event post-merge`")
+	.action(async (action, opts) => {
+		const auto = await import("./automation.js");
+		if (action === "install") {
+			let installed;
+			try {
+				installed = auto.installGitHooks({ withAutomation: !!opts.withAutomation });
+			} catch (e) {
+				fail(e.message, { command: "hooks", action });
+			}
+			emit({ command: "hooks", action, installed });
+			if (!JSON_MODE) {
+				log.success(`Installed git hooks: ${installed.join(", ")}`);
+				log.dim("They run `agent link` after every merge/checkout.");
+			}
+			return;
+		}
+		if (action === "remove") {
+			const removed = auto.removeGitHooks();
+			emit({ command: "hooks", action, removed });
+			if (!JSON_MODE) log.success(`Removed ${removed} agent-managed git hook(s).`);
+			return;
+		}
+		if (action === "list") {
+			const fsp = await import("node:fs");
+			const autoMod = await import("./automation.js");
+			const hooksDir = autoMod.gitHookPath(process.cwd());
+			const present = ["post-merge", "post-checkout"].filter((h) => fsp.existsSync(path.join(hooksDir, h)));
+			const managed = present.filter((h) => {
+				const c = fsp.readFileSync(path.join(hooksDir, h), "utf8");
+				return c.includes("Managed by agent-cli");
+			});
+			emit({ command: "hooks", action, present, managed });
+			if (!JSON_MODE) {
+				if (!present.length) log.info("No git hooks installed.");
+				else for (const h of present) log.raw(`  ${managed.includes(h) ? c.green("✓") : c.gray("·")} ${h}`);
+			}
+			return;
+		}
+		fail(`Unknown hooks action: ${action}. Use install|remove|list`, { command: "hooks", action });
+	});
+
+program
+	.command("automation <action> [name]")
+	.description(
+		"Reactive/scheduled jobs: add | list | remove | run. Jobs live in ~/.agents/automation.json.",
+	)
+	.option("--event <e>", "event name (session-start, day-start, sync, memory, snapshot, post-merge, post-checkout)")
+	.option("--command <c>", "shell command to run when the event fires")
+	.option("--cwd <dir>", "working directory for the command (default: current)")
+	.option("--check", "exit 2 when any job matched/failed (for CI)")
+	.action(async (action, name, opts) => {
+		const auto = await import("./automation.js");
+		if (action === "add") {
+			if (!name) fail("Usage: agent automation add <name> --event <e> --command <cmd>", { command: "automation", action });
+			if (!opts.event) fail("--event is required (one of: " + auto.EVENTS.join(", ") + ")", { command: "automation", action });
+			if (!auto.EVENTS.includes(opts.event))
+				fail(`Unknown event: ${opts.event} (valid: ${auto.EVENTS.join(", ")})`, { command: "automation", action });
+			if (!opts.command) fail("--command is required", { command: "automation", action });
+			let job;
+			try {
+				job = auto.addJob({ name, event: opts.event, command: opts.command, cwd: opts.cwd || null });
+			} catch (e) {
+				fail(e.message, { command: "automation", action });
+			}
+			emit({ command: "automation", action, job });
+			if (!JSON_MODE) log.success(`Job '${name}' → on ${opts.event} run: ${opts.command}`);
+			return;
+		}
+		if (action === "list") {
+			const jobs = auto.readJobs();
+			emit({ command: "automation", action, jobs });
+			if (!JSON_MODE) {
+				if (!jobs.length) log.info("No automation jobs. Add one: agent automation add <name> --event session-start --command \"…\"");
+				for (const j of jobs) log.raw(`  ${c.bold(j.name.padEnd(16))} ${c.cyan(j.event.padEnd(14))} ${c.gray(j.command)}`);
+			}
+			return;
+		}
+		if (action === "remove") {
+			if (!name) fail("Usage: agent automation remove <name>", { command: "automation", action });
+			const removed = auto.removeJob(name);
+			emit({ command: "automation", action, name, removed });
+			if (!JSON_MODE) log.success(removed ? `Removed job '${name}'.` : `No job named '${name}'.`);
+			return;
+		}
+		if (action === "run") {
+			const event = opts.event || "*";
+			const results = auto.runJobs({ event, cwd: opts.cwd || process.cwd() });
+			const failed = results.filter((r) => r.status !== "ok").length;
+			emit({ command: "automation", action, event, results, matched: results.length, failed });
+			if (!JSON_MODE) {
+				if (!results.length) log.info(`No jobs match event '${event}'.`);
+				for (const r of results)
+					log.raw(`  ${r.status === "ok" ? c.green("✓") : c.red("✗")} ${c.bold(r.name)} ${c.gray(r.status + (r.code != null ? " (" + r.code + ")" : ""))}`);
+			}
+			if (opts.check && failed) process.exit(EXIT.WORK);
+			return;
+		}
+		fail(`Unknown automation action: ${action}. Use add|list|remove|run`, { command: "automation", action });
+	});
+
+program
+	.command("manifest")
+	.description(
+		"Emit the machine-readable command surface + exit-code contract.",
+	)
+	.action(async () => {
+		emit({
+			command: "manifest",
+			commands: collectCommands(),
+			exitCodes: EXIT,
+		});
+	});
+
+program
+	.command("schema [command]")
+	.description("Print the JSON envelope contract (or one command's shape).")
+	.action(async (name) => {
+		const contract = {
+			ok: "boolean",
+			command: "string",
+			apiVersion: "string",
+			data: "object",
+			error: "string (optional)",
+		};
+		if (name) {
+			const cmd = program.commands.find((c) => c.name() === name);
+			if (!cmd) fail(`Unknown command: ${name}`, { command: "schema", name });
+			emit({
+				command: "schema",
+				envelope: contract,
+				exitCodes: EXIT,
+				requested: {
+					name: cmd.name(),
+					description: cmd.description(),
+					options: (cmd.options || []).map((o) => o.flags),
+				},
+			});
+			return;
+		}
+		emit({ command: "schema", envelope: contract, exitCodes: EXIT });
+	});
+
+// `agent help [command]` — explicit subcommand so the built-in help command is
+// not swallowed by the root action below. Help is success: exit 0.
+program
+	.command("help [command]")
+	.description("Show help for the CLI or a specific command.")
+	.action((command) => {
+		if (command) {
+			const target = program.commands.find((c) => c.name() === command);
+			if (!target)
+				fail(`Unknown command: ${command}`, { command: "help", name: command });
+			target.help();
+			process.exit(0); // unreachable if help() throws via exitOverride
+		}
+		program.help();
+		process.exit(0); // unreachable if help() throws via exitOverride
+	});
+
+// Bare `agent` — guided quick start (prose) or the manifest (JSON), exit 0.
+program.action((opts, cmd) => {
+	JSON_MODE = !!(opts.json || argvWantsJson());
+	JSON_COMPACT = !!opts.compact;
+	QUIET = !!(opts.quiet || opts.silent);
+	if (QUIET) silenceInfoLogs();
+	// commander drops unmatched operands from the root action's args; they stay
+	// on the program's `.args` (e.g. `agent frobnicate` → args=["frobnicate"]).
+	const operands = (cmd && cmd.args) || [];
+	if (operands.length) {
+		// Unmatched first token → unknown command.
+		const name = String(operands[0]);
+		if (JSON_MODE)
+			console.log(
+				serializeEnvelope(
+					envelope({
+						command: "error",
+						data: { name },
+						error: `Unknown command: ${name}`,
+					}),
+					{ compact: JSON_COMPACT },
+				),
+			);
+		else log.error(`Unknown command: ${name} — run \`agent --help\``);
+		process.exit(EXIT.ERROR);
+	}
+	if (JSON_MODE) {
+		console.log(
+			serializeEnvelope(
+				envelope({
+					command: "manifest",
+					data: { commands: collectCommands(), exitCodes: EXIT },
+				}),
+				{ compact: JSON_COMPACT },
+			),
+		);
+		return;
+	}
+	log.raw(
+		`${c.bold("agent-cli")} ${c.gray("v" + VERSION)} — one canonical AGENTS.md for every coding agent.`,
+	);
+	log.raw("");
+	log.raw(`  ${c.cyan("agent init")}    bootstrap ~/.agents + pointers + skills`);
+	log.raw(`  ${c.cyan("agent brief")}   AI session brief (state + next actions)`);
+	log.raw(`  ${c.cyan("agent doctor")}  diagnose health`);
+	log.raw(`  ${c.cyan("agent status")}  per-target pointer state`);
+	log.raw("");
+	log.dim(`Run ${c.cyan("agent --help")} for the full command list.`);
+});
 
 program.parseAsync(process.argv).catch((e) => {
 	// Commander raises CommanderError for --help/--version and for parse/usage
 	// errors (exitOverride). Route them through the JSON contract when requested.
-	const isCmdError = e && typeof e.code === "string" && e.code.startsWith("commander.");
-	if (isCmdError && (e.code === "commander.helpDisplayed" || e.code === "commander.version")) {
+	const isCmdError =
+		e && typeof e.code === "string" && e.code.startsWith("commander.");
+	// Help was intentionally requested (`agent --help`, `agent help`, or the
+	// `help` subcommand) — that is success, not an error. Exit 0.
+	if (
+		isCmdError &&
+		(e.code === "commander.helpDisplayed" || e.code === "commander.help")
+	) {
+		process.exit(0);
+	}
+	if (isCmdError && e.code === "commander.version") {
 		process.exit(e.exitCode ?? 0);
 	}
 	if (isCmdError) {
 		const json = JSON_MODE || argvWantsJson();
 		if (json)
 			console.log(
-				JSON.stringify({ ok: false, error: e.message, code: e.code }),
+				serializeEnvelope(
+					envelope({
+						command: "error",
+						data: { code: e.code },
+						error: e.message,
+					}),
+					{ compact: JSON_COMPACT },
+				),
 			);
 		else log.error(e.message);
-		process.exit(e.exitCode || 1);
+		process.exit(e.exitCode || EXIT.ERROR);
 	}
-	if (JSON_MODE) console.log(JSON.stringify({ ok: false, error: e.message }));
+	if (JSON_MODE)
+		console.log(
+			serializeEnvelope(
+				envelope({ command: "error", data: {}, error: e.message }),
+				{ compact: JSON_COMPACT },
+			),
+		);
 	else log.error(e.message);
-	process.exit(1);
+	process.exit(EXIT.ERROR);
 });

@@ -33,7 +33,7 @@ export function parseFM(content) {
 	}
 	return { fm, body: m[2] };
 }
-function buildFM(fm) {
+export function buildFM(fm) {
 	return (
 		"---\n" +
 		Object.entries(fm)
@@ -268,4 +268,44 @@ export async function clearInbox({
 		}
 	}
 	return { deleted: files.length, files };
+}
+
+/**
+ * Write a raw capture into `lessons/.inbox/` for later triage (revives the dead
+ * triage loop — nothing in the tool wrote .inbox before). Records the source
+ * session/repo/branch in frontmatter.
+ */
+export async function addInboxCapture(
+	topic,
+	{
+		body = null,
+		scope = "global",
+		cwd = process.cwd(),
+		sourceSession = null,
+		repo = null,
+		branch = null,
+	} = {},
+) {
+	const clean =
+		(typeof topic === "string" ? topic : "").replace(/\.md$/, "").trim() ||
+		"untitled";
+	const dir = path.join(lessonsRoot(scope, cwd), ".inbox");
+	await ensureDir(dir);
+	const safe = clean.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+	let file = path.join(dir, `${safe}.md`);
+	let n = 2;
+	while (await exists(file)) file = path.join(dir, `${safe}-${n++}.md`);
+	const fm = {
+		sourceSession: sourceSession ?? "",
+		repo: repo ?? "",
+		branch: branch ?? "",
+		capturedAt: new Date().toISOString(),
+	};
+	const content =
+		`---\n${Object.entries(fm)
+			.map(([k, v]) => `${k}: ${v}`)
+			.join("\n")}\n---\n` +
+		(body ?? `- Capture: ${clean}\n  - What:\n  - Context:\n`);
+	await writeFile(file, content);
+	return { ok: true, file, scope, inbox: true };
 }

@@ -70,7 +70,9 @@ test("--json on targets emits valid JSON with the catalog", () => {
 	const r = run(["targets", "--json"]);
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.ok(j.targets.length >= 8);
+	assert.equal(j.ok, true);
+	assert.equal(j.apiVersion, "2.0.0");
+	assert.ok(j.data.targets.length >= 8);
 });
 
 test("JSON errors are parseable and non-zero", () => {
@@ -136,7 +138,7 @@ test("init in a fresh home succeeds and reports the step", () => {
 	ok(r);
 	const j = parseJson(r.stdout);
 	assert.equal(j.command, "init");
-	assert.ok(j.steps && j.steps.master);
+	assert.ok(j.data.steps && j.data.steps.master);
 });
 
 test("init rejects a corrupt master without replacing it", () => {
@@ -155,8 +157,8 @@ test("init seeds the default personalities into the fresh home", () => {
 	const r = run(["init", "--json"]);
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.ok(j.steps.seeds);
-	assert.ok(j.steps.seeds.installed.length >= 4);
+	assert.ok(j.data.steps.seeds);
+	assert.ok(j.data.steps.seeds.installed.length >= 4);
 });
 
 test("brief --json after init is valid JSON with the expected shape", () => {
@@ -164,10 +166,11 @@ test("brief --json after init is valid JSON with the expected shape", () => {
 	const r = run(["brief", "--json"], { envHome: home });
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.equal(j.tool, "agent-cli");
-	assert.ok(j.master);
-	assert.ok(j.onboarding);
-	assert.ok(j.update);
+	assert.equal(j.data.tool, "agent-cli");
+	assert.equal(j.data.schemaVersion, "1.1.0");
+	assert.ok(j.data.master);
+	assert.ok(j.data.onboarding);
+	assert.ok(j.data.update);
 });
 
 test("doctor --json after init surfaces issues (unfilled identity/lessons)", () => {
@@ -176,7 +179,8 @@ test("doctor --json after init surfaces issues (unfilled identity/lessons)", () 
 	// doctor exits 2 when issues exist — parse the JSON either way
 	const j = parseJson(r.stdout);
 	assert.equal(j.command, "doctor");
-	assert.ok(Array.isArray(j.issues));
+	assert.equal(j.ok, true); // the diagnostic ran; findings are data + exit 2
+	assert.ok(Array.isArray(j.data.issues));
 });
 
 test("identity apply + set round-trip clears the identity gap", () => {
@@ -188,16 +192,16 @@ test("identity apply + set round-trip clears the identity gap", () => {
 	const r = run(["brief", "--json"], { envHome: home });
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.deepEqual(j.onboarding.gaps.identity || [], []);
+	assert.deepEqual(j.data.onboarding.gaps.identity || [], []);
 });
 
 test("skill status reports the integrated backend", () => {
 	const r = run(["skill", "status", "--json"]);
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.equal(j.backend, "integrated");
-	assert.equal(j.source, "integrated");
-	assert.equal(j.globalBin, undefined);
+	assert.equal(j.data.backend, "integrated");
+	assert.equal(j.data.source, "integrated");
+	assert.equal(j.data.globalBin, undefined);
 });
 
 test("models: set then list + resolve round-trip", () => {
@@ -217,9 +221,9 @@ test("models: set then list + resolve round-trip", () => {
 	const list = parseJson(
 		run(["models", "list", "--json"], { envHome: home }).stdout,
 	);
-	assert.ok(list.aliases["coding-model"]);
-	assert.equal(list.aliases["coding-model"].model, "openai/gpt-5");
-	assert.deepEqual(list.aliases["coding-model"].fallbacks, [
+	assert.ok(list.data.aliases["coding-model"]);
+	assert.equal(list.data.aliases["coding-model"].model, "openai/gpt-5");
+	assert.deepEqual(list.data.aliases["coding-model"].fallbacks, [
 		"zai/glm-5.2",
 		"openai/fallback",
 	]);
@@ -227,7 +231,7 @@ test("models: set then list + resolve round-trip", () => {
 		run(["models", "resolve", "coding-model", "--json"], { envHome: home })
 			.stdout,
 	);
-	assert.equal(res.resolved.model, "openai/gpt-5");
+	assert.equal(res.data.resolved.model, "openai/gpt-5");
 });
 
 test("models write creates the XML MODELS.md document", () => {
@@ -235,7 +239,7 @@ test("models write creates the XML MODELS.md document", () => {
 	const j = parseJson(
 		run(["--json", "models", "write"], { envHome: home }).stdout,
 	);
-	assert.equal(j.action, "write");
+	assert.equal(j.data.action, "write");
 });
 
 test("agents: new scaffolds, list shows it, validate flags placeholders", () => {
@@ -243,15 +247,15 @@ test("agents: new scaffolds, list shows it, validate flags placeholders", () => 
 	const newr = parseJson(
 		run(["agents", "new", "tester", "--json"], { envHome: home }).stdout,
 	);
-	assert.equal(newr.created, true);
+	assert.equal(newr.data.created, true);
 	const list = parseJson(
 		run(["agents", "list", "--json"], { envHome: home }).stdout,
 	);
-	assert.ok(list.agents.some((a) => a.name === "tester"));
+	assert.ok(list.data.agents.some((a) => a.name === "tester"));
 	const v = parseJson(
 		run(["agents", "validate", "tester", "--json"], { envHome: home }).stdout,
 	);
-	const t = v.results.find((x) => x.name === "tester");
+	const t = v.data.results.find((x) => x.name === "tester");
 	assert.ok(t);
 	assert.equal(t.valid, false); // fresh scaffold has placeholders
 });
@@ -268,7 +272,7 @@ test("lessons: add then list + show round-trip", () => {
 	const list = parseJson(
 		run(["lessons", "list", "--json"], { envHome: home }).stdout,
 	);
-	assert.ok(list.lessons.some((l) => l.path.endsWith("git/test-lesson")));
+	assert.ok(list.data.lessons.some((l) => l.path.endsWith("git/test-lesson")));
 	const show = run(["lessons", "show", "git/test-lesson", "-p"], {
 		envHome: home,
 	});
@@ -304,27 +308,27 @@ test("update: stage then list + clear round-trip", () => {
 	const stage = parseJson(
 		run(["update", "stage", "--json"], { envHome: home }).stdout,
 	);
-	assert.ok(stage.staged.length >= 1);
+	assert.ok(stage.data.staged.length >= 1);
 	const list = parseJson(
 		run(["update", "list", "--json"], { envHome: home }).stdout,
 	);
-	assert.ok(list.staged.length >= 1);
-	const ver = list.staged[0].version;
+	assert.ok(list.data.staged.length >= 1);
+	const ver = list.data.staged[0].version;
 	ok(run(["update", "clear", ver, "--json"], { envHome: home }));
 	const after = parseJson(
 		run(["update", "list", "--json"], { envHome: home }).stdout,
 	);
-	assert.equal(after.staged.length, 0);
+	assert.equal(after.data.staged.length, 0);
 });
 
 test("brief --json includes sessionStart.load + lessons (index + inbox)", () => {
 	const home = run(["init"]).home;
 	const j = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
-	assert.ok(Array.isArray(j.sessionStart.load));
-	assert.ok(j.sessionStart.load.some((f) => f.kind === "identity"));
-	assert.ok(j.lessons);
-	assert.equal(typeof j.lessons.inbox, "number");
-	assert.ok(Array.isArray(j.lessons.index));
+	assert.ok(Array.isArray(j.data.sessionStart.load));
+	assert.ok(j.data.sessionStart.load.some((f) => f.kind === "identity"));
+	assert.ok(j.data.lessons);
+	assert.equal(typeof j.data.lessons.inbox, "number");
+	assert.ok(Array.isArray(j.data.lessons.index));
 });
 
 test("spect init is project-only and brief loads the project manifest", () => {
@@ -337,13 +341,13 @@ test("spect init is project-only and brief loads the project manifest", () => {
 	ok(init);
 	const result = parseJson(init.stdout);
 	assert.equal(result.command, "spect");
-	assert.ok(result.root.startsWith(project));
+	assert.ok(result.data.root.startsWith(project));
 	assert.equal(existsSync(path.join(home, ".spect")), false);
 	const brief = parseJson(
 		run(["brief", "--json"], { envHome: home, cwd: project }).stdout,
 	);
-	assert.equal(brief.project.spect.initialized, true);
-	assert.ok(brief.sessionStart.load.some((f) => f.kind === "spect"));
+	assert.equal(brief.data.project.spect.initialized, true);
+	assert.ok(brief.data.sessionStart.load.some((f) => f.kind === "spect"));
 });
 
 test("brief manifest includes global models and project overrides", () => {
@@ -355,15 +359,19 @@ test("brief manifest includes global models and project overrides", () => {
 		run(["brief", "--json"], { envHome: home, cwd: project }).stdout,
 	);
 	assert.ok(
-		j.sessionStart.load.some(
+		j.data.sessionStart.load.some(
 			(f) => f.kind === "models" && f.scope === "global",
 		),
 	);
 	assert.ok(
-		j.sessionStart.load.some((f) => f.kind === "user" && f.scope === "global"),
+		j.data.sessionStart.load.some(
+			(f) => f.kind === "user" && f.scope === "global",
+		),
 	);
 	assert.ok(
-		j.sessionStart.load.some((f) => f.kind === "user" && f.scope === "project"),
+		j.data.sessionStart.load.some(
+			(f) => f.kind === "user" && f.scope === "project",
+		),
 	);
 });
 
@@ -373,7 +381,9 @@ test("brief surfaces lesson summaries in the index", () => {
 		envHome: home,
 	});
 	const j = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
-	assert.ok(j.lessons.index.some((l) => l.path.endsWith("git/global-lesson")));
+	assert.ok(
+		j.data.lessons.index.some((l) => l.path.endsWith("git/global-lesson")),
+	);
 });
 
 test("brief loads the LESSONS.md core directly", () => {
@@ -383,8 +393,8 @@ test("brief loads the LESSONS.md core directly", () => {
 		"# LESSONS.md\n\n## Core\n- critical lesson — `lessons/git/x.md`\n",
 	);
 	const j = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
-	assert.ok(j.lessons.core);
-	assert.ok(j.lessons.core.includes("critical lesson"));
+	assert.ok(j.data.lessons.core);
+	assert.ok(j.data.lessons.core.includes("critical lesson"));
 });
 
 test("user: apply writes USER.md; set goals succeeds; bad inputs error", () => {
@@ -401,7 +411,7 @@ test("update diff shows staged-vs-live changes", () => {
 	run(["update", "stage"], { envHome: home });
 	const ver = parseJson(
 		run(["update", "list", "--json"], { envHome: home }).stdout,
-	).staged[0].version;
+	).data.staged[0].version;
 	// mutate the live file so the diff is non-empty
 	writeFileSync(
 		path.join(home, ".agents", "agents", "scout.md"),
@@ -410,8 +420,8 @@ test("update diff shows staged-vs-live changes", () => {
 	const r = run(["update", "diff", ver, "--json"], { envHome: home });
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.equal(j.action, "diff");
-	const scout = j.diffs.find((d) => d.rel.includes("scout.md"));
+	assert.equal(j.data.action, "diff");
+	const scout = j.data.diffs.find((d) => d.rel.includes("scout.md"));
 	assert.ok(scout);
 	assert.ok(scout.diff.includes("-# changed by user"));
 	assert.ok(scout.diff.includes("+")); // staged content appears as additions
@@ -432,13 +442,14 @@ test("update diff rejects files outside the staged payload", () => {
 	assert.match(j.error, /not part of staged update/i);
 });
 
-test("consolidate semantic failures exit non-zero in JSON mode", () => {
+test("consolidate with no lessons dir is a healthy no-op (exit 0)", () => {
 	const home = run(["init"]).home;
 	const r = run(["consolidate", "--json"], { envHome: home });
-	bad(r);
+	ok(r);
 	const j = parseJson(r.stdout);
-	assert.equal(j.ok, false);
-	assert.match(j.reason, /no lessons dir/i);
+	assert.equal(j.ok, true);
+	assert.equal(j.data.nothingToDo, true);
+	assert.match(j.data.reason, /no lessons dir/i);
 });
 
 test("update diff on an unknown version errors as JSON", () => {
@@ -468,7 +479,7 @@ test("update diff reports no differences without dumping files", () => {
 	const list = parseJson(
 		run(["update", "list", "--json"], { envHome: home }).stdout,
 	);
-	const ver = list.staged[0].version;
+	const ver = list.data.staged[0].version;
 	const staged = readFileSync(
 		path.join(home, ".agents", `update-${ver}`, "agents", "scout.md"),
 		"utf8",
@@ -479,9 +490,9 @@ test("update diff reports no differences without dumping files", () => {
 			envHome: home,
 		}).stdout,
 	);
-	assert.equal(j.diffs.length, 1);
+	assert.equal(j.data.diffs.length, 1);
 	assert.ok(
-		!j.diffs[0].diff
+		!j.data.diffs[0].diff
 			.split("\n")
 			.some((line) => line.startsWith("+") || line.startsWith("-")),
 	);
@@ -495,10 +506,10 @@ test("status summarizes targets by default and --all expands the catalog", () =>
 	const full = parseJson(
 		run(["status", "--all", "--json"], { envHome: home }).stdout,
 	);
-	assert.equal(summary.all, false);
-	assert.equal(full.all, true);
-	assert.equal(full.targets.length, full.targetCount);
-	assert.ok(summary.targets.length <= full.targets.length);
+	assert.equal(summary.data.all, false);
+	assert.equal(full.data.all, true);
+	assert.equal(full.data.targets.length, full.data.targetCount);
+	assert.ok(summary.data.targets.length <= full.data.targets.length);
 });
 
 test("lessons inbox --clear removes all captures", () => {
@@ -510,8 +521,8 @@ test("lessons inbox --clear removes all captures", () => {
 	const r = run(["lessons", "inbox", "--clear", "--json"], { envHome: home });
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.equal(j.op, "clear");
-	assert.ok(j.deleted >= 2);
+	assert.equal(j.data.op, "clear");
+	assert.ok(j.data.deleted >= 2);
 });
 
 test("F1 init seeds the full identity/memory file set", () => {
@@ -548,10 +559,14 @@ test("F1 doctor flags missing required files", () => {
 	const r = run(["doctor", "--json"], { envHome: home });
 	// doctor exits 2 when issues exist; parse either way
 	const j = parseJson(r.stdout);
-	assert.ok(j.issues.some((i) => i.includes("SOUL")));
-	assert.ok(j.issues.some((i) => i.includes("MODELS.md")));
-	assert.ok(j.checks.some((c) => c.check === "file-exists:soul" && !c.ok));
-	assert.ok(j.checks.some((c) => c.check === "file-exists:models" && !c.ok));
+	assert.ok(j.data.issues.some((i) => i.includes("SOUL")));
+	assert.ok(j.data.issues.some((i) => i.includes("MODELS.md")));
+	assert.ok(
+		j.data.checks.some((c) => c.check === "file-exists:soul" && !c.ok),
+	);
+	assert.ok(
+		j.data.checks.some((c) => c.check === "file-exists:models" && !c.ok),
+	);
 });
 
 // ---------------------------------------------------------------------------
@@ -573,9 +588,9 @@ test("edit --print-path --json emits exactly one JSON value and creates no file"
 	// parseJson fails the test if stdout is not exactly one JSON value.
 	const j = parseJson(r.stdout);
 	assert.equal(j.command, "edit");
-	assert.equal(j.kind, "identity");
-	assert.equal(j.printPath, true);
-	assert.equal(j.path, path.join(home, ".agents", "IDENTITY.md"));
+	assert.equal(j.data.kind, "identity");
+	assert.equal(j.data.printPath, true);
+	assert.equal(j.data.path, path.join(home, ".agents", "IDENTITY.md"));
 	// --print-path must NOT create the file.
 	assert.equal(existsSync(path.join(home, ".agents", "IDENTITY.md")), false);
 });
@@ -590,7 +605,7 @@ test("edit agents --project resolves the project master, not the global master",
 	});
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.equal(j.path, path.join(project, ".agents", "AGENTS.md"));
+	assert.equal(j.data.path, path.join(project, ".agents", "AGENTS.md"));
 });
 
 test("editor process failure returns a non-zero exit", () => {
@@ -604,27 +619,46 @@ test("editor process failure returns a non-zero exit", () => {
 	}
 });
 
-test("edit help does not advertise unsupported edit models", () => {
+test("edit help advertises the models kind (supported)", () => {
 	const edit = run(["edit", "--help"]);
 	ok(edit);
-	assert.ok(!/models/i.test(edit.stdout));
-});
-
-test("identity/soul apply with unknown keys reports fallback in JSON, rejects in prose", () => {
+	assert.match(edit.stdout, /models/);
+	// and `edit models --print-path` resolves MODELS.md
 	const home = run(["init"]).home;
-	const ji = parseJson(
-		run(["identity", "apply", "no-such-identity", "--json"], {
-			envHome: home,
-		}).stdout,
-	);
-	assert.equal(ji.fallback, true);
-	assert.equal(ji.resolved, "general-purpose");
-	const js = parseJson(
-		run(["soul", "apply", "no-such-soul", "--json"], { envHome: home })
+	const j = parseJson(
+		run(["edit", "models", "--print-path", "--json"], { envHome: home })
 			.stdout,
 	);
-	assert.equal(js.fallback, true);
-	assert.ok(js.resolved);
+	assert.ok(j.data.path.endsWith("MODELS.md"));
+});
+
+test("identity/soul apply with unknown keys rejects in BOTH modes unless --fallback", () => {
+	const home = run(["init"]).home;
+	// unknown id: JSON mode refuses too (behavior parity with prose)
+	const ji = run(["identity", "apply", "no-such-identity", "--json"], {
+		envHome: home,
+	});
+	bad(ji);
+	const jij = parseJson(ji.stdout);
+	assert.equal(jij.ok, false);
+	assert.match(jij.error, /Unknown identity/);
+	// unknown soul: same parity
+	const js = run(["soul", "apply", "no-such-soul", "--json"], {
+		envHome: home,
+	});
+	bad(js);
+	assert.equal(parseJson(js.stdout).ok, false);
+	// --fallback applies the default archetype in both modes
+	const fb = parseJson(
+		run(
+			["identity", "apply", "no-such-identity", "--fallback", "--json"],
+			{ envHome: home },
+		).stdout,
+	);
+	assert.equal(fb.ok, true);
+	assert.equal(fb.data.fallback, true);
+	assert.equal(fb.data.resolved, "general-purpose");
+	ok(run(["identity", "apply", "no-such-identity", "--fallback"], { envHome: home }));
 	bad(run(["identity", "apply", "no-such-identity"], { envHome: home }));
 	bad(run(["soul", "apply", "no-such-soul"], { envHome: home }));
 });
@@ -649,17 +683,17 @@ test("agents validate returns machine-actionable failure for invalid or missing 
 	bad(v); // fresh scaffold has placeholders → invalid → non-zero
 	const j = parseJson(v.stdout);
 	assert.equal(j.command, "agents");
-	assert.equal(j.valid, false);
+	assert.equal(j.data.valid, false);
 	assert.ok(
-		j.results.some((r) => r.name === "tester" && r.valid === false),
+		j.data.results.some((r) => r.name === "tester" && r.valid === false),
 	);
 	const m = run(["agents", "validate", "no-such-agent", "--json"], {
 		envHome: home,
 	});
 	bad(m);
 	const jm = parseJson(m.stdout);
-	assert.equal(jm.missing, "no-such-agent");
-	assert.equal(jm.valid, false);
+	assert.equal(jm.data.missing, "no-such-agent");
+	assert.equal(jm.data.valid, false);
 });
 
 test("update stage before init does not suppress default personality installation", () => {
@@ -667,8 +701,8 @@ test("update stage before init does not suppress default personality installatio
 	ok(first);
 	const home = first.home; // fresh home: no init yet
 	const j = parseJson(run(["init", "--json"], { envHome: home }).stdout);
-	assert.ok(j.steps.seeds);
-	assert.ok(j.steps.seeds.installed.length >= 4);
+	assert.ok(j.data.steps.seeds);
+	assert.ok(j.data.steps.seeds.installed.length >= 4);
 });
 
 test("brief surfaces unresolved model aliases with actionable guidance", () => {
@@ -704,8 +738,8 @@ test("brief surfaces unresolved model aliases with actionable guidance", () => {
 		].join("\n"),
 	);
 	const j = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
-	assert.ok(j.modelAliases);
-	const u = j.modelAliases.unresolved || [];
+	assert.ok(j.data.modelAliases);
+	const u = j.data.modelAliases.unresolved || [];
 	const hit = u.find((x) => x.name === "badmodel");
 	assert.ok(hit);
 	assert.match(hit.guidance, /models set/);
@@ -732,10 +766,10 @@ test("brief prefers project core over global core and includes project lessons",
 	const j = parseJson(
 		run(["brief", "--json"], { envHome: home, cwd: project }).stdout,
 	);
-	assert.equal(j.lessons.coreScope, "project");
-	assert.ok(j.lessons.core.includes("PROJECT-CORE-MARKER"));
+	assert.equal(j.data.lessons.coreScope, "project");
+	assert.ok(j.data.lessons.core.includes("PROJECT-CORE-MARKER"));
 	assert.ok(
-		j.lessons.index.some(
+		j.data.lessons.index.some(
 			(l) => l.path.endsWith("git/proj") && l.scope === "project",
 		),
 	);
@@ -761,7 +795,304 @@ test("skill passthrough emits a JSON envelope in --json mode", () => {
 	ok(r);
 	const j = parseJson(r.stdout);
 	assert.equal(j.command, "skill");
-	assert.equal(j.passthrough, true);
-	assert.equal(j.args[0], "list");
-	assert.equal(typeof j.code, "number");
+	assert.equal(j.data.passthrough, true);
+	assert.equal(j.data.args[0], "list");
+	assert.equal(typeof j.data.code, "number");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 0 — envelope contract, exit codes, help/exit, read-only commands
+// ---------------------------------------------------------------------------
+
+test("bare `agent` prints a quick start and exits 0 with no stderr leak", () => {
+	const r = run([]);
+	assert.equal(r.code, 0);
+	assert.match(r.stdout, /agent init/);
+	assert.equal(r.stderr, "");
+});
+
+test("`agent help` and `agent help <cmd>` exit 0", () => {
+	ok(run(["help"]));
+	ok(run(["help", "status"]));
+	ok(run(["--help"]));
+});
+
+test("bare `agent --json` emits a machine-readable manifest", () => {
+	const r = run(["--json"]);
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, true);
+	assert.equal(j.command, "manifest");
+	assert.ok(Array.isArray(j.data.commands));
+	assert.equal(j.data.exitCodes.OK, 0);
+});
+
+test("every --json payload carries the versioned envelope", () => {
+	const home = run(["init"]).home;
+	for (const args of [["status"], ["targets"], ["brief"], ["files"]]) {
+		const r = run([...args, "--json"], { envHome: home });
+		ok(r);
+		const j = parseJson(r.stdout);
+		assert.equal(j.ok, true, args.join(" "));
+		assert.equal(j.apiVersion, "2.0.0", args.join(" "));
+		assert.ok(j.data && typeof j.data === "object", args.join(" "));
+	}
+});
+
+test("no ANSI escape sequences leak into any --json stdout", () => {
+	const r = run(["target", "enable", "bogus-target", "--json"]);
+	bad(r);
+	assert.ok(!r.stdout.includes("\u001b"), "error payload must be plain text");
+	const home = run(["init"]).home;
+	const s = run(["skill", "list", "--json"], { envHome: home });
+	const text = s.stdout;
+	assert.ok(
+		!text.includes("\u001b") && !text.includes("\\u001b"),
+		"skill passthrough payload must be plain text",
+	);
+});
+
+test("models resolve for a missing alias exits 1 with ok:false", () => {
+	const r = run(["models", "resolve", "no-such-alias", "--json"]);
+	bad(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.match(j.error, /no such model alias/i);
+});
+
+test("link --target <unknown> errors listing known ids", () => {
+	const r = run(["link", "--target", "bogus-id", "--json"]);
+	bad(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.match(j.error, /unknown target id/i);
+});
+
+test("link reports changed/nothingToDo booleans (idempotent second run)", () => {
+	const home = run(["init"]).home;
+	run(["link"], { envHome: home }); // first run may link or no-op
+	// link is idempotent: a second run has nothing left to do.
+	const second = parseJson(run(["link", "--json"], { envHome: home }).stdout);
+	assert.equal(typeof second.data.changed, "boolean");
+	assert.equal(second.data.nothingToDo, true);
+});
+
+test("brief --check exits 2 when suggested work exists", () => {
+	const home = run(["init"]).home;
+	const r = run(["brief", "--check", "--offline", "--json"], {
+		envHome: home,
+	});
+	// after a fresh init there is suggested work (unfilled templates, models)
+	assert.equal(r.code, 2);
+	const j = parseJson(r.stdout);
+	assert.ok(j.data.suggestedActions.length >= 0);
+});
+
+test("manifest and schema commands emit the contract", () => {
+	const m = parseJson(run(["manifest", "--json"]).stdout);
+	assert.equal(m.command, "manifest");
+	assert.ok(m.data.commands.length >= 10);
+	const s = parseJson(run(["schema", "--json"]).stdout);
+	assert.equal(s.data.envelope.ok, "boolean");
+	const sc = parseJson(run(["schema", "brief", "--json"]).stdout);
+	assert.equal(sc.data.requested.name, "brief");
+	bad(run(["schema", "no-such-cmd", "--json"]));
+});
+
+test("--json=compact emits a single-line JSON value", () => {
+	const r = run(["status", "--json=compact"]);
+	ok(r);
+	// a single trailing newline from the writer is allowed; no internal ones
+	assert.ok(!r.stdout.trim().includes("\n"), "compact JSON must be one line");
+	parseJson(r.stdout); // still valid JSON
+});
+
+test("--quiet suppresses informational output (exit 0)", () => {
+	const r = run(["status", "-q"]);
+	assert.equal(r.code, 0);
+	assert.equal(r.stdout.trim(), "");
+});
+
+test("where -p reports the project master, not the global one", () => {
+	const home = run(["init"]).home;
+	const project = mkdtempSync(path.join(tmpdir(), "agent-where-proj-"));
+	mkdirSync(path.join(project, ".agents"), { recursive: true });
+	const j = parseJson(
+		run(["where", "-p", "--json"], { envHome: home, cwd: project }).stdout,
+	);
+	assert.equal(
+		j.data.master,
+		path.join(project, ".agents", "AGENTS.md"),
+	);
+});
+
+test("brief is read-only: no config.json updateCheck write without --refresh", () => {
+	const home = run(["init"]).home;
+	const cfgPath = path.join(home, ".agents", "config.json");
+	const before = readFileSync(cfgPath, "utf8");
+	ok(run(["brief", "--offline"], { envHome: home }));
+	const after = readFileSync(cfgPath, "utf8");
+	assert.equal(after, before, "brief must not mutate config.json by default");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1 — search / SPECT / secrets / env / sync (CLI integration)
+// ---------------------------------------------------------------------------
+
+const hasGitCli = spawnSync("git", ["--version"]).status === 0;
+
+test("search finds a lesson via the CLI", () => {
+	const home = run(["init"]).home;
+	const lessonsDir = path.join(home, ".agents", "lessons", "git");
+	mkdirSync(lessonsDir, { recursive: true });
+	writeFileSync(
+		path.join(lessonsDir, "merge.md"),
+		"---\n---\nHow to merge git branches safely\n",
+	);
+	const j = parseJson(run(["search", "merge", "--json"], { envHome: home }).stdout);
+	assert.equal(j.command, "search");
+	assert.ok(j.data.results.some((h) => h.path.endsWith("merge.md")));
+});
+
+test("spect task list + done round-trip via the CLI", () => {
+	const home = run(["init"]).home;
+	const project = mkdtempSync(path.join(tmpdir(), "agent-cli-spect-"));
+	mkdirSync(path.join(project, ".spect", "tasks"), { recursive: true });
+	mkdirSync(path.join(project, ".spect", "specs"), { recursive: true });
+	writeFileSync(path.join(project, ".spect", "specs", "SPEC-01.md"), "- REQ-001: works\n");
+	writeFileSync(
+		path.join(project, ".spect", "tasks", "TASKS-01.md"),
+		"- [ ] TASK-001 [REQ-001] do it\n",
+	);
+	const list = parseJson(
+		run(["spect", "task", "list", "--json"], { envHome: home, cwd: project }).stdout,
+	);
+	assert.equal(list.data.taskCount, 1);
+	assert.equal(list.data.open, 1);
+	const done = parseJson(
+		run(["spect", "task", "done", "TASK-001", "--json"], { envHome: home, cwd: project }).stdout,
+	);
+	assert.equal(done.data.done, true);
+});
+
+test("secret set/get/list round-trip via the CLI", () => {
+	const home = run(["init"]).home;
+	ok(run(["secret", "set", "TOKEN", "abc123", "--json"], { envHome: home }));
+	const got = run(["secret", "get", "TOKEN", "--json"], { envHome: home });
+	ok(got);
+	assert.equal(parseJson(got.stdout).data.value, "abc123");
+	const list = parseJson(run(["secret", "list", "--json"], { envHome: home }).stdout);
+	assert.ok(list.data.names.includes("TOKEN"));
+});
+
+test("env capture fills ENVIRONMENTS.md via the CLI", () => {
+	const home = run(["init"]).home;
+	const r = run(["env", "capture", "--json"], { envHome: home });
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.data.filled, 4);
+});
+
+test("sync init + push + status round-trip via the CLI", { skip: !hasGitCli }, () => {
+	const home = run(["init"]).home;
+	ok(run(["sync", "init", "--json"], { envHome: home }));
+	ok(run(["sync", "push", "--json"], { envHome: home }));
+	const status = parseJson(
+		run(["sync", "status", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(status.data.ok, true);
+	assert.ok(status.data.head);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 — ergonomics + composite commands
+// ---------------------------------------------------------------------------
+
+test("config + version commands emit settings", () => {
+	const home = run(["init"]).home;
+	const cfg = parseJson(run(["config", "--json"], { envHome: home }).stdout);
+	assert.ok(cfg.data.path.endsWith("config.json"));
+	assert.ok(cfg.data.config);
+	const ver = parseJson(run(["version", "--json"], { envHome: home }).stdout);
+	assert.match(ver.data.version, /^\d+\.\d+\.\d+$/);
+});
+
+test("completion emits a script for each shell", () => {
+	for (const shell of ["bash", "zsh", "fish", "powershell"]) {
+		const r = run(["completion", shell]);
+		ok(r);
+		assert.ok(r.stdout.trim().length > 10, shell);
+	}
+	bad(run(["completion", "tcsh"]));
+});
+
+test("env set writes a field into ENVIRONMENTS.md", () => {
+	const home = run(["init"]).home;
+	const r = run(["env", "set", "KeyTools", "vscode", "pwsh", "--json"], {
+		envHome: home,
+	});
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.data.field, "KeyTools");
+	assert.equal(j.data.value, "vscode pwsh");
+	assert.match(
+		readFileSync(path.join(home, ".agents", "ENVIRONMENTS.md"), "utf8"),
+		/- KeyTools: vscode pwsh/,
+	);
+});
+
+test("models suggest lists unresolved aliases", () => {
+	const home = run(["init"]).home;
+	const r = parseJson(run(["models", "suggest", "--json"], { envHome: home }).stdout);
+	assert.equal(r.command, "models");
+	assert.ok(r.data.count >= 1);
+});
+
+test("brief --oneline emits a one-line summary", () => {
+	const home = run(["init"]).home;
+	const r = parseJson(run(["brief", "--oneline", "--json"], { envHome: home }).stdout);
+	assert.equal(r.data.oneline, true);
+	assert.match(r.data.onelineText, /^v\d/);
+});
+
+test("doctor --plan includes structured actions", () => {
+	const home = run(["init"]).home;
+	const r = parseJson(run(["doctor", "--plan", "--json"], { envHome: home }).stdout);
+	assert.ok(Array.isArray(r.data.plan));
+});
+
+test("link -g -p is rejected (mutually exclusive)", () => {
+	const home = run(["init"]).home;
+	const r = run(["link", "-g", "-p", "--json"], { envHome: home });
+	bad(r);
+	assert.equal(parseJson(r.stdout).ok, false);
+});
+
+test("setup runs a one-pass readiness pass", () => {
+	const home = run(["init"]).home;
+	const r = run(["setup", "--json"], { envHome: home });
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.ok(j.data.steps.readiness.health);
+	assert.ok(j.data.steps.snapshot);
+});
+
+test("handoff create/list via the CLI", () => {
+	const home = run(["init"]).home;
+	ok(
+		run(
+			["handoff", "create", "--to", "worker", "--task", "build parser", "--json"],
+			{ envHome: home },
+		),
+	);
+	const list = parseJson(run(["handoff", "list", "--json"], { envHome: home }).stdout);
+	assert.ok(list.data.handoffs.some((x) => x.task.includes("parser")));
+});
+
+test("whoami reports identity + gaps via the CLI", () => {
+	const home = run(["init"]).home;
+	run(["identity", "apply", "general-purpose"], { envHome: home });
+	run(["identity", "set", "AGENT_NAME", "Marvin"], { envHome: home });
+	const r = parseJson(run(["whoami", "--json"], { envHome: home }).stdout);
+	assert.equal(r.data.identity, "Marvin");
 });

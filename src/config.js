@@ -7,6 +7,7 @@ import {
 	AGENTS_DIR,
 	readIfExists,
 	writeFile,
+	writeFileSync,
 	ensureDir,
 } from "./util.js";
 import { targetsWithScope } from "./targets.js";
@@ -198,23 +199,8 @@ export function mutateConfigSync(mutator, { retries = 8 } = {}) {
 			continue;
 		}
 
-		const tmp = `${CONFIG_FILE}.${process.pid}.${Date.now()}.${Math.random()
-			.toString(16)
-			.slice(2)}.tmp`;
-		try {
-			fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
-			try {
-				fs.renameSync(tmp, CONFIG_FILE);
-			} catch (error) {
-				if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error.code)) throw error;
-				// Windows rename-over-existing needs the target removed first.
-				fs.rmSync(CONFIG_FILE, { force: true });
-				fs.renameSync(tmp, CONFIG_FILE);
-			}
-			return next;
-		} finally {
-			fs.rmSync(tmp, { force: true });
-		}
+		writeFileSync(CONFIG_FILE, JSON.stringify(next, null, 2) + "\n");
+		return next;
 		}
 	});
 }
@@ -238,22 +224,7 @@ export function saveConfigSync(cfg) {
 		);
 	cfg.version = CONFIG_VERSION;
 	cfg.updatedAt = new Date().toISOString();
-	fs.mkdirSync(AGENTS_DIR, { recursive: true });
-	const tmp = `${CONFIG_FILE}.${process.pid}.${Date.now()}.${Math.random()
-		.toString(16)
-		.slice(2)}.tmp`;
-	try {
-		fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2) + "\n", "utf8");
-		try {
-			fs.renameSync(tmp, CONFIG_FILE);
-		} catch (error) {
-			if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error.code)) throw error;
-			fs.rmSync(CONFIG_FILE, { force: true });
-			fs.renameSync(tmp, CONFIG_FILE);
-		}
-	} finally {
-		fs.rmSync(tmp, { force: true });
-	}
+	writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2) + "\n");
 }
 
 export function isGlobalEnabled(cfg, id) {

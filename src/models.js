@@ -241,15 +241,17 @@ const LIVE_SOURCES = [
 			return list
 				.filter((m) => m && typeof m.id === "string" && !m.id.startsWith(":free"))
 				.map((m) => {
+					// OpenRouter pricing is USD per TOKEN (e.g. 2e-6 = $2/M).
+					// Convert to the industry-standard $/1M-token figure.
 					const p = m.pricing || {};
-					const priceIn = p.prompt ? parseFloat(p.prompt) : 0;
-					const priceOut = p.completion ? parseFloat(p.completion) : 0;
+					const priceIn = p.prompt ? parseFloat(p.prompt) * 1e6 : 0;
+					const priceOut = p.completion ? parseFloat(p.completion) * 1e6 : 0;
 					return {
 						id: m.id,
 						provider: (m.id || "").split("/")[0] || "unknown",
 						context: m.context_length || null,
-						inputPer1k: priceIn,
-						outputPer1k: priceOut,
+						inputPer1M: priceIn,
+						outputPer1M: priceOut,
 						modalities: Array.isArray(m.modalities)
 							? m.modalities.join(", ")
 							: "",
@@ -291,21 +293,28 @@ export async function fetchLiveCatalog({ timeoutMs = 8000 } = {}) {
 	return { ok: false, reason: "all live sources failed or offline" };
 }
 
+/** Format a $/1M-token price without trailing zeros (0 → "—"). */
+function formatPrice(per1M) {
+	if (!per1M || !isFinite(per1M)) return "—";
+	// $2.00/M, $0.30/M, $0.002/M — drop trailing zeros.
+	return "$" + Number(per1M.toFixed(3)).toString() + "/M";
+}
+
 /** Render live entries as a Markdown table section for MODELS.md. */
 export function liveCatalogMarkdown(result) {
 	const lines = [
 		"## Live model catalog",
 		"",
 		`> Fetched from ${result.source} at ${result.fetchedAt} (${result.count} models).`,
-		"> Auto-refresh: `agent models research --fetch`. Pricing is per 1K tokens.",
+		"> Auto-refresh: `agent models research --fetch`. Pricing is USD per 1M tokens.",
 		"",
-		"| id | provider | context | input/1K | output/1K | modalities |",
+		"| id | provider | context | input $/1M | output $/1M | modalities |",
 		"|---|---|---|---|---|---|",
 	];
 	for (const m of result.entries) {
 		const ctx = m.context ? String(m.context) : "—";
-		const inp = m.inputPer1k ? "$" + m.inputPer1k.toFixed(2) : "—";
-		const out = m.outputPer1k ? "$" + m.outputPer1k.toFixed(2) : "—";
+		const inp = formatPrice(m.inputPer1M);
+		const out = formatPrice(m.outputPer1M);
 		lines.push(
 			`| \`${m.id}\` | ${m.provider} | ${ctx} | ${inp} | ${out} | ${m.modalities || "—"} |`,
 		);

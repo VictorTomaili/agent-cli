@@ -9,6 +9,9 @@ import {
 	sanitizeSkillName,
 	guardStoreBase,
 	copySkillIntoStore,
+	readSkillMdBounded,
+	MAX_WALK_DEPTH,
+	MAX_WALK_ENTRIES,
 } from "../lib/store.js";
 import { fetchSkillsToTemp } from "../lib/npx.js";
 import { pad } from "../lib/format.js";
@@ -196,9 +199,10 @@ function resolveFetched(fetchedDir, name) {
 	if (byDir) return byDir;
 	for (const e of entries) {
 		const md = path.join(fetchedDir, e.name, "SKILL.md");
-		if (fs.existsSync(md)) {
+		const rawMd = readSkillMdBounded(md);
+		if (rawMd != null) {
 			try {
-				const { data } = parseSkillMd(fs.readFileSync(md, "utf8"));
+				const { data } = parseSkillMd(rawMd);
 				if (data.name === name) return e;
 			} catch {}
 		}
@@ -209,20 +213,31 @@ function resolveFetched(fetchedDir, name) {
 	return null;
 }
 
-// sha256 over all files in dir (excluding our own .source), sorted for determinism
+// sha256 over all files in dir (excluding our own .source), sorted for determinism.
+// M5: the walk is bounded — a hostile skill tree (zip-bomb depth/size) must not
+// make update spend unbounded time/memory; over-limit trees hash as a marker.
 function hashDir(dir) {
 	const h = crypto.createHash("sha256");
 	if (!fs.existsSync(dir)) return "0";
 	const files = [];
-	function walk(d) {
-		for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+	let visited = 0;
+	function walk(d, depth) {
+		if (depth > MAX_WALK_DEPTH) return;
+		let entries;
+		try {
+			entries = fs.readdirSync(d, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const e of entries) {
 			if (e.name === ".source") continue;
+			if (visited++ > MAX_WALK_ENTRIES) return;
 			const p = path.join(d, e.name);
-			if (e.isDirectory()) walk(p);
+			if (e.isDirectory()) walk(p, depth + 1);
 			else files.push(p);
 		}
 	}
-	walk(dir);
+	walk(dir, 0);
 	files.sort();
 	for (const f of files) {
 		h.update(f.slice(dir.length));
@@ -235,9 +250,10 @@ function hashDir(dir) {
 
 function getVer(dir) {
 	const md = path.join(dir, "SKILL.md");
-	if (!fs.existsSync(md)) return "?";
+	const rawMd = readSkillMdBounded(md);
+	if (rawMd == null) return "?";
 	try {
-		const { data } = parseSkillMd(fs.readFileSync(md, "utf8"));
+		const { data } = parseSkillMd(rawMd);
 		return data.version || "?";
 	} catch {
 		return "?";

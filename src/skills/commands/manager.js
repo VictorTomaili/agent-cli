@@ -3,6 +3,7 @@ import path from 'node:path'
 import { createPrompt, useState, useKeypress, usePrefix, isEnterKey, isUpKey, isDownKey } from '@inquirer/core'
 import c from 'picocolors'
 import { STORE_DIR } from '../lib/paths.js'
+import { readSkillMdBounded } from '../lib/store.js'
 import { listStore } from '../lib/store.js'
 import { readGlobalConfig, writeGlobalConfig, readProjectConfig, writeProjectConfig, computeEffective, computeDefaults } from '../lib/config.js'
 import { cleanConfig } from './remove.js'
@@ -62,8 +63,9 @@ function removeOne(name, dir) {
 // Bounded view of SKILL.md — the full file can be large and inquirer does not scroll.
 function viewBody(s) {
   const file = path.join(STORE_DIR, s.dir || s.name, 'SKILL.md')
-  let content
-  try { content = fs.readFileSync(file, 'utf8') } catch { return c.gray('  (no SKILL.md)') }
+  // M5: capped read — a hostile oversized SKILL.md must not be slurped whole.
+  const content = readSkillMdBounded(file)
+  if (content == null) return c.gray('  (no SKILL.md)')
   const lines = content.split(/\r?\n/)
   const max = 22
   const shown = lines.slice(0, max).map(l => (l ? '  ' + l : ''))

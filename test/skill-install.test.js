@@ -151,6 +151,34 @@ test("M1: readSkill skips a symlinked SKILL.md (read-side containment)", () => {
 	assert.ok(!listed.includes("planted"), "symlinked skill must not be listed");
 });
 
+test("M5: an oversized SKILL.md is skipped, not parsed (read cap)", () => {
+	resetStore();
+	const dir = path.join(STORE_DIR, "bloated");
+	mkdirSync(dir, { recursive: true });
+	// 1 MiB + 1 → over the cap
+	const big = "# padded\n" + "x".repeat(storeLib.MAX_SKILL_MD_BYTES);
+	writeFileSync(path.join(dir, "SKILL.md"), big);
+	assert.equal(storeLib.readSkill("bloated"), null, "oversized SKILL.md must be unreadable");
+	const listed = storeLib.listStore().map((s) => s.name);
+	assert.ok(!listed.includes("bloated"), "oversized skill must not be listed");
+});
+
+test("M5: containsSymlinks bounds hostile depth/entry counts", () => {
+	resetStore();
+	// a deep nesting beyond MAX_WALK_DEPTH must be flagged unsafe
+	const deep = path.join(STORE_DIR, "deep");
+	let cur = deep;
+	for (let i = 0; i < storeLib.MAX_WALK_DEPTH + 2; i++) {
+		mkdirSync(cur, { recursive: true });
+		cur = path.join(cur, "d");
+	}
+	assert.equal(
+		storeLib.containsSymlinks(deep),
+		true,
+		"over-deep tree must be treated as unsafe",
+	);
+});
+
 test("reinstalling the same skill reports reinstalled:true", () => {
 	resetStore();
 	plantVictim();

@@ -4,14 +4,16 @@ import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import c from 'picocolors'
 import { resolveSkillTarget } from './validate.js'
-import { skillDir, listStore } from '../lib/store.js'
+import { skillDir, listStore, readSkillMdBounded } from '../lib/store.js'
 
 export const LOCK_FILE = 'skill.lock'
 
 // Content hash of SKILL.md — the fingerprint used to detect drift between the
-// store copy and what `update` would re-fetch.
+// store copy and what `update` would re-fetch. M5: capped read.
 export function skillContentHash(mdPath) {
-  return createHash('sha256').update(fs.readFileSync(mdPath, 'utf8')).digest('hex').slice(0, 16)
+  const raw = readSkillMdBounded(mdPath)
+  if (raw == null) return '0'.repeat(16)
+  return createHash('sha256').update(raw).digest('hex').slice(0, 16)
 }
 
 // Try to read the git HEAD short sha of a dir (temp fetch checkouts). Best-effort.

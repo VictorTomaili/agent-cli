@@ -29,8 +29,16 @@ export const SEED_DIR = path.join(MODULE_DIR, "..", "seed");
 const UPDATE_PREFIX = "update-";
 const UPDATE_RE = /^update-(\d+\.\d+\.\d+(?:[-+].*)?)$/;
 
-/** Walk a directory tree, returning relative paths (posix-style) of all files. */
-async function walk(relRoot) {
+/**
+ * Walk a directory tree, returning relative paths (posix-style) of all files.
+ * M5: bounded — the shipped seed tree is repo-owned, but a packaging accident
+ * (deep nesting or a huge tree) must not turn `agent init` into a DoS.
+ */
+const SEED_MAX_DEPTH = 8;
+const SEED_MAX_ENTRIES = 5000;
+
+async function walk(relRoot, depth = 0) {
+	if (depth > SEED_MAX_DEPTH) return [];
 	const out = [];
 	let entries = [];
 	try {
@@ -39,9 +47,10 @@ async function walk(relRoot) {
 		return out;
 	}
 	for (const e of entries) {
+		if (out.length >= SEED_MAX_ENTRIES) return out;
 		const full = path.join(relRoot, e.name);
 		if (e.isDirectory()) {
-			out.push(...(await walk(full)).map((p) => `${e.name}/${p}`));
+			out.push(...(await walk(full, depth + 1)).map((p) => `${e.name}/${p}`));
 		} else if (e.isFile()) {
 			out.push(e.name);
 		}

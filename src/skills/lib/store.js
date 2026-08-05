@@ -3,6 +3,32 @@ import path from 'node:path'
 import { STORE_DIR, CLI_ROOT } from './paths.js'
 import { parseSkillMd, getTriggers } from './frontmatter.js'
 
+// --- M5: bounded reads/traversals (local-DoS guard) --------------------------
+// A fetched skill is attacker-controlled: a giant SKILL.md or a zip-bomb tree
+// must not make list/read/install/update spend unbounded time or memory.
+
+/** Largest SKILL.md we will parse (1 MiB — real skill docs are a few KB). */
+export const MAX_SKILL_MD_BYTES = 1 << 20;
+/** Max entries visited by a recursive store walk (100k nested files is hostile). */
+export const MAX_WALK_ENTRIES = 100_000;
+/** Max recursion depth for a store walk. */
+export const MAX_WALK_DEPTH = 24;
+
+/**
+ * Read a SKILL.md with a size cap. Returns null when the file is missing or
+ * exceeds the cap (a hostile skill must not be parsed, listed, or executed).
+ */
+export function readSkillMdBounded(md) {
+	let st;
+	try {
+		st = fs.statSync(md);
+	} catch {
+		return null;
+	}
+	if (!st.isFile() || st.size > MAX_SKILL_MD_BYTES) return null;
+	return fs.readFileSync(md, 'utf8');
+}
+
 // --- M1: symlink / Windows-junction containment for the skill store ----------
 // The store base and every skill dir inside it must be REAL directories. A
 // symlinked or junctioned store (or skill dir) would let install/update/remove
@@ -61,18 +87,21 @@ export function guardStoreBase() {
  * follow it out of the store.
  */
 export function containsSymlinks(dir) {
-	let stack = [dir];
+	let stack = [{ d: dir, depth: 0 }];
+	let visited = 0;
 	while (stack.length) {
-		const cur = stack.pop();
+		const { d, depth } = stack.pop();
+		if (depth > MAX_WALK_DEPTH) return true; // hostile depth — treat as unsafe
 		let entries;
 		try {
-			entries = fs.readdirSync(cur, { withFileTypes: true });
+			entries = fs.readdirSync(d, { withFileTypes: true });
 		} catch {
 			continue; // unreadable or vanished mid-walk — treated as clean
 		}
 		for (const e of entries) {
+			if (visited++ > MAX_WALK_ENTRIES) return true; // zip-bomb — unsafe
 			if (e.isSymbolicLink()) return true;
-			if (e.isDirectory()) stack.push(path.join(cur, e.name));
+			if (e.isDirectory()) stack.push({ d: path.join(d, e.name), depth: depth + 1 });
 		}
 	}
 	return false;
@@ -112,8 +141,11 @@ export function listStore() {
     const md = skillMdPath(entry.name)
     if (!fs.existsSync(md)) continue
     if (!isPlainSkillFile(md)) continue
+    // M5: a hostile skill with an oversized SKILL.md must not be listed/parsed.
+    const raw = readSkillMdBounded(md)
+    if (raw == null) continue
     try {
-      const { data } = parseSkillMd(fs.readFileSync(md, 'utf8'))
+      const { data } = parseSkillMd(raw)
       out.push({
         name: data.name || entry.name,
         dir: entry.name,
@@ -171,6 +203,8 @@ export function readSkill(nameOrDir) {
     md = hit.path
   }
   if (!isPlainSkillFile(md)) return null
-  const { data, body } = parseSkillMd(fs.readFileSync(md, 'utf8'))
+  const raw = readSkillMdBounded(md)
+  if (raw == null) return null // missing or exceeds the size cap
+  const { data, body } = parseSkillMd(raw)
   return { name: data.name || n, data, body, path: md }
 }

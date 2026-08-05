@@ -5,7 +5,7 @@ import c from 'picocolors'
 import { STORE_DIR } from '../lib/paths.js'
 import { parseSkillMd } from '../lib/frontmatter.js'
 import { fetchSkillsToTemp } from '../lib/npx.js'
-import { sanitizeSkillName, guardStoreBase, copySkillIntoStore } from '../lib/store.js'
+import { sanitizeSkillName, guardStoreBase, copySkillIntoStore, readSkillMdBounded } from '../lib/store.js'
 import { writeLock } from './lock.js'
 import { cmdEnable } from './enable.js'
 
@@ -44,10 +44,13 @@ export function installSource(source) {
       const mdPath = path.join(srcSkillDir, 'SKILL.md')
       let raw = entry.name
       if (fs.existsSync(mdPath)) {
-        try {
-          const { data } = parseSkillMd(fs.readFileSync(mdPath, 'utf8'))
-          if (data.name) raw = data.name
-        } catch { /* fall back to dir name */ }
+        const rawMd = readSkillMdBounded(mdPath)
+        if (rawMd != null) {
+          try {
+            const { data } = parseSkillMd(rawMd)
+            if (data.name) raw = data.name
+          } catch { /* fall back to dir name */ }
+        }
       }
       // S1 (path traversal): the dest name is untrusted — it comes from the
       // fetched SKILL.md frontmatter or source dir name. `name: ../x` could

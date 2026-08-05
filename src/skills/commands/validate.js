@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import c from 'picocolors'
 import { parseSkillMd, getTriggers } from '../lib/frontmatter.js'
-import { sanitizeSkillName, listStore, readSkill, skillMdPath } from '../lib/store.js'
+import { sanitizeSkillName, listStore, readSkill, skillMdPath, readSkillMdBounded } from '../lib/store.js'
 
 // Resolve a user-supplied target: a store skill name, or a path to a
 // SKILL.md (or a dir containing SKILL.md). Returns null if unresolvable.
@@ -24,7 +24,10 @@ export function resolveSkillTarget(target) {
 export function loadSkillTarget(target) {
   const res = resolveSkillTarget(target)
   if (!res) return null
-  const { data, body } = parseSkillMd(fs.readFileSync(res.path, 'utf8'))
+  // M5: an arbitrary user path (skill validate ./huge.md) must not be slurped.
+  const raw = readSkillMdBounded(res.path)
+  if (raw == null) return null
+  const { data, body } = parseSkillMd(raw)
   return { ...res, data, body }
 }
 

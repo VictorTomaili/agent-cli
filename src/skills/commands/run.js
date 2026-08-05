@@ -3,7 +3,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import c from 'picocolors'
 import { resolveSkillTarget } from './validate.js'
-import { isPlainSkillFile } from '../lib/store.js'
+import { isPlainSkillFile, readSkillMdBounded, MAX_SKILL_MD_BYTES } from '../lib/store.js'
 
 // Tool modules may only import from this allowlist of Node builtins. Anything
 // that reaches the network or spawns processes (child_process, net, http,
@@ -36,6 +36,12 @@ export function checkToolImports(source) {
 // static allowlist check (no network/child_process imports). `toolPath` must be
 // inside the skill dir. Returns { ok, output, error }.
 export async function runSkillTool(toolPath, argv = []) {
+  // M5: the executed tool source is attacker-controlled (a fetched skill) —
+  // refuse anything over the SKILL.md cap instead of slurping a multi-GB file.
+  const st = fs.statSync(toolPath)
+  if (!st.isFile() || st.size > MAX_SKILL_MD_BYTES) {
+    throw new Error('SKILL.tool.js exceeds the size cap — refusing to run')
+  }
   const source = fs.readFileSync(toolPath, 'utf8')
   const check = checkToolImports(source)
   if (!check.ok) {

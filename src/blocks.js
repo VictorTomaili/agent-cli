@@ -22,7 +22,33 @@ Rules for any agent reading this:
 - Diagnostics: \`agent doctor\`. AI session brief: \`agent brief\`.
 - skill is integrated here; after changing skills run \`agent skill refresh\`.
 
-Priority order: correctness > quality > cost > speed.`;
+Priority order: correctness > quality > cost > speed.
+
+## Session start read order (MANDATORY)
+
+\`agent brief\` emits a "Session start — read in this exact order" list. Read EVERY
+file in that list in the EXACT order emitted — do NOT skip ahead, read out of
+order, or parallelize the reads. Each file is interpreted through the prior files
+in the chain, so the order is part of the contract (changing it is a spec-level
+change, not a personal preference).
+
+The canonical order is:
+
+  1. AGENTS.md        — master contract (HOW to read the rest; governs behavior)
+  2. SOUL.md          — personality / values / beliefs (what kind of being)
+  3. IDENTITY.md      — name / role / archetype (which specific instance)
+  4. USER.md          — the human you serve (goals, preferences, context)
+  5. LESSONS.md       — accumulated rules (honor these; learned from past work)
+  6. ENVIRONMENTS.md  — operating context (local / SSH / container / etc.)
+  7. MODELS.md        — model aliases + catalog (tools — read LAST)
+
+If a file is missing, skip it and proceed to the next. SPECT project files
+(loaded after the canonical 7 when the project uses SPECT) follow the same rule:
+read them in the order \`agent brief\` emits them.
+
+This rule is enforced three ways: (a) this AGENTS.md instruction, (b) the
+numbered list \`agent brief\` prints, (c) a regression test that locks the order
+in \`src/agents-lib.js → IDENTITY_FILES\`. All three must agree.`;
 
 export const AGENT_CLI_BLOCK = `${BEGIN_AGENT_CLI}\n${AGENT_CLI_BODY}\n${END_AGENT_CLI}`;
 

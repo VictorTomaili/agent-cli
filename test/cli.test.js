@@ -608,6 +608,31 @@ test("edit agents --project resolves the project master, not the global master",
 	assert.equal(j.data.path, path.join(project, ".agents", "AGENTS.md"));
 });
 
+test("P0-2: pull -p writes to the project master, not the global master", () => {
+	const home = run(["init"]).home;
+	const project = mkdtempSync(path.join(tmpdir(), "agent-pull-proj-"));
+	mkdirSync(path.join(project, ".agents"), { recursive: true });
+	writeFileSync(path.join(project, "CLAUDE.md"), "# Project native content\n");
+	const r = run(["pull", "claude", "-p", "--json"], {
+		envHome: home,
+		cwd: project,
+	});
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.data.scope, "project");
+	assert.equal(j.data.master, path.join(project, ".agents", "AGENTS.md"));
+	// project master has the adopted content
+	assert.match(
+		readFileSync(path.join(project, ".agents", "AGENTS.md"), "utf8"),
+		/# Project native content/,
+	);
+	// global master must NOT have it
+	assert.doesNotMatch(
+		readFileSync(path.join(home, "AGENTS.md"), "utf8"),
+		/# Project native content/,
+	);
+});
+
 test("editor process failure returns a non-zero exit", () => {
 	const prev = process.env.VISUAL;
 	process.env.VISUAL = "definitely-not-a-real-editor-xyz-12345";

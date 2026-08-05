@@ -15,7 +15,7 @@ import { linkTarget, unlinkTarget, targetPath } from "../pointer.js";
 /** Register target enable/disable commands without coupling them to cli.js globals. */
 export function registerTargetCommand(
 	program,
-	{ emit, fail, ctxPaths, isJson },
+	{ emit, fail, masterPaths, isJson },
 ) {
 	program
 		.command("target <action> [id]")
@@ -60,7 +60,7 @@ export function registerTargetCommand(
 						reason: "unsupported-scope",
 					},
 				);
-			const { masterAbs, masterTilde } = ctxPaths();
+			const { masterAbs, masterTilde } = masterPaths(scope, process.cwd());
 			const root = process.cwd();
 			let result;
 			if (enabling) {

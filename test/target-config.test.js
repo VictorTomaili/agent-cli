@@ -64,10 +64,16 @@ function harness() {
 			err.failedDetails = details;
 			throw err;
 		},
-		ctxPaths: () => ({
-			masterAbs: path.join(HOME, "AGENTS.md"),
-			masterTilde: "~/AGENTS.md",
-		}),
+		masterPaths: (scope, cwd = process.cwd()) =>
+			scope === "project"
+				? {
+						masterAbs: path.join(cwd, ".agents", "AGENTS.md"),
+						masterTilde: "~/" + path.relative(HOME, path.join(cwd, ".agents", "AGENTS.md")),
+					}
+				: {
+						masterAbs: path.join(HOME, "AGENTS.md"),
+						masterTilde: "~/AGENTS.md",
+					},
 		isJson: () => false,
 	});
 	return {
@@ -91,6 +97,17 @@ async function runTarget(h, args, cwd) {
 		process.chdir(prev);
 	}
 }
+
+test("P0-2: project pointer master-abs points at the project master, not global", async () => {
+	resetConfig();
+	cleanProj(PROJ_A);
+	const h = harness();
+	await runTarget(h, ["enable", "claude", "--project"], PROJ_A);
+	assert.equal(h.failed, null);
+	const stub = readFileSync(path.join(PROJ_A, "CLAUDE.md"), "utf8");
+	assert.match(stub, /master-abs: .*\.agents[\\/]AGENTS\.md/);
+	assert.doesNotMatch(stub, new RegExp(path.join(HOME, "AGENTS.md").replace(/[\\/]/g, ".")));
+});
 
 test("unknown target id is rejected without persisting", async () => {
 	resetConfig();

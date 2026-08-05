@@ -229,7 +229,9 @@ program.configureOutput({
 registerTargetCommand(program, {
 	emit,
 	fail,
-	ctxPaths,
+	// Scope-aware: --project targets must redirect to the project master
+	// ([cwd]/.agents/AGENTS.md), not the global ~/AGENTS.md (P0-2).
+	masterPaths,
 	isJson: () => JSON_MODE,
 });
 program
@@ -2120,10 +2122,14 @@ program
 			fail(`${p} is already a pointer (no native content to pull).`);
 		}
 		const { ensureBlocks } = await import("./blocks.js");
-		await writeMaster(ensureBlocks(content));
-		emit({ command: "pull", id, scope, path: p, ok: true });
+		const merged = ensureBlocks(content);
+		// P0-2: pull -p must write to the PROJECT master ([cwd]/.agents/AGENTS.md),
+		// not the global ~/AGENTS.md.
+		const { masterAbs } = masterPaths(scope, process.cwd());
+		await writeFile(masterAbs, merged);
+		emit({ command: "pull", id, scope, path: p, master: masterAbs, ok: true });
 		if (!JSON_MODE)
-			log.success(`Adopted ${pretty(p)} → ${pretty(MASTER_FILE)}`);
+			log.success(`Adopted ${pretty(p)} → ${pretty(masterAbs)}`);
 	});
 
 program

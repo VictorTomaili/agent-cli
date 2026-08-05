@@ -12,10 +12,10 @@ Fix the 5 critical findings from the multi-agent project analysis.
 - [ ] Regression test: manager interactive delete is also safe
 
 ### P0-2: Project-scope master resolution (CRITICAL-1)
-- [ ] `masterContext(scope, cwd)` function created and used by `target enable/disable --project`
-- [ ] `link -p` and `pull -p` use scoped master, not global
-- [ ] Test: project pointer `master-abs` field points to `[cwd]/.agents/AGENTS.md`
-- [ ] Test: `pull -p` writes to project master, not global
+- [x] `masterContext(scope, cwd)` function created and used by `target enable/disable --project` (implemented as scope-aware `masterPaths(scope, cwd)` injected into `registerTargetCommand`)
+- [x] `link -p` and `pull -p` use scoped master, not global
+- [x] Test: project pointer `master-abs` field points to `[cwd]/.agents/AGENTS.md` (test/target-config.test.js)
+- [x] Test: `pull -p` writes to project master, not global (test/cli.test.js)
 
 ### P0-3: Concurrent config write data loss (CRITICAL-3)
 - [ ] File locking or optimistic concurrency on config mutations

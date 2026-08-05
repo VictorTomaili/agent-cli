@@ -1471,6 +1471,12 @@ program
 					out = existing.trimEnd() + "\n\n" + liveSection.trimEnd() + "\n";
 				}
 				await writeFile(m.MODELS_MD, out);
+				// Persist for live-aware auto-pick (models suggest --apply).
+				try {
+					m.saveLiveCatalog(result);
+				} catch {
+					/* best-effort; MODELS.md already has the data */
+				}
 				emit({
 					command: "models",
 					action: "research",

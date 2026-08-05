@@ -191,8 +191,19 @@ export function findInCatalog(id) {
 
 /** Pick the best catalog entry for an alias category. Prefers providers the
  *  user has used recently (looked up from config.json `providers` list) but
- *  falls back to a stable per-category default. */
+ *  falls back to a stable per-category default. When a live catalog has been
+ *  fetched (models research --fetch), live entries are consulted first so the
+ *  pick reflects current provider/model availability. */
 export function pickForCategory(category, { preferredProviders } = {}) {
+	const live = livePicks();
+	if (live[category]?.length) {
+		const ordered = [...live[category]].sort((a, b) => {
+			const ap = preferredProviders?.includes(a.provider) ? 0 : 1;
+			const bp = preferredProviders?.includes(b.provider) ? 0 : 1;
+			return ap - bp;
+		});
+		return ordered[0];
+	}
 	const matches = CATALOG.filter((m) => m.category === category);
 	if (!matches.length) return null;
 	const ordered = [...matches].sort((a, b) => {
@@ -201,6 +212,65 @@ export function pickForCategory(category, { preferredProviders } = {}) {
 		return ap - bp;
 	});
 	return ordered[0];
+}
+
+/** Map a live OpenRouter model id to an agent-cli category using keywords.
+ *  Returns null when the id gives no strong signal. */
+function categoryFromId(id) {
+	const s = String(id || "").toLowerCase();
+	if (/(vision|image)/.test(s)) return "vision";
+	if (/(coder|code|swe)/.test(s)) return "coding";
+	if (/(reason|think|o3\b|o4\b|r1\b|deepsearch)/.test(s)) return "deepsearch";
+	if (/(mini|flash-lite|nano|small|lite\b|pico)/.test(s)) return "fast";
+	if (/(max|pro\b|opus|large|ultra|turbo)/.test(s)) return "smart";
+	// Anchored to a bundled catalog entry? Use its category.
+	const anchored = CATALOG.find((m) => s === m.id.toLowerCase() || s.endsWith("/" + m.id.toLowerCase()));
+	if (anchored) return anchored.category;
+	// Bare flagship ids (e.g. "openai/gpt-5", "anthropic/claude-sonnet-5")
+	// with no size qualifier default to smart.
+	const last = s.split("/").pop() || s;
+	if (/^(gpt|claude|gemini|qwen|deepseek|mistral|llama)[a-z0-9.-]*$/.test(last))
+		return "smart";
+	return null;
+}
+
+/** Read the persisted live catalog (from `models research --fetch`). */
+export function livePicks() {
+	let cfg;
+	try {
+		cfg = readConfig();
+	} catch {
+		return {};
+	}
+	const live = cfg.models?.liveCatalog;
+	if (!live || !Array.isArray(live.entries)) return {};
+	const byCategory = {};
+	for (const e of live.entries) {
+		const cat = categoryFromId(e.id);
+		if (!cat) continue;
+		(byCategory[cat] ||= []).push({
+			id: e.id,
+			provider: e.provider,
+			category: cat,
+			thinking: /(reason|think|o3|o4|r1\b)/.test(String(e.id).toLowerCase()),
+			notes: `${e.context ? e.context.toLocaleString() + " ctx" : ""} · $${e.inputPer1M ?? 0}/M in · $${e.outputPer1M ?? 0}/M out`,
+		});
+	}
+	return byCategory;
+}
+
+/** Persist a fetched live catalog into config.json (models.liveCatalog). */
+export function saveLiveCatalog(result) {
+	const cfg = readConfig();
+	cfg.models = cfg.models || {};
+	cfg.models.liveCatalog = {
+		source: result.source,
+		fetchedAt: result.fetchedAt,
+		count: result.count,
+		entries: result.entries,
+	};
+	saveConfigSync(cfg);
+	return cfg.models.liveCatalog;
 }
 
 /** Render the curated catalog as a Markdown block (used by `models research`). */

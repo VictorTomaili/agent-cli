@@ -62,6 +62,29 @@ test("model mappings are not seeded by agent-cli", () => {
 	assert.equal(models.ensureDefaultAliases, undefined);
 });
 
+test("livePicks maps live ids to categories and survives save/load", () => {
+	const result = {
+		ok: true,
+		source: "openrouter",
+		count: 4,
+		fetchedAt: "2026-08-05T00:00:00.000Z",
+		entries: [
+			{ id: "openai/gpt-5", provider: "openai", context: 400000, inputPer1M: 2, outputPer1M: 10, modalities: "text" },
+			{ id: "anthropic/claude-opus-5", provider: "anthropic", context: 1000000, inputPer1M: 15, outputPer1M: 75, modalities: "" },
+			{ id: "google/gemini-3.6-flash", provider: "google", context: 1048576, inputPer1M: 1.5, outputPer1M: 7.5, modalities: "" },
+			{ id: "qwen/qwen3.8-coder", provider: "qwen", context: 1000000, inputPer1M: 0.2, outputPer1M: 0.6, modalities: "" },
+		],
+	};
+	models.saveLiveCatalog(result);
+	// pickForCategory consults the live catalog first (not the bundled baseline).
+	const smart = models.pickForCategory("smart");
+	assert.equal(smart.id, "openai/gpt-5");
+	const coding = models.pickForCategory("coding");
+	assert.equal(coding.id, "qwen/qwen3.8-coder");
+	const fast = models.pickForCategory("fast");
+	assert.equal(fast.id, "google/gemini-3.6-flash");
+});
+
 test("writeModelsMd writes a tagged XML alias document", () => {
 	const f = models.writeModelsMd();
 	assert.ok(existsSync(f));

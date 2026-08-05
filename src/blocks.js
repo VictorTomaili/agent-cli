@@ -48,6 +48,11 @@ don't vary per project. If a project-scope file with the same name exists, it is
 ignored. The other four kinds (agents / soul / lessons / environments) DO have a
 project override (loaded after the global entry).
 
+Project LESSONS.md is OPTIONAL — a missing or empty project file is a legitimate
+state meaning "no project-specific lessons yet". The global LESSONS.md carries
+the system-wide lessons regardless. Don't treat a missing project LESSONS.md as
+a gap; the brief output marks it "(no project lessons yet)" instead.
+
 If a file is missing, skip it and proceed to the next. SPECT project files
 (loaded after the canonical 7 when the project uses SPECT) follow the same rule:
 read them in the order \`agent brief\` emits them.

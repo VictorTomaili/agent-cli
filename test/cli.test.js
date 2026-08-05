@@ -362,7 +362,10 @@ test("project doctor runs in human mode without crashing (loop var does not shad
 	assert.doesNotMatch(r.stderr, /c\.green is not a function/);
 	assert.match(r.stdout, /project-master-exists/);
 	// JSON mode still works and carries the checks.
-	const j = run(["project", "doctor", "--json"], { envHome: project, cwd: project });
+	const j = run(["project", "doctor", "--json"], {
+		envHome: project,
+		cwd: project,
+	});
 	assert.ok([0, 2].includes(j.code), `json exit ${j.code}: ${j.stderr}`);
 	const data = parseJson(j.stdout).data;
 	assert.ok(Array.isArray(data.checks));
@@ -437,6 +440,40 @@ test("brief manifest: globalOnly kinds get only the global entry; project-overri
 			`overridable kind '${kind}' must have one global + one project entry`,
 		);
 	}
+});
+
+test("brief output: project LESSONS.md (missing) shows '(no project lessons yet)' not a gap", () => {
+	// Project LESSONS.md is OPTIONAL — a missing file is a legitimate state
+	// meaning "no project-specific lessons yet", not a gap. The global
+	// LESSONS.md already carries the system-wide lessons.
+	const home = run(["init"]).home;
+	const project = mkdtempSync(
+		path.join(tmpdir(), "agent-cli-no-project-lessons-"),
+	);
+	mkdirSync(path.join(project, ".agents"), { recursive: true });
+	// Deliberately DO NOT create a project LESSONS.md.
+	const r = run(["brief"], { envHome: home, cwd: project });
+	assert.equal(r.code, 0, `brief exit code: ${r.stderr}`);
+	// Find the project lessons line in the rendered Session-start list.
+	const lessonsLine = r.stdout
+		.split(/\r?\n/)
+		.find((l) => /lessons\s*\(proj\)/.test(l));
+	assert.ok(
+		lessonsLine !== undefined,
+		`project lessons line missing from brief output:\n${r.stdout}`,
+	);
+	assert.ok(
+		/no project lessons yet/.test(lessonsLine),
+		`project lessons line should show '(no project lessons yet)', got: ${lessonsLine}`,
+	);
+	assert.ok(
+		!/\(missing\)/.test(lessonsLine),
+		`project lessons line must NOT show '(missing)': ${lessonsLine}`,
+	);
+	assert.ok(
+		!/\(gap:/.test(lessonsLine),
+		`project lessons line must NOT show a gap: ${lessonsLine}`,
+	);
 });
 
 test("brief surfaces lesson summaries in the index", () => {
@@ -625,9 +662,7 @@ test("F1 doctor flags missing required files", () => {
 	const j = parseJson(r.stdout);
 	assert.ok(j.data.issues.some((i) => i.includes("SOUL")));
 	assert.ok(j.data.issues.some((i) => i.includes("MODELS.md")));
-	assert.ok(
-		j.data.checks.some((c) => c.check === "file-exists:soul" && !c.ok),
-	);
+	assert.ok(j.data.checks.some((c) => c.check === "file-exists:soul" && !c.ok));
 	assert.ok(
 		j.data.checks.some((c) => c.check === "file-exists:models" && !c.ok),
 	);
@@ -728,8 +763,7 @@ test("edit help advertises the models kind (supported)", () => {
 	// and `edit models --print-path` resolves MODELS.md
 	const home = run(["init"]).home;
 	const j = parseJson(
-		run(["edit", "models", "--print-path", "--json"], { envHome: home })
-			.stdout,
+		run(["edit", "models", "--print-path", "--json"], { envHome: home }).stdout,
 	);
 	assert.ok(j.data.path.endsWith("MODELS.md"));
 });
@@ -752,22 +786,28 @@ test("identity/soul apply with unknown keys rejects in BOTH modes unless --fallb
 	assert.equal(parseJson(js.stdout).ok, false);
 	// --fallback applies the default archetype in both modes
 	const fb = parseJson(
-		run(
-			["identity", "apply", "no-such-identity", "--fallback", "--json"],
-			{ envHome: home },
-		).stdout,
+		run(["identity", "apply", "no-such-identity", "--fallback", "--json"], {
+			envHome: home,
+		}).stdout,
 	);
 	assert.equal(fb.ok, true);
 	assert.equal(fb.data.fallback, true);
 	assert.equal(fb.data.resolved, "general-purpose");
-	ok(run(["identity", "apply", "no-such-identity", "--fallback"], { envHome: home }));
+	ok(
+		run(["identity", "apply", "no-such-identity", "--fallback"], {
+			envHome: home,
+		}),
+	);
 	bad(run(["identity", "apply", "no-such-identity"], { envHome: home }));
 	bad(run(["soul", "apply", "no-such-soul"], { envHome: home }));
 });
 
 test("user apply refuses to replace a non-empty USER.md without --force", () => {
 	const home = run(["init"]).home;
-	writeFileSync(path.join(home, ".agents", "USER.md"), "# USER.md\n\nkeep me\n");
+	writeFileSync(
+		path.join(home, ".agents", "USER.md"),
+		"# USER.md\n\nkeep me\n",
+	);
 	bad(run(["user", "apply"], { envHome: home }));
 	assert.equal(
 		readFileSync(path.join(home, ".agents", "USER.md"), "utf8"),
@@ -879,16 +919,10 @@ test("brief prefers project core over global core and includes project lessons",
 
 test("init --no-skill suppresses the skill-cli block in the master", () => {
 	const withSkill = run(["init"]).home;
-	const masterWith = readFileSync(
-		path.join(withSkill, "AGENTS.md"),
-		"utf8",
-	);
+	const masterWith = readFileSync(path.join(withSkill, "AGENTS.md"), "utf8");
 	assert.match(masterWith, /BEGIN skill-cli/);
 	const noSkill = run(["init", "--no-skill"]).home;
-	const masterNo = readFileSync(
-		path.join(noSkill, "AGENTS.md"),
-		"utf8",
-	);
+	const masterNo = readFileSync(path.join(noSkill, "AGENTS.md"), "utf8");
 	assert.ok(!/BEGIN skill-cli/.test(masterNo));
 });
 
@@ -1025,7 +1059,8 @@ test("brief --since returns no actions when the state etag is unchanged", () => 
 	assert.equal(cached.data.unchanged, true);
 	// a stale etag returns the current state with actions
 	const stale = parseJson(
-		run(["brief", "--since", "aaaaaaaaaaaaaaaa", "--json"], { envHome: home }).stdout,
+		run(["brief", "--since", "aaaaaaaaaaaaaaaa", "--json"], { envHome: home })
+			.stdout,
 	);
 	assert.ok(stale.data.actions.length >= 1);
 	assert.equal(stale.data.unchanged, undefined);
@@ -1076,10 +1111,7 @@ test("where -p reports the project master, not the global one", () => {
 	const j = parseJson(
 		run(["where", "-p", "--json"], { envHome: home, cwd: project }).stdout,
 	);
-	assert.equal(
-		j.data.master,
-		path.join(project, ".agents", "AGENTS.md"),
-	);
+	assert.equal(j.data.master, path.join(project, ".agents", "AGENTS.md"));
 });
 
 test("brief is read-only: no config.json updateCheck write without --refresh", () => {
@@ -1105,7 +1137,9 @@ test("search finds a lesson via the CLI", () => {
 		path.join(lessonsDir, "merge.md"),
 		"---\n---\nHow to merge git branches safely\n",
 	);
-	const j = parseJson(run(["search", "merge", "--json"], { envHome: home }).stdout);
+	const j = parseJson(
+		run(["search", "merge", "--json"], { envHome: home }).stdout,
+	);
 	assert.equal(j.command, "search");
 	assert.ok(j.data.results.some((h) => h.path.endsWith("merge.md")));
 });
@@ -1115,18 +1149,25 @@ test("spect task list + done round-trip via the CLI", () => {
 	const project = mkdtempSync(path.join(tmpdir(), "agent-cli-spect-"));
 	mkdirSync(path.join(project, ".spect", "tasks"), { recursive: true });
 	mkdirSync(path.join(project, ".spect", "specs"), { recursive: true });
-	writeFileSync(path.join(project, ".spect", "specs", "SPEC-01.md"), "- REQ-001: works\n");
+	writeFileSync(
+		path.join(project, ".spect", "specs", "SPEC-01.md"),
+		"- REQ-001: works\n",
+	);
 	writeFileSync(
 		path.join(project, ".spect", "tasks", "TASKS-01.md"),
 		"- [ ] TASK-001 [REQ-001] do it\n",
 	);
 	const list = parseJson(
-		run(["spect", "task", "list", "--json"], { envHome: home, cwd: project }).stdout,
+		run(["spect", "task", "list", "--json"], { envHome: home, cwd: project })
+			.stdout,
 	);
 	assert.equal(list.data.taskCount, 1);
 	assert.equal(list.data.open, 1);
 	const done = parseJson(
-		run(["spect", "task", "done", "TASK-001", "--json"], { envHome: home, cwd: project }).stdout,
+		run(["spect", "task", "done", "TASK-001", "--json"], {
+			envHome: home,
+			cwd: project,
+		}).stdout,
 	);
 	assert.equal(done.data.done, true);
 });
@@ -1137,7 +1178,9 @@ test("secret set/get/list round-trip via the CLI", () => {
 	const got = run(["secret", "get", "TOKEN", "--json"], { envHome: home });
 	ok(got);
 	assert.equal(parseJson(got.stdout).data.value, "abc123");
-	const list = parseJson(run(["secret", "list", "--json"], { envHome: home }).stdout);
+	const list = parseJson(
+		run(["secret", "list", "--json"], { envHome: home }).stdout,
+	);
 	assert.ok(list.data.names.includes("TOKEN"));
 });
 
@@ -1152,7 +1195,9 @@ test("env capture fills ENVIRONMENTS.md via the CLI", () => {
 	assert.ok(j.data.detected.user);
 	assert.ok(j.data.detected.os);
 });
-test("sync init + push + status round-trip via the CLI", { skip: !hasGitCli }, () => {
+test("sync init + push + status round-trip via the CLI", {
+	skip: !hasGitCli,
+}, () => {
 	const home = run(["init"]).home;
 	ok(run(["sync", "init", "--json"], { envHome: home }));
 	ok(run(["sync", "push", "--json"], { envHome: home }));
@@ -1163,10 +1208,14 @@ test("sync init + push + status round-trip via the CLI", { skip: !hasGitCli }, (
 	assert.ok(status.data.head);
 });
 
-test("sync diff + rollback round-trip via the CLI", { skip: !hasGitCli }, () => {
+test("sync diff + rollback round-trip via the CLI", {
+	skip: !hasGitCli,
+}, () => {
 	const home = run(["init"]).home;
 	ok(run(["sync", "init", "--json"], { envHome: home }));
-	ok(run(["sync", "push", "--message", "initial", "--json"], { envHome: home }));
+	ok(
+		run(["sync", "push", "--message", "initial", "--json"], { envHome: home }),
+	);
 	// add a lesson, push it as the second commit
 	ok(
 		run(
@@ -1183,7 +1232,8 @@ test("sync diff + rollback round-trip via the CLI", { skip: !hasGitCli }, () => 
 	assert.ok(diff.data.summary);
 	// diffing the commit that added the lesson shows it in the body
 	const second = parseJson(
-		run(["sync", "diff", "--commit", "HEAD", "--json"], { envHome: home }).stdout,
+		run(["sync", "diff", "--commit", "HEAD", "--json"], { envHome: home })
+			.stdout,
 	);
 	assert.equal(second.data.ok, true);
 	assert.match(second.data.summary, /rollback-me/);
@@ -1239,7 +1289,9 @@ test("env set writes a field into ENVIRONMENTS.md", () => {
 test("models suggest shows auto-resolved state after init", () => {
 	const home = run(["init"]).home;
 	// init auto-applies models; suggest should show 0 unresolved.
-	const r = parseJson(run(["models", "suggest", "--json"], { envHome: home }).stdout);
+	const r = parseJson(
+		run(["models", "suggest", "--json"], { envHome: home }).stdout,
+	);
 	assert.equal(r.command, "models");
 	assert.equal(r.data.count, 0);
 });
@@ -1249,10 +1301,14 @@ test("models suggest --reassign lists every alias even when all resolve", () => 
 	// init auto-applies aliases; reassign must consider them all (count > 0),
 	// even though 'suggest' alone reports 0 unresolved.
 	const r = parseJson(
-		run(["models", "suggest", "--reassign", "--json"], { envHome: home }).stdout,
+		run(["models", "suggest", "--reassign", "--json"], { envHome: home })
+			.stdout,
 	);
 	assert.equal(r.command, "models");
-	assert.ok(r.data.count >= 4, "expected all seeded aliases in the reassign list");
+	assert.ok(
+		r.data.count >= 4,
+		"expected all seeded aliases in the reassign list",
+	);
 	assert.ok(
 		r.data.unresolved.every((row) => row.pick),
 		"every existing alias should have a current best pick",
@@ -1262,7 +1318,8 @@ test("models suggest --reassign lists every alias even when all resolve", () => 
 test("brief --for attaches task-aware search hits", () => {
 	const home = run(["init"]).home;
 	const r = parseJson(
-		run(["brief", "--for", "canonical AGENTS.md", "--json"], { envHome: home }).stdout,
+		run(["brief", "--for", "canonical AGENTS.md", "--json"], { envHome: home })
+			.stdout,
 	);
 	assert.ok(r.data.forTask, "expected forTask payload");
 	assert.equal(r.data.forTask.query, "canonical AGENTS.md");
@@ -1271,7 +1328,9 @@ test("brief --for attaches task-aware search hits", () => {
 
 test("brief --oneline emits a one-line summary", () => {
 	const home = run(["init"]).home;
-	const r = parseJson(run(["brief", "--oneline", "--json"], { envHome: home }).stdout);
+	const r = parseJson(
+		run(["brief", "--oneline", "--json"], { envHome: home }).stdout,
+	);
 	assert.equal(r.data.oneline, true);
 	assert.match(r.data.onelineText, /^v\d/);
 });
@@ -1286,7 +1345,9 @@ test("status and doctor expose a corrupt config instead of hiding it", () => {
 	const doctor = parseJson(
 		run(["doctor", "--offline", "--json"], { envHome: home }).stdout,
 	);
-	const check = doctor.data.checks.find((c) => c.check === "config-not-corrupt");
+	const check = doctor.data.checks.find(
+		(c) => c.check === "config-not-corrupt",
+	);
 	assert.ok(check);
 	assert.equal(check.ok, false);
 	assert.ok(doctor.data.issues.some((i) => /config\.json is corrupt/.test(i)));
@@ -1294,7 +1355,9 @@ test("status and doctor expose a corrupt config instead of hiding it", () => {
 
 test("doctor --plan includes structured actions", () => {
 	const home = run(["init"]).home;
-	const r = parseJson(run(["doctor", "--plan", "--json"], { envHome: home }).stdout);
+	const r = parseJson(
+		run(["doctor", "--plan", "--json"], { envHome: home }).stdout,
+	);
 	assert.ok(Array.isArray(r.data.plan));
 });
 
@@ -1318,11 +1381,21 @@ test("handoff create/list via the CLI", () => {
 	const home = run(["init"]).home;
 	ok(
 		run(
-			["handoff", "create", "--to", "worker", "--task", "build parser", "--json"],
+			[
+				"handoff",
+				"create",
+				"--to",
+				"worker",
+				"--task",
+				"build parser",
+				"--json",
+			],
 			{ envHome: home },
 		),
 	);
-	const list = parseJson(run(["handoff", "list", "--json"], { envHome: home }).stdout);
+	const list = parseJson(
+		run(["handoff", "list", "--json"], { envHome: home }).stdout,
+	);
 	assert.ok(list.data.handoffs.some((x) => x.task.includes("parser")));
 });
 
@@ -1348,7 +1421,10 @@ test("init migrates an existing ~/.agents/AGENTS.md master to ~/AGENTS.md", () =
 	);
 	ok(run(["init", "--json"], { envHome: home }));
 	// master moved to ~/AGENTS.md with the old content preserved
-	assert.match(readFileSync(path.join(home, "AGENTS.md"), "utf8"), /OLD MASTER content/);
+	assert.match(
+		readFileSync(path.join(home, "AGENTS.md"), "utf8"),
+		/OLD MASTER content/,
+	);
 	// old location is now the agent-cli self-pointer stub
 	const stub = readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8");
 	assert.match(stub, /agent-cli-master-pointer/);
@@ -1366,7 +1442,10 @@ test("init migration strips a stray pointer header prepended onto the old master
 		"## agent-cli (AGENTS.md manager)\n\n" +
 		"Real content padding padding padding padding padding padding padding padding\n";
 	writeFileSync(path.join(home, ".agents", "AGENTS.md"), oldMaster);
-	writeFileSync(path.join(home, "AGENTS.md"), "<!-- agent-cli-pointer -->\n# stub\n");
+	writeFileSync(
+		path.join(home, "AGENTS.md"),
+		"<!-- agent-cli-pointer -->\n# stub\n",
+	);
 	ok(run(["init", "--json"], { envHome: home }));
 	const adopted = readFileSync(path.join(home, "AGENTS.md"), "utf8");
 	// the stray stub header is gone; the real content remains
@@ -1380,10 +1459,14 @@ test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss
 	const env = { ...process.env, AGENT_CLI_HOME: home };
 	const runOne = (id) =>
 		new Promise((resolve) => {
-			const child = spawn(process.execPath, [CLI, "target", "enable", id, "-g"], {
-				env,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
+			const child = spawn(
+				process.execPath,
+				[CLI, "target", "enable", id, "-g"],
+				{
+					env,
+					stdio: ["ignore", "pipe", "pipe"],
+				},
+			);
 			let stderr = "";
 			child.stderr.on("data", (d) => (stderr += d));
 			child.on("close", (code) => resolve({ id, code, stderr }));
@@ -1392,7 +1475,12 @@ test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss
 	for (const r of results) {
 		assert.equal(r.code, 0, `${r.id} enable failed: ${r.stderr}`);
 	}
-	const cfg = parseJson(run(["config", "--json"], { envHome: home }).stdout).data.config;
+	const cfg = parseJson(run(["config", "--json"], { envHome: home }).stdout)
+		.data.config;
 	const got = [...cfg.global].sort();
-	assert.deepEqual(got, [...ids].sort(), "all 6 concurrent enables must be persisted");
+	assert.deepEqual(
+		got,
+		[...ids].sort(),
+		"all 6 concurrent enables must be persisted",
+	);
 });

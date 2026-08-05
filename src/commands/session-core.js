@@ -526,9 +526,7 @@ export function registerSessionCoreCommands(
 							`  ${r.applied ? c.green("✓") : c.gray("·")} ${r.id}${r.skipped ? c.yellow(" (not safe)") : ""}`,
 						);
 				const attempted = res.receipts.filter((r) => !r.skipped);
-				process.exit(
-					attempted.some((r) => !r.applied) ? EXIT.ERROR : EXIT.OK,
-				);
+				process.exit(attempted.some((r) => !r.applied) ? EXIT.ERROR : EXIT.OK);
 			}
 
 			const blockers = [];
@@ -720,7 +718,13 @@ export function registerSessionCoreCommands(
 				);
 				out.sessionStart.load.forEach((f, i) => {
 					let tag;
-					if (!f.exists) tag = c.gray("(missing)");
+					// Project LESSONS.md is OPTIONAL — a missing or empty file just means
+					// "no project-specific lessons yet", which is a legitimate state (the
+					// global LESSONS.md carries the system-wide lessons). Don't surface it
+					// as a gap or a missing-file warning — only flag global lessons.
+					if (f.kind === "lessons" && f.scope === "project" && f.filled !== true) {
+						tag = c.cyan("(no project lessons yet)");
+					} else if (!f.exists) tag = c.gray("(missing)");
 					else if (f.filled === false || (f.gaps && f.gaps.length))
 						tag = c.yellow(`(gap: ${(f.gaps || []).join(", ") || "unfilled"})`);
 					else tag = c.green("✓");
@@ -729,8 +733,7 @@ export function registerSessionCoreCommands(
 					if (f.scope === "global" && f.globalOnly) {
 						tag += c.cyan(" (global only)");
 					}
-					const kindLabel =
-						f.scope === "project" ? `${f.kind} (proj)` : f.kind;
+					const kindLabel = f.scope === "project" ? `${f.kind} (proj)` : f.kind;
 					const num = String(i + 1).padStart(2, " ");
 					log.raw(
 						`  ${c.cyan(num + ".")} ${kindLabel.padEnd(18)} ${pretty(f.path)}  ${tag}`,

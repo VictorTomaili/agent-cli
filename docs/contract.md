@@ -108,8 +108,10 @@ mutate `config.json` (the `updateCheck` cache). Everything else is pure.
 - Root commands default to the **global** scope (`~/.agents`); `-p/--project`
   selects the project master (`[cwd]/.agents/AGENTS.md`).
 - `-g` and `-p` are mutually exclusive on a given invocation.
-- `where -p` reports the project master; `where` (global) reports
-  `~/.agents/AGENTS.md`.
+- `where -p` reports the project master (`[cwd]/.agents/AGENTS.md`);
+  `where` (global) reports the global master at `~/AGENTS.md` (the
+  `~/.agents/AGENTS.md` file is now agent-cli's self-pointer stub that
+  redirects to it).
 
 ---
 

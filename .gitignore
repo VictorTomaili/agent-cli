@@ -7,3 +7,8 @@ Thumbs.db
 .env.local
 coverage/
 .nyc_output/
+
+# Working dirs — generated content, not source
+docs/
+review/
+AGENT-EXPERIENCE-REVIEW.md

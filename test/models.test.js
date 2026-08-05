@@ -130,3 +130,22 @@ test("writeModelsMd on corrupt config refuses without touching config.json", () 
 	);
 	assert.equal(readFileSync(cfgPath(), "utf8"), raw);
 });
+
+test("liveCatalogMarkdown renders a table from a synthetic fetch result", () => {
+	const result = {
+		ok: true,
+		source: "openrouter",
+		count: 2,
+		fetchedAt: "2026-08-05T00:00:00.000Z",
+		entries: [
+			{ id: "openai/gpt-5", provider: "openai", context: 400000, inputPer1k: 0.00125, outputPer1k: 0.01, modalities: "text,image" },
+			{ id: "anthropic/claude-opus", provider: "anthropic", context: null, inputPer1k: 0, outputPer1k: 0, modalities: "" },
+		],
+	};
+	const md = models.liveCatalogMarkdown(result);
+	assert.match(md, /^## Live model catalog/m);
+	assert.match(md, /openrouter at 2026-08-05T00:00:00\.000Z \(2 models\)/);
+	assert.match(md, /\| `openai\/gpt-5` \| openai \| 400000 \| \$0\.00 \| \$0\.01 \| text,image \|/);
+	// null context / zero price render as em-dashes, not NaN
+	assert.match(md, /\| `anthropic\/claude-opus` \| anthropic \| — \| — \| — \| — \|/);
+});

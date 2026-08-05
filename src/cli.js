@@ -1366,6 +1366,10 @@ program
 	)
 	.option("--apply", "(suggest) write the auto-picked model for each unresolved alias")
 	.option("--refresh", "(research) rewrite the catalog section in MODELS.md with the bundled baseline")
+	.option(
+		"--fetch",
+		"(research) pull the LIVE model list from a public endpoint (OpenRouter) into MODELS.md; offline-safe",
+	)
 	.action(async (action, rest, opts) => {
 		const m = await import("./models.js");
 		action = action || "list";
@@ -1432,10 +1436,56 @@ program
 			return;
 		}
 		if (action === "research") {
-			// 'research' is the agent-facing entry point: the agent (or human) can
-			// run this to refresh MODELS.md's curated catalog section after a web
-			// investigation. Without --refresh, this is a dry run that reports
-			// what would change.
+			// 'research' is the agent-facing entry point:
+			//   - default: report the bundled curated catalog state (dry run).
+			//   - --refresh: re-embed the bundled curated catalog in MODELS.md.
+			//   - --fetch: pull the LIVE model list from a public no-auth
+			//     endpoint (OpenRouter) and write a "Live model catalog" section
+			//     into MODELS.md, so the agent has current provider/model data
+			//     instead of only the bundled baseline. Offline-safe.
+			if (opts.fetch) {
+				const result = await m.fetchLiveCatalog();
+				if (!result.ok) {
+					emit({
+						command: "models",
+						action: "research",
+						fetched: false,
+						reason: result.reason,
+					});
+					if (!JSON_MODE)
+						log.warn(`Could not fetch live catalog: ${result.reason}`);
+					return;
+				}
+				// Merge the live section into MODELS.md, preserving the aliases
+				// and bundled curated catalog sections already on disk.
+				const existing = (await readIfExists(m.MODELS_MD)) || "";
+				const liveSection = m.liveCatalogMarkdown(result);
+				let out;
+				if (/##\s+Live model catalog/.test(existing)) {
+					// Replace the previous live section in place.
+					out = existing.replace(
+						/## Live model catalog[\s\S]*?(?=\n## |$)/,
+						liveSection.trimEnd(),
+					);
+				} else {
+					out = existing.trimEnd() + "\n\n" + liveSection.trimEnd() + "\n";
+				}
+				await writeFile(m.MODELS_MD, out);
+				emit({
+					command: "models",
+					action: "research",
+					fetched: true,
+					source: result.source,
+					count: result.count,
+					fetchedAt: result.fetchedAt,
+					file: m.MODELS_MD,
+				});
+				if (!JSON_MODE)
+					log.success(
+						`Fetched ${result.count} live models from ${result.source} → ${pretty(m.MODELS_MD)}`,
+					);
+				return;
+			}
 			const f = await readIfExists(m.MODELS_MD);
 			const before = f || "";
 			const want = m.catalogMarkdown();
@@ -1451,11 +1501,11 @@ program
 					action: "research",
 					refreshed: false,
 					count: m.CATALOG.length,
-					diff: "catalog section already present; pass --refresh to overwrite",
+					diff: "catalog section already present; pass --refresh to overwrite, or --fetch for the live model list",
 				});
 				if (!JSON_MODE)
 					log.info(
-						`Catalog section already present (${m.CATALOG.length} entries). Pass --refresh to overwrite, or edit the markdown directly to reflect new research.`,
+						`Catalog section already present (${m.CATALOG.length} entries). Pass --refresh to overwrite, or --fetch to pull the live model list.`,
 					);
 			}
 			return;

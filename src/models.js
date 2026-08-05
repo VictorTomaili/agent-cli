@@ -223,3 +223,93 @@ export function catalogMarkdown() {
 	lines.push("");
 	return lines.join("\n");
 }
+
+// --- Live catalog fetch -----------------------------------------------------
+// `agent models research --fetch` pulls a real, no-auth model list from a
+// public endpoint and writes it into MODELS.md so the agent has current
+// provider/model data instead of only the bundled baseline. Falls back
+// gracefully to the baseline when offline.
+
+/** Public, no-auth model registry with per-model context + pricing. */
+const LIVE_SOURCES = [
+	{
+		name: "openrouter",
+		url: "https://openrouter.ai/api/v1/models",
+		parse: (json) => {
+			const list = json?.data;
+			if (!Array.isArray(list)) throw new Error("unexpected shape");
+			return list
+				.filter((m) => m && typeof m.id === "string" && !m.id.startsWith(":free"))
+				.map((m) => {
+					const p = m.pricing || {};
+					const priceIn = p.prompt ? parseFloat(p.prompt) : 0;
+					const priceOut = p.completion ? parseFloat(p.completion) : 0;
+					return {
+						id: m.id,
+						provider: (m.id || "").split("/")[0] || "unknown",
+						context: m.context_length || null,
+						inputPer1k: priceIn,
+						outputPer1k: priceOut,
+						modalities: Array.isArray(m.modalities)
+							? m.modalities.join(", ")
+							: "",
+					};
+				})
+				.slice(0, 500);
+		},
+	},
+];
+
+/**
+ * Fetch the live model catalog from public endpoints.
+ * Returns { ok: true, source, count, entries, fetchedAt } on success,
+ * or { ok: false, reason, source? } when offline / parse fails.
+ */
+export async function fetchLiveCatalog({ timeoutMs = 8000 } = {}) {
+	for (const src of LIVE_SOURCES) {
+		const ac = new AbortController();
+		const timer = setTimeout(() => ac.abort(), timeoutMs);
+		try {
+			const res = await fetch(src.url, { signal: ac.signal });
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const json = await res.json();
+			const entries = src.parse(json);
+			if (!entries.length) throw new Error("empty model list");
+			return {
+				ok: true,
+				source: src.name,
+				count: entries.length,
+				entries,
+				fetchedAt: new Date().toISOString(),
+			};
+		} catch (error) {
+			// try next source (or report the last failure)
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+	return { ok: false, reason: "all live sources failed or offline" };
+}
+
+/** Render live entries as a Markdown table section for MODELS.md. */
+export function liveCatalogMarkdown(result) {
+	const lines = [
+		"## Live model catalog",
+		"",
+		`> Fetched from ${result.source} at ${result.fetchedAt} (${result.count} models).`,
+		"> Auto-refresh: `agent models research --fetch`. Pricing is per 1K tokens.",
+		"",
+		"| id | provider | context | input/1K | output/1K | modalities |",
+		"|---|---|---|---|---|---|",
+	];
+	for (const m of result.entries) {
+		const ctx = m.context ? String(m.context) : "—";
+		const inp = m.inputPer1k ? "$" + m.inputPer1k.toFixed(2) : "—";
+		const out = m.outputPer1k ? "$" + m.outputPer1k.toFixed(2) : "—";
+		lines.push(
+			`| \`${m.id}\` | ${m.provider} | ${ctx} | ${inp} | ${out} | ${m.modalities || "—"} |`,
+		);
+	}
+	lines.push("");
+	return lines.join("\n");
+}

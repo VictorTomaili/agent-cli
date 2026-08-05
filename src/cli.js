@@ -2449,8 +2449,12 @@ program
 					if (!JSON_MODE) log.error(r.reason);
 					process.exit(EXIT.ERROR);
 				}
-				if (!JSON_MODE)
-					log.success(`${id} → ${sub === "done" ? "done" : "open"} (${pretty(r.file)})`);
+				if (!JSON_MODE) {
+					if (r.unchanged)
+						log.info(`${id} is already ${sub === "done" ? "done" : "open"} (no change).`);
+					else
+						log.success(`${id} → ${sub === "done" ? "done" : "open"} (${pretty(r.file)})`);
+				}
 				return;
 			}
 			fail(`Unknown task op: ${sub}. Use list|done|open`);

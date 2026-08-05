@@ -303,7 +303,11 @@ export async function setTaskStatus(cwd, id, done) {
 		const lines = content.split(/\r?\n/);
 		for (let i = 0; i < lines.length; i++) {
 			const t = parseTaskLine(lines[i]);
-			if (!t || t.id !== id || t.done === done) continue;
+			if (!t || t.id !== id) continue;
+			if (t.done === done) {
+				// Already in the requested state — a no-op, not a missing task.
+				return { ok: true, id, done, file, unchanged: true };
+			}
 			lines[i] = lines[i].replace(
 				/^(\s*-\s+)\[[ xX]\]/,
 				`$1${done ? "[x]" : "[ ]"}`,

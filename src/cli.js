@@ -1365,6 +1365,10 @@ program
 		"ordered fallback provider/model values for API/rate/usage failures",
 	)
 	.option("--apply", "(suggest) write the auto-picked model for each unresolved alias")
+	.option(
+		"--reassign",
+		"(suggest) re-pick the current best model for EVERY existing alias from the live/bundled catalog (report only unless --apply)",
+	)
 	.option("--refresh", "(research) rewrite the catalog section in MODELS.md with the bundled baseline")
 	.option(
 		"--fetch",
@@ -1522,13 +1526,27 @@ program
 			const preferredProviders = cfg.providers || [];
 			const agents = await listAgents({ includeProject: true });
 			const personaByName = new Map(agents.map((a) => [a.id, a]));
-			// Group personas that share the same alias (e.g. all 6 reviewers
-			// share 'review-model'); one pick serves them all.
+			// --reassign: consider EVERY existing alias (not just unresolved
+			// ones) so the agent can upgrade stale assignments to the current
+			// best model after a live-catalog fetch.
 			const byAlias = new Map();
-			for (const u of unresolved) {
-				const arr = byAlias.get(u.model) || [];
-				arr.push(u);
-				byAlias.set(u.model, arr);
+			if (opts.reassign) {
+				for (const [alias, v] of Object.entries(m.getAliases())) {
+					byAlias.set(alias, [
+						{
+							name: alias,
+							model: alias,
+							scope: "global",
+							existing: v.model,
+						},
+					]);
+				}
+			} else {
+				for (const u of unresolved) {
+					const arr = byAlias.get(u.model) || [];
+					arr.push(u);
+					byAlias.set(u.model, arr);
+				}
 			}
 			const rows = [];
 			const shared = [];
@@ -1557,9 +1575,11 @@ program
 					(fallbackCategory
 						? m.pickForCategory(fallbackCategory, { preferredProviders })
 						: null);
+				const existing = personas[0]?.existing || m.getAlias(alias)?.model || null;
 				const row = {
 					alias,
 					category: category || fallbackCategory,
+					existing,
 					pick: finalPick
 						? {
 								id: finalPick.id,
@@ -1573,8 +1593,11 @@ program
 						scope: p.scope,
 					})),
 				};
+				const fullId = finalPick && finalPick.id.includes("/")
+					? finalPick.id
+					: finalPick && `${finalPick.provider}/${finalPick.id}`;
 				row.guidance = finalPick
-					? `agent models set ${alias} ${finalPick.provider}/${finalPick.id}${finalPick.thinking ? " --thinking on" : ""}  (applies to ${personas.length} persona${personas.length === 1 ? "" : "s"})`
+					? `agent models set ${alias} ${fullId}${finalPick.thinking ? " --thinking on" : ""}  (applies to ${personas.length} persona${personas.length === 1 ? "" : "s"})`
 					: `agent models set ${alias} <provider/model>  (${personas.length} persona${personas.length === 1 ? "" : "s"} share this alias)`;
 				rows.push(row);
 				if (personas.length > 1) shared.push(alias);
@@ -1589,8 +1612,15 @@ program
 								? c.gray(` (${r.personas.length} personas: ${r.personas.map((p) => p.name).join(", ")})`)
 								: "";
 						if (r.pick) {
+							const full = r.pick.id.includes("/")
+								? r.pick.id
+								: `${r.pick.provider}/${r.pick.id}`;
+							const changed = r.existing && r.existing !== full;
+							const from = changed
+								? c.yellow(r.existing + " → ")
+								: c.gray("(current) ");
 							log.raw(
-								`  ${c.bold(r.alias.padEnd(28))} ${c.yellow(r.alias)} → ${c.green(r.pick.provider + "/" + r.pick.id)} ${r.pick.thinking ? c.gray("(thinking)") : ""}${personaList}`,
+								`  ${c.bold(r.alias.padEnd(28))} ${from}${c.green(full)} ${r.pick.thinking ? c.gray("(thinking)") : ""}${personaList}`,
 							);
 						} else {
 							log.raw(
@@ -1600,8 +1630,9 @@ program
 					}
 					const applyable = rows.filter((r) => r.pick).length;
 					if (applyable > 0) {
+						const src = opts.reassign ? "live" : "bundled";
 						log.dim(
-							`${applyable} alias${applyable === 1 ? "" : "es"} auto-pickable from the bundled catalog. Apply with: agent models suggest --apply`,
+							`${applyable} alias${applyable === 1 ? "" : "es"} auto-pickable from the ${src} catalog. Apply with: agent models suggest --apply${opts.reassign ? " --reassign" : ""}`,
 						);
 					} else {
 						log.dim("No catalog match — assign manually: agent models set <alias> <provider/model>.");
@@ -1610,16 +1641,24 @@ program
 			}
 			if (opts.apply) {
 				const applied = [];
+				const unchanged = [];
 				for (const r of rows) {
 					if (!r.pick) continue;
+					const next = r.pick.id.includes("/")
+						? r.pick.id
+						: `${r.pick.provider}/${r.pick.id}`;
+					if (opts.reassign && r.existing === next) {
+						unchanged.push({ alias: r.alias, model: next });
+						continue;
+					}
 					m.setAlias(r.alias, {
-						model: `${r.pick.provider}/${r.pick.id}`,
+						model: next,
 						category: r.category,
 						thinking: r.pick.thinking ? "on" : undefined,
 					});
 					applied.push({
 						alias: r.alias,
-						model: `${r.pick.provider}/${r.pick.id}`,
+						model: next,
 						personas: r.personas.map((p) => p.name),
 					});
 				}
@@ -1627,12 +1666,14 @@ program
 				if (!JSON_MODE) {
 					if (applied.length)
 						log.success(
-							`Applied ${applied.length} alias${applied.length === 1 ? "" : "es"}:`,
+							`${opts.reassign ? "Reassigned" : "Applied"} ${applied.length} alias${applied.length === 1 ? "" : "es"}:`,
 						);
 					for (const a of applied) {
 						const personas = a.personas.length > 1 ? c.gray(` (${a.personas.length} personas)`) : "";
 						log.raw(`  ${c.green("✓")} ${a.alias} = ${a.model}${personas}`);
 					}
+					if (unchanged.length)
+						log.dim(`${unchanged.length} already up to date (no change).`);
 				}
 			}
 			return;

@@ -146,6 +146,7 @@ export async function collectState(opts = {}) {
 		invP,
 		modelsMdPath,
 		modelsMdExists,
+		liveCatalogAge: modelsMod.liveCatalogAgeDays(),
 		spect,
 		spectHeadline,
 		gapReport,
@@ -309,6 +310,19 @@ export function buildActions(s) {
 			idempotent: true,
 			safeToAutomate: false,
 			precondition: "choose a provider/model",
+			verification: null,
+			rollback: null,
+		});
+	if (s.liveCatalogAge != null && s.liveCatalogAge >= 30)
+		add({
+			id: "models:research:fetch",
+			command: "agent",
+			args: ["models", "research", "--fetch"],
+			reason: `live model catalog is ${s.liveCatalogAge} day(s) old — refresh to keep model picks current`,
+			severity: "low",
+			idempotent: true,
+			safeToAutomate: true,
+			precondition: "network available",
 			verification: null,
 			rollback: null,
 		});

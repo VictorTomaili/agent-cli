@@ -3667,6 +3667,7 @@ program
 			stagedUpdates,
 			inboxCount,
 			unresolvedModels,
+			liveCatalogAge: modelsMod.liveCatalogAgeDays(),
 		});
 		const suggested = actMod.suggestedStrings(actionsList);
 		const etag = actMod.computeEtag({

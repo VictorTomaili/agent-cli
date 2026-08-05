@@ -273,6 +273,24 @@ export function saveLiveCatalog(result) {
 	return cfg.models.liveCatalog;
 }
 
+/**
+ * Staleness of the persisted live catalog, in days. Returns null when it has
+ * never been fetched, else a non-negative number. Used by the brief to
+ * suggest `agent models research --fetch` when the data is old.
+ */
+export function liveCatalogAgeDays() {
+	let cfg;
+	try {
+		cfg = readConfig();
+	} catch {
+		return null;
+	}
+	const fetchedAt = cfg.models?.liveCatalog?.fetchedAt;
+	if (!fetchedAt) return null;
+	const ms = Date.now() - new Date(fetchedAt).getTime();
+	return Math.max(0, Math.floor(ms / 86_400_000));
+}
+
 /** Render the curated catalog as a Markdown block (used by `models research`). */
 export function catalogMarkdown() {
 	const lines = [

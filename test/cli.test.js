@@ -1054,6 +1054,21 @@ test("models suggest shows auto-resolved state after init", () => {
 	assert.equal(r.data.count, 0);
 });
 
+test("models suggest --reassign lists every alias even when all resolve", () => {
+	const home = run(["init"]).home;
+	// init auto-applies aliases; reassign must consider them all (count > 0),
+	// even though 'suggest' alone reports 0 unresolved.
+	const r = parseJson(
+		run(["models", "suggest", "--reassign", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(r.command, "models");
+	assert.ok(r.data.count >= 4, "expected all seeded aliases in the reassign list");
+	assert.ok(
+		r.data.unresolved.every((row) => row.pick),
+		"every existing alias should have a current best pick",
+	);
+});
+
 test("brief --oneline emits a one-line summary", () => {
 	const home = run(["init"]).home;
 	const r = parseJson(run(["brief", "--oneline", "--json"], { envHome: home }).stdout);

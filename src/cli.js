@@ -1524,8 +1524,6 @@ program
 			const unresolved = await findUnresolvedModels();
 			const cfg = await loadConfig();
 			const preferredProviders = cfg.providers || [];
-			const agents = await listAgents({ includeProject: true });
-			const personaByName = new Map(agents.map((a) => [a.id, a]));
 			// --reassign: consider EVERY existing alias (not just unresolved
 			// ones) so the agent can upgrade stale assignments to the current
 			// best model after a live-catalog fetch.

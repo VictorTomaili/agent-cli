@@ -938,11 +938,41 @@ test("link reports changed/nothingToDo booleans (idempotent second run)", () => 
 	assert.equal(second.data.nothingToDo, true);
 });
 
+test("link/unlink reject positional ids (M7 — must use --target)", () => {
+	// Regression: `agent link claude` used to silently link EVERY enabled
+	// target; `agent unlink claude` would unlink them all. Both now error.
+	const home = run(["init"]).home;
+	run(["target", "enable", "claude"], { envHome: home });
+	run(["target", "enable", "codex"], { envHome: home });
+	const l = run(["link", "claude"], { envHome: home });
+	bad(l);
+	assert.match(l.stderr, /too many arguments for 'link'/i);
+	const u = run(["unlink", "claude"], { envHome: home });
+	bad(u);
+	assert.match(u.stderr, /too many arguments for 'unlink'/i);
+	// The explicit form still works.
+	const ok = run(["link", "--target", "claude"], { envHome: home });
+	assert.equal(ok.code, 0, ok.stderr);
+});
+
+test("link:claude action args use --target (M7)", () => {
+	const home = run(["init"]).home;
+	run(["target", "enable", "claude"], { envHome: home });
+	run(["target", "enable", "codex"], { envHome: home });
+	run(["unlink", "--target", "claude"], { envHome: home });
+	run(["unlink", "--target", "codex"], { envHome: home });
+	const b = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
+	const linkAction = b.data.actions.find((a) => a.id === "link:claude");
+	assert.ok(linkAction, "expected link:claude action");
+	assert.deepEqual(linkAction.args, ["link", "--target", "claude"]);
+	assert.match(linkAction.rollback, /^agent unlink --target claude$/);
+});
+
 test("brief --since returns no actions when the state etag is unchanged", () => {
 	const home = run(["init"]).home;
 	// create actionable state: drift
 	run(["target", "enable", "claude"], { envHome: home });
-	run(["unlink", "claude"], { envHome: home });
+	run(["unlink", "--target", "claude"], { envHome: home });
 	const first = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
 	assert.ok(first.data.actions.length >= 1);
 	const etag = first.data.etag;
@@ -964,7 +994,7 @@ test("brief --check exits 2 when suggested work exists", () => {
 	const home = run(["init"]).home;
 	// Create actionable state: enable then unlink a target so there's drift.
 	run(["target", "enable", "claude"], { envHome: home });
-	run(["unlink", "claude"], { envHome: home });
+	run(["unlink", "--target", "claude"], { envHome: home });
 	const r = run(["brief", "--check", "--offline", "--json"], {
 		envHome: home,
 	});

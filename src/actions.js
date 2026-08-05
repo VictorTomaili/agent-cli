@@ -206,20 +206,20 @@ export function buildActions(s) {
 				safeToAutomate: false,
 				precondition: `${t.id} native file exists`,
 				verification: null,
-				rollback: `agent link ${t.id} --force`,
+				rollback: `agent link --target ${t.id} --force`,
 			});
 		if (t.state !== "pointer")
 			add({
 				id: `link:${t.id}`,
 				command: "agent",
-				args: ["link", t.id],
+				args: ["link", "--target", t.id],
 				reason: `${t.id} pointer ${t.state}`,
 				severity: "high",
 				idempotent: true,
 				safeToAutomate: true,
 				precondition: `${t.id} enabled in config`,
 				verification: { command: "agent", args: ["status", "--json"] },
-				rollback: `agent unlink ${t.id}`,
+				rollback: `agent unlink --target ${t.id}`,
 			});
 	}
 	if (!isSkillAvailable())

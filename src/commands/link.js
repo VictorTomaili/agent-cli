@@ -198,6 +198,9 @@ export function registerLinkCommands(
 		.description(
 			"(Re)write pointer stubs to enabled agents. Idempotent. Edit the master anytime — no re-link needed.",
 		)
+		// M7: link/unlink select targets via -t/--target, never positionals —
+		// a stray `agent link claude` must error, not silently link everything.
+		.allowExcessArguments(false)
 		.option("-g, --global", "Home (~) scope only")
 		.option("-p, --project", "Current project (./) scope only")
 		.option("-t, --target <ids...>", "Restrict to target ids")
@@ -245,6 +248,7 @@ export function registerLinkCommands(
 	program
 		.command("unlink")
 		.description("Remove pointer stubs (only deletes files that are pointers).")
+		.allowExcessArguments(false)
 		.option("-g, --global")
 		.option("-p, --project")
 		.option("-t, --target <ids...>")

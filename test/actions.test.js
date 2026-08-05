@@ -54,7 +54,7 @@ test("suggestedStrings derives legacy shell strings", async () => {
 	initHome();
 	// After auto-init, create drift so there's at least one action.
 	run(["target", "enable", "claude", "-g"]);
-	run(["unlink", "claude"]);
+	run(["unlink", "--target", "claude"]);
 	const s = await actions.collectState();
 	const strings = actions.suggestedStrings(actions.buildActions(s));
 	assert.ok(Array.isArray(strings));
@@ -64,7 +64,7 @@ test("suggestedStrings derives legacy shell strings", async () => {
 test("computeEtag is stable for identical state and changes with drift", async () => {
 	initHome();
 	// A prior test may have created drift; relink so the baseline is clean.
-	run(["link", "claude"]);
+	run(["link", "--target", "claude"]);
 	const s1 = await actions.collectState();
 	const e1 = actions.computeEtag(s1);
 	const s2 = await actions.collectState();
@@ -76,7 +76,7 @@ test("computeEtag is stable for identical state and changes with drift", async (
 test("applySafe runs safe actions and stops at the first unsafe one", async () => {
 	initHome();
 	run(["target", "enable", "claude", "-g"]);
-	run(["unlink", "claude"]); // create pointer drift
+	run(["unlink", "--target", "claude"]); // create pointer drift
 	const s = await actions.collectState();
 	const list = actions.buildActions(s);
 	const linkAction = list.find((a) => a.id === "link:claude");

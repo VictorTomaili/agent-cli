@@ -198,6 +198,37 @@ test("schema-invalid projectTargets (array value) is corrupt", async () => {
 	});
 });
 
+test("M4: an unknown top-level key is corrupt and preserved (typo guard)", async () => {
+	// A typo'd key ("gloabl") must be flagged as corrupt instead of silently
+	// surviving every save, doing nothing.
+	await expectCorruptAndPreserved({ gloabl: ["claude"] });
+	await expectCorruptAndPreserved({ global: ["claude"], stray: true });
+});
+
+test("M4: all documented root keys remain valid (round-trip)", async () => {
+	const obj = {
+		version: 2,
+		global: ["claude"],
+		project: null,
+		projectTargets: { "/proj/x": ["codex"] },
+		seed: ".pi/agent/AGENTS.md",
+		skillManaged: true,
+		seedVersion: "0.2.0",
+		seedFiles: ["IDENTITY.md"],
+		updateCheck: { latestVersion: "0.2.1", checkedAt: "2026-01-01" },
+		sync: { remote: null, autoCommit: false },
+		updatedAt: "2026-01-01T00:00:00.000Z",
+		models: { aliases: { fast: { model: "x/y" } } },
+		providers: ["openai"],
+	};
+	writeCfg(obj);
+	const c = await config.loadConfig();
+	assert.equal(config.isConfigCorrupt(c), false);
+	assert.deepEqual(c.global, ["claude"]);
+	assert.deepEqual(c.models.aliases.fast.model, "x/y");
+	assert.deepEqual(c.providers, ["openai"]);
+});
+
 test("valid nested shapes still load and round-trip", async () => {
 	const obj = {
 		global: ["claude"],

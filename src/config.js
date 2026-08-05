@@ -58,12 +58,39 @@ function isProjectTargets(v) {
 }
 
 /**
+ * M4: the closed set of root-level config.json keys. Anything else is a typo
+ * (e.g. "gloabl"), a stale migration remnant, or a key that silently does
+ * nothing — rejecting it at the load boundary surfaces the mistake instead of
+ * persisting it forever through every save.
+ */
+const ROOT_KEYS = new Set([
+	"version",
+	"global",
+	"project",
+	"projectTargets",
+	"seed",
+	"skillManaged",
+	"seedVersion",
+	"seedFiles",
+	"updateCheck",
+	"sync",
+	"updatedAt",
+	"models",
+	"providers",
+]);
+
+/**
  * Nested-field schema check. Wrong shapes (global not a string array, project
  * neither null nor a string array, non-array seedFiles, non-object
  * models.aliases, etc.) are classified as CORRUPT at the load boundary — we
  * never silently repair them or let them reach code that assumes arrays/objects.
  */
 function validShape(p) {
+	// M4: unknown top-level keys are corrupt — a typo'd key would otherwise
+	// survive every save, silently doing nothing.
+	for (const key of Object.keys(p)) {
+		if (!ROOT_KEYS.has(key)) return false;
+	}
 	if (p.global !== undefined && !isStringArray(p.global)) return false;
 	if (
 		p.project !== undefined &&

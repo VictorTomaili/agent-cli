@@ -76,6 +76,7 @@ import { registerProtocolCommands } from "./commands/protocol.js";
 import { registerWhereCommand } from "./commands/where.js";
 import { registerArchetypeCommands } from "./commands/archetype.js";
 import { registerEditCommands } from "./commands/edit.js";
+import { registerLinkCommands } from "./commands/link.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
@@ -202,15 +203,6 @@ async function stripSkillBlockFromMaster() {
 	return true;
 }
 
-function selectedTargets(scope, ids) {
-	const pool = targetsWithScope(scope);
-	if (ids && ids.length) {
-		const set = new Set(ids);
-		return pool.filter((t) => set.has(t.id));
-	}
-	return pool;
-}
-
 /** Pre-mutation safety snapshot (best-effort). Returns the snapshot name. */
 async function preSnapshot(label) {
 	try {
@@ -307,6 +299,21 @@ registerEditCommands(program, {
 	getTarget,
 	targetPath,
 	masterPaths,
+	isJson: () => JSON_MODE,
+});
+registerLinkCommands(program, {
+	emit,
+	fail,
+	log,
+	c,
+	TARGETS,
+	targetsWithScope,
+	loadConfig,
+	effectiveProjectIds,
+	masterPaths,
+	setExpectedCtx,
+	linkTarget,
+	unlinkTarget,
 	isJson: () => JSON_MODE,
 });
 program
@@ -608,112 +615,8 @@ function getTargetByFile(homeRel) {
 }
 
 // ---------------------------------------------------------------------------
-// agent link / unlink
+// agent link / unlink — moved to src/commands/link.js (HIGH-3)
 // ---------------------------------------------------------------------------
-program
-	.command("link")
-	.description(
-		"(Re)write pointer stubs to enabled agents. Idempotent. Edit the master anytime — no re-link needed.",
-	)
-	.option("-g, --global", "Home (~) scope only")
-	.option("-p, --project", "Current project (./) scope only")
-	.option("-t, --target <ids...>", "Restrict to target ids")
-	.option("--force", "Overwrite native (non-pointer) content (destructive)")
-	.option("--overwrite", "alias for --force")
-	.action(async (opts) => {
-		const cfg = await loadConfig();
-		if (opts.global && opts.project)
-			fail("Use either -g/--global or -p/--project, not both", { command: "link" });
-		if (opts.target) {
-			const known = new Set(TARGETS.map((t) => t.id));
-			const unknown = opts.target.filter((id) => !known.has(id));
-			if (unknown.length)
-				fail(
-					`Unknown target id${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. Known ids: ${[...known].sort().join(", ")}`,
-					{ command: "link", target: unknown },
-				);
-		}
-		const scopes = [];
-		if (opts.global) scopes.push("global");
-		if (opts.project) scopes.push("project");
-		if (scopes.length === 0) scopes.push("global");
-		const out = { command: "link", scopes, results: [] };
-		for (const scope of scopes) {
-			let ids = opts.target;
-			if (!ids)
-				ids = scope === "global" ? cfg.global : effectiveProjectIds(cfg);
-			const targets = selectedTargets(scope, ids);
-			// Project pointers must redirect to the project master, not the global one.
-			const { masterAbs, masterTilde } = masterPaths(scope);
-			setExpectedCtx({ masterAbs, masterTilde });
-			for (const t of targets) {
-				const r = await linkTarget(t, scope, {
-					masterAbs,
-					masterTilde,
-					force: !!opts.force || !!opts.overwrite,
-				});
-				out.results.push({ id: t.id, name: t.name, scope, ...r });
-			}
-		}
-		out.changed = out.results.some((r) => r.linked);
-		out.nothingToDo = out.results.every((r) => !r.linked);
-		emit(out);
-		if (!JSON_MODE) {
-			const linked = out.results.filter((r) => r.linked).length;
-			const ok = out.results.filter((r) => r.unchanged).length;
-			const blocked = out.results.filter((r) => r.blocked);
-			log.success(`${linked} linked, ${ok} up-to-date`);
-			if (blocked.length)
-				for (const b of blocked)
-					log.warn(`${b.name}: native content — pull first or use --overwrite`);
-		}
-	});
-
-program
-	.command("unlink")
-	.description("Remove pointer stubs (only deletes files that are pointers).")
-	.option("-g, --global")
-	.option("-p, --project")
-	.option("-t, --target <ids...>")
-	.action(async (opts) => {
-		const cfg = await loadConfig();
-		if (opts.global && opts.project)
-			fail("Use either -g/--global or -p/--project, not both", { command: "unlink" });
-		if (opts.target) {
-			const known = new Set(TARGETS.map((t) => t.id));
-			const unknown = opts.target.filter((id) => !known.has(id));
-			if (unknown.length)
-				fail(
-					`Unknown target id${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. Known ids: ${[...known].sort().join(", ")}`,
-					{ command: "unlink", target: unknown },
-				);
-		}
-		const scopes = [];
-		if (opts.global) scopes.push("global");
-		if (opts.project) scopes.push("project");
-		if (scopes.length === 0) scopes.push("global");
-		const out = { command: "unlink", scopes, results: [] };
-		for (const scope of scopes) {
-			let ids = opts.target;
-			if (!ids)
-				ids = scope === "global" ? cfg.global : effectiveProjectIds(cfg);
-			const targets = selectedTargets(scope, ids);
-			// unlinkTarget classifies via expectedCtx() — keep it in sync with scope.
-			const { masterAbs, masterTilde } = masterPaths(scope);
-			setExpectedCtx({ masterAbs, masterTilde });
-			for (const t of targets) {
-				const r = await unlinkTarget(t, scope);
-				out.results.push({ id: t.id, name: t.name, scope, ...r });
-			}
-		}
-		out.changed = out.results.some((r) => r.unlinked);
-		out.nothingToDo = out.results.every((r) => !r.unlinked);
-		emit(out);
-		if (!JSON_MODE) {
-			const n = out.results.filter((r) => r.unlinked).length;
-			log.success(`${n} pointer stubs removed`);
-		}
-	});
 
 // ---------------------------------------------------------------------------
 // agent brief-hooks (SessionStart auto-brief for supported agents)

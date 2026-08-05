@@ -83,6 +83,7 @@ import { registerIdentityCommands } from "./commands/identity-cmds.js";
 import { registerDelegationCommands } from "./commands/delegation.js";
 import { registerKnowledgeCommands } from "./commands/knowledge.js";
 import { registerToolingCommands } from "./commands/tooling.js";
+import { registerSessionCommands } from "./commands/session-cmds.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
@@ -221,6 +222,21 @@ async function preSnapshot(label) {
 }
 
 const program = new Command();
+// Tree-walk the commander program for the machine-readable command surface
+// (agent manifest / schema and the protocol command).
+function collectCommands(cmd = program, prefix = "") {
+	const rows = [];
+	for (const sub of cmd.commands) {
+		const name = prefix ? `${prefix} ${sub.name()}` : sub.name();
+		rows.push({
+			name,
+			description: sub.description(),
+			options: (sub.options || []).map((o) => o.flags),
+		});
+		rows.push(...collectCommands(sub, name));
+	}
+	return rows;
+}
 // Route commander's own parse/usage errors through our JSON-aware error path
 // instead of letting commander print plain text and process.exit() directly.
 program.exitOverride();
@@ -425,6 +441,29 @@ registerToolingCommands(program, {
 	ctxPaths,
 	getTarget,
 	linkTarget,
+});
+registerSessionCommands(program, {
+	emit,
+	fail,
+	log,
+	c,
+	pretty,
+	EXIT,
+	isJson: () => JSON_MODE,
+	loadConfig,
+	saveConfig,
+	readMaster,
+	detectInstalled,
+	getTarget,
+	enableGlobal,
+	effectiveProjectIds,
+	ensureSkillStore,
+	findUnresolvedModels,
+	classify,
+	projectMasterPath,
+	exists,
+	writeFile,
+	path,
 });
 program
 	.name("agent")
@@ -1881,297 +1920,6 @@ program
 
 // ---------------------------------------------------------------------------
 // agent run / agent action verify — execute the session contract
-// ---------------------------------------------------------------------------
-program
-	.command("run [ids...]")
-	.description(
-		"Execute brief actions by id (agent run link:claude …); --safe limits to safeToAutomate.",
-	)
-	.option("--safe", "only run safeToAutomate actions")
-	.action(async (ids, opts) => {
-		const actMod = await import("./actions.js");
-		const s = await actMod.collectState();
-		const all = actMod.buildActions(s);
-		const byId = new Map(all.map((a) => [a.id, a]));
-		const selected = ids.length ? ids.map((id) => byId.get(id)).filter(Boolean) : all;
-		if (ids.length && selected.length !== ids.length) {
-			const missing = ids.filter((id) => !byId.has(id));
-			fail(`Unknown action id${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`, {
-				command: "run",
-				missing,
-			});
-		}
-		const toRun = opts.safe ? selected.filter((a) => a.safeToAutomate) : selected;
-		const res = actMod.applySafe(toRun);
-		emit({
-			command: "run",
-			ids: toRun.map((a) => a.id),
-			receipts: res.receipts,
-			applied: res.applied,
-			skipped: res.skipped,
-		});
-		if (!JSON_MODE)
-			for (const r of res.receipts)
-				log.raw(
-					`  ${r.applied ? c.green("✓") : c.gray("·")} ${r.id}${r.stderr ? c.yellow(" — " + r.stderr) : ""}`,
-				);
-		// no-op (nothing attempted) and full success both exit 0; a failed action exits 1.
-		const attempted = res.receipts.filter((r) => !r.skipped);
-		process.exit(attempted.some((r) => !r.applied) ? EXIT.ERROR : EXIT.OK);
-	});
-
-program
-	.command("action <sub> [id]")
-	.description("Action feedback loop: verify <id> (run its verification command).")
-	.action(async (sub, id) => {
-		if (sub !== "verify") fail(`Unknown action sub: ${sub}. Use verify`, { command: "action", sub });
-		if (!id) fail("Usage: agent action verify <action-id>");
-		const actMod = await import("./actions.js");
-		const s = await actMod.collectState();
-		const action = actMod.buildActions(s).find((a) => a.id === id);
-		if (!action) fail(`Unknown action id: ${id}`, { command: "action", sub, id });
-		const r = actMod.verifyAction(action);
-		emit({
-			command: "action",
-			sub: "verify",
-			id,
-			verified: r.verified,
-			reason: r.reason,
-			code: r.code,
-			output: r.output,
-		});
-		if (!JSON_MODE)
-			log.raw(
-				`${r.verified == null ? "No verification command." : r.verified ? "✓ verified" : "✗ not verified"} ${id}`,
-			);
-		process.exit(r.verified === false ? EXIT.ERROR : EXIT.OK);
-	});
-
-// ---------------------------------------------------------------------------
-// agent completion — ergonomics (config/version moved to src/commands/info.js)
-// ---------------------------------------------------------------------------
-program
-	.command("setup")
-	.description(
-		"One-pass setup: init, detect targets, suggest models, snapshot, and readiness.",
-	)
-	.action(async () => {
-		const steps = {};
-		const cfg = await loadConfig();
-		// 1. master
-		const master = await readMaster();
-		if (master == null) {
-			const init = await (async () => {
-				// reuse the init command's action via direct orchestration below
-				const { ensureMaster } = await import("./store.js");
-				const m = await ensureMaster();
-				if (m.skipped) return { skipped: m.skipped };
-				const installed = await detectInstalled();
-				for (const id of installed) {
-					const t = getTarget(id);
-					if (t && t.global) enableGlobal(cfg, id);
-				}
-				await saveConfig(cfg);
-				return { master: m.action, targets: installed };
-			})();
-			steps.init = init;
-		} else {
-			steps.init = { existing: true };
-		}
-		// 2. skill store
-		steps.skill = await ensureSkillStore();
-		// 3. models suggest
-		const unresolved = await findUnresolvedModels();
-		steps.models = { unresolved: unresolved.map((u) => u.name), count: unresolved.length };
-		// 4. snapshot
-		const { snapshot: snap } = await import("./snapshot.js");
-		steps.snapshot = snap().name;
-		// 5. readiness
-		const doctorMod = await import("./actions.js");
-		const s = await doctorMod.collectState({ offline: true });
-		steps.readiness = {
-			health: s.masterContent == null ? "degraded" : s.drift.length || s.archetypeNeeded ? "degraded" : "ready",
-			actions: doctorMod.buildActions(s).length,
-		};
-		emit({ command: "setup", steps });
-		if (!JSON_MODE) {
-			log.success(`Setup complete — ${steps.readiness.health}, ${steps.readiness.actions} action(s) pending.`);
-			log.kv("models", `${steps.models.count} unresolved`);
-			log.dim(`Next: agent brief --check · agent models suggest · agent brief --apply-safe`);
-		}
-	});
-
-// ---------------------------------------------------------------------------
-// Composite commands: day-start / session-start / stats / archetype / template
-// / project / models lint|usage|test
-// ---------------------------------------------------------------------------
-program
-	.command("day-start")
-	.description("Session-start composite: effective skills + brief actions in one pass.")
-	.option("--offline", "never hit the network")
-	.option("--check", "exit 2 when actions exist")
-	.action(async (opts) => {
-		const sg = await import("./skills-gate.js");
-		const actMod = await import("./actions.js");
-		const s = await actMod.collectState({ offline: !!opts.offline });
-		const actions = actMod.buildActions(s);
-		const effectiveSkills = sg.effectiveSkills(process.cwd());
-		const health =
-			s.masterContent == null || s.drift.length || s.archetypeNeeded
-				? "degraded"
-				: "ready";
-		emit({
-			command: "day-start",
-			health,
-			actions,
-			suggestedActions: actMod.suggestedStrings(actions),
-			effectiveSkills,
-			sessionLoad: s.sessionLoad,
-		});
-		if (!JSON_MODE) {
-			log.raw(
-				`${c.bold("day-start")} — ${c.gray(health)} · ${actions.length} action(s) · ${effectiveSkills.length} active skill(s)`,
-			);
-			for (const a of actions) log.raw(`  ${a.id}${a.safeToAutomate ? c.green(" ✓safe") : ""}`);
-		}
-		if (opts.check) process.exit(actions.length ? EXIT.WORK : EXIT.OK);
-	});
-
-program
-	.command("session-start [task...]")
-	.description("Start a session and emit the brief actions (session + day-start).")
-	.option("--offline", "never hit the network")
-	.action(async (task, opts) => {
-		const sess = await import("./session.js");
-		const sr = await sess.sessionStart({
-			task: task ? task.join(" ") : null,
-			cwd: process.cwd(),
-		});
-		const actMod = await import("./actions.js");
-		const s = await actMod.collectState({ offline: !!opts.offline });
-		const actions = actMod.buildActions(s);
-		emit({
-			command: "session-start",
-			session: sr.session,
-			actions,
-			suggestedActions: actMod.suggestedStrings(actions),
-		});
-		if (!JSON_MODE)
-			log.success(`Session started — ${actions.length} action(s) pending.`);
-	});
-
-program
-	.command("project <action>")
-	.description(
-		"Project tooling: detect (fingerprint) | init (scaffold project .agents) | doctor (pointer health vs global).",
-	)
-	.option("-p, --project", "scope (default project)")
-	.action(async (action) => {
-		const cwd = process.cwd();
-		const fsp = await import("node:fs/promises");
-		if (action === "detect") {
-			const out = { name: path.basename(cwd), git: false, packageManager: null, files: {} };
-			try {
-				await fsp.access(path.join(cwd, ".git"));
-				out.git = true;
-			} catch {}
-			for (const [k, f] of [
-				["package.json", "npm"],
-				["pyproject.toml", "poetry"],
-				["go.mod", "go"],
-				["Cargo.toml", "cargo"],
-				["Gemfile", "bundler"],
-				["pom.xml", "maven"],
-			]) {
-				try {
-					await fsp.access(path.join(cwd, f));
-					out.packageManager = out.packageManager ?? k === "package.json" ? "npm" : k;
-					out.files[f] = true;
-				} catch {}
-			}
-			emit({ command: "project", action, ...out });
-			if (!JSON_MODE) {
-				log.kv("name", out.name);
-				log.kv("git", out.git ? "yes" : "no");
-				log.kv("packageManager", out.packageManager ?? "(none)");
-			}
-			return;
-		}
-		if (action === "init") {
-			const { ensureMaster } = await import("./store.js");
-			// project master at [cwd]/.agents/AGENTS.md
-			const masterPath = projectMasterPath(cwd);
-			const created = [];
-			const arc = await import("./archetypes.js");
-			const files = [
-				["AGENTS.md", "# Project agent\n\n> Managed by agent-cli (project scope).\n"],
-				["IDENTITY.md", arc.identityContent(arc.DEFAULT_IDENTITY)],
-				["SOUL.md", arc.soulContent(arc.DEFAULT_SOUL)],
-				["USER.md", arc.userContent()],
-				["LESSONS.md", arc.lessonsContent()],
-				["ENVIRONMENTS.md", arc.environmentsContent()],
-			];
-			for (const [name, content] of files) {
-				const fp = path.join(path.dirname(masterPath), name);
-				if (await exists(fp)) continue;
-				await writeFile(fp, content);
-				created.push(name);
-			}
-			emit({ command: "project", action, master: masterPath, created });
-			if (!JSON_MODE) {
-				log.success(`Project .agents scaffolded at ${pretty(path.dirname(masterPath))}`);
-				if (created.length) log.dim(`Created: ${created.join(", ")}`);
-			}
-			return;
-		}
-		if (action === "doctor") {
-			const issues = [];
-			const checks = [];
-			const masterPath = projectMasterPath(cwd);
-			const masterOk = await exists(masterPath);
-			checks.push({ check: "project-master-exists", ok: masterOk, detail: pretty(masterPath) });
-			if (!masterOk) issues.push("project master missing — run agent project init");
-			const cfg = await loadConfig();
-			const projIds = effectiveProjectIds(cfg);
-			for (const id of projIds) {
-				const t = getTarget(id);
-				if (!t || !t.project) continue;
-				const cls = await classify(t, "project");
-				checks.push({ check: `pointer:${id}`, ok: cls.state === "pointer", detail: cls.state + " " + pretty(cls.path) });
-				if (cls.state !== "pointer") issues.push(`${id} project pointer ${cls.state} — run agent link -p`);
-			}
-			emit({ command: "project", action: "doctor", issues, checks });
-			if (!JSON_MODE)
-				for (const c of checks)
-					log.raw(`  ${c.ok ? c.green("✓") : c.red("✗")} ${c.check.padEnd(24)} ${c.gray(c.detail)}`);
-			if (issues.length) process.exit(EXIT.WORK);
-			return;
-		}
-		fail(`Unknown project action: ${action}. Use detect|init|doctor`, {
-			command: "project",
-			action,
-		});
-	});
-
-// ---------------------------------------------------------------------------
-// agent manifest / schema — machine-readable command surface + contract
-// ---------------------------------------------------------------------------
-function collectCommands(cmd = program, prefix = "") {
-	const rows = [];
-	for (const sub of cmd.commands) {
-		const name = prefix ? `${prefix} ${sub.name()}` : sub.name();
-		rows.push({
-			name,
-			description: sub.description(),
-			options: (sub.options || []).map((o) => o.flags),
-		});
-		rows.push(...collectCommands(sub, name));
-	}
-	return rows;
-}
-
-// ---------------------------------------------------------------------------
-// agent serve / watch / hooks / automation — reactive & scheduled automation
 // ---------------------------------------------------------------------------
 program
 	.command("serve")

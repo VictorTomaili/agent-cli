@@ -331,6 +331,28 @@ test("brief --json includes sessionStart.load + lessons (index + inbox)", () => 
 	assert.ok(Array.isArray(j.data.lessons.index));
 });
 
+test("project doctor runs in human mode without crashing (loop var does not shadow colors)", () => {
+	// Regression: the original inline block iterated `for (const c of checks)`,
+	// shadowing the colors import `c` — `c.green` threw "c.green is not a
+	// function" on every human-mode run. The --json path masked it.
+	const project = mkdtempSync(path.join(tmpdir(), "agent-cli-projdoc-"));
+	const r = run(["project", "doctor"], { envHome: project, cwd: project });
+	// Fresh dir: issues exist → EXIT.WORK (2). The regression is that human
+	// mode renders rows instead of crashing on the shadowed colors import.
+	assert.ok(
+		[0, 2].includes(r.code),
+		`expected exit 0 or 2, got ${r.code}: ${r.stderr}`,
+	);
+	assert.doesNotMatch(r.stderr, /c\.green is not a function/);
+	assert.match(r.stdout, /project-master-exists/);
+	// JSON mode still works and carries the checks.
+	const j = run(["project", "doctor", "--json"], { envHome: project, cwd: project });
+	assert.ok([0, 2].includes(j.code), `json exit ${j.code}: ${j.stderr}`);
+	const data = parseJson(j.stdout).data;
+	assert.ok(Array.isArray(data.checks));
+	assert.ok(data.checks.some((c) => c.check === "project-master-exists"));
+});
+
 test("spect init is project-only and brief loads the project manifest", () => {
 	const home = run(["init"]).home;
 	const project = mkdtempSync(path.join(tmpdir(), "agent-spect-project-"));

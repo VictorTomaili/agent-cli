@@ -188,9 +188,19 @@ export function restore(name) {
 	if (!fs.existsSync(src)) return { ok: false, reason: "no such snapshot" };
 	if (!validateSnapshot(src))
 		return { ok: false, reason: "invalid snapshot contents" };
-	// safety: back up current brain first
+	// safety: back up current brain first (P0-4: the pre-restore backup must
+	// carry a .snapshot.json so it can itself be restored later —
+	// validateSnapshot requires it).
 	const pre = path.join(SNAP_DIR, `pre-restore-${ts()}`);
 	copyDir(BRAIN, pre, new Set(["backups"]));
+	fs.writeFileSync(
+		path.join(pre, ".snapshot.json"),
+		JSON.stringify(
+			{ created: new Date().toISOString(), preRestoreOf: name, files: countFiles(pre) },
+			null,
+			2,
+		),
+	);
 	// wipe brain (except backups/), then copy snapshot in
 	for (const e of fs.readdirSync(BRAIN, { withFileTypes: true })) {
 		if (e.name !== "backups") rm(path.join(BRAIN, e.name));

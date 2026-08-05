@@ -22,8 +22,8 @@ Fix the 5 critical findings from the multi-agent project analysis.
 - [ ] Test: 6 concurrent `target enable --global` all succeed without data loss
 
 ### P0-4: Pre-restore backup missing .snapshot.json (GAP-1)
-- [ ] `restore()` writes `.snapshot.json` into pre-restore backup directory
-- [ ] Test: pre-restore backup can be restored via `agent restore pre-restore-<ts>`
+- [x] `restore()` writes `.snapshot.json` into pre-restore backup directory
+- [x] Test: pre-restore backup can be restored via `agent restore pre-restore-<ts>` (test/snapshot.test.js)
 
 ### P0-5: Non-transactional consolidation (GAP-2)
 - [ ] `consolidate()` uses backup-before-mutate or transactional write

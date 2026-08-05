@@ -708,8 +708,15 @@ export function registerSessionCoreCommands(
 						c.yellow(`${stagedUpdates.length} payload(s) — agent update list`),
 					);
 				// AX: tell the agent exactly what to read now, and surface the lesson index.
-				log.raw(c.bold("\nLoad at session start (global → project override):"));
-				for (const f of out.sessionStart.load) {
+				// The order is MANDATORY (see AGENTS.md "Session start read order" + the
+				// test/identity-files-order.test.js regression). Number each step so the
+				// model reads them in sequence, not in parallel or out of order.
+				log.raw(
+					c.bold(
+						"\nSession start — read in this EXACT order (do NOT skip ahead):",
+					),
+				);
+				out.sessionStart.load.forEach((f, i) => {
 					let tag;
 					if (!f.exists) tag = c.gray("(missing)");
 					else if (f.filled === false || (f.gaps && f.gaps.length))
@@ -717,8 +724,11 @@ export function registerSessionCoreCommands(
 					else tag = c.green("✓");
 					const kindLabel =
 						f.scope === "project" ? `${f.kind} (proj)` : f.kind;
-					log.raw(`  ${kindLabel.padEnd(18)} ${pretty(f.path)}  ${tag}`);
-				}
+					const num = String(i + 1).padStart(2, " ");
+					log.raw(
+						`  ${c.cyan(num + ".")} ${kindLabel.padEnd(18)} ${pretty(f.path)}  ${tag}`,
+					);
+				});
 				if (spect.initialized) {
 					log.raw(c.bold("\nSPECT project workflow:"));
 					log.raw(

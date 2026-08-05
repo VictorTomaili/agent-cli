@@ -76,7 +76,7 @@ import { registerProtocolCommands } from "./commands/protocol.js";
 import { registerWhereCommand } from "./commands/where.js";
 import { registerArchetypeCommands } from "./commands/archetype.js";
 import { registerEditCommands } from "./commands/edit.js";
-import { registerLinkCommands } from "./commands/link.js";
+import { registerLinkCommands, registerStatusCommand } from "./commands/link.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
@@ -314,6 +314,26 @@ registerLinkCommands(program, {
 	setExpectedCtx,
 	linkTarget,
 	unlinkTarget,
+	isJson: () => JSON_MODE,
+});
+registerStatusCommand(program, {
+	emit,
+	log,
+	c,
+	pretty,
+	VERSION,
+	MASTER_FILE,
+	TARGETS,
+	loadConfig,
+	readMaster,
+	skillVersion,
+	detectInstalled,
+	isGlobalEnabled,
+	isProjectEnabled,
+	classify,
+	pathFor,
+	hasAgentCliBlock,
+	isConfigCorrupt,
 	isJson: () => JSON_MODE,
 });
 program
@@ -700,132 +720,7 @@ program
 	});
 // ---------------------------------------------------------------------------
 // agent status / targets / target enable|disable
-// ---------------------------------------------------------------------------
-program
-	.command("status")
-	.description(
-		"Show master state, per-target pointer health, and skill-cli state. Use --all for the full catalog.",
-	)
-	.option(
-		"--all",
-		"include every known target; default shows installed, enabled, or unhealthy targets",
-	)
-	.action(async (opts) => {
-		const showAll = !!opts.all;
-		const cfg = await loadConfig();
-		const masterContent = await readMaster();
-		const skill = skillVersion();
-		const targets = [];
-		for (const t of TARGETS) {
-			const installed = (await detectInstalled()).includes(t.id);
-			const gEnabled = isGlobalEnabled(cfg, t.id);
-			const gcls = t.global ? await classify(t, "global") : null;
-			targets.push({
-				id: t.id,
-				name: t.name,
-				installed,
-				globalEnabled: gEnabled,
-				projectEnabled: isProjectEnabled(cfg, t.id),
-				global: gcls ? { path: gcls.path, state: gcls.state } : null,
-				project: t.project ? pathFor(t, "project") : null,
-			});
-		}
-		const visibleTargets = showAll
-			? targets
-			: targets.filter(
-					(t) =>
-						t.installed ||
-						t.globalEnabled ||
-						t.projectEnabled ||
-						(t.global && t.global.state !== "pointer"),
-				);
-		const out = {
-			command: "status",
-			master: {
-				path: MASTER_FILE,
-				exists: masterContent != null,
-				hasAgentCliBlock: hasAgentCliBlock(masterContent || ""),
-				size: masterContent ? masterContent.length : 0,
-			},
-			config: {
-				global: cfg.global,
-				project: cfg.project,
-				version: cfg.version,
-				corrupt: isConfigCorrupt(cfg) ? true : false,
-			},
-			skill: skill,
-			targets: visibleTargets,
-			targetCount: targets.length,
-			all: showAll,
-			targetsSummary: {
-				pointer: visibleTargets.filter(
-					(t) => t.global?.state === "pointer",
-				).length,
-				missing: visibleTargets.filter(
-					(t) => t.global?.state === "missing",
-				).length,
-				stale: visibleTargets.filter(
-					(t) => t.global?.state === "pointer-stale",
-				).length,
-				native: visibleTargets.filter(
-					(t) => t.global?.state === "native",
-				).length,
-			},
-		};
-		emit(out);
-		if (!JSON_MODE) {
-			log.raw(`${c.bold("agent-cli")} ${c.gray("v" + VERSION)}`);
-			log.kv(
-				"master",
-				c.cyan(pretty(MASTER_FILE)) +
-					(out.master.exists ? c.green(" ✓") : c.red(" ✗ missing")),
-			);
-			log.kv(
-				"skill-cli",
-				`${skill.version ?? "none"} ${c.gray("(" + skill.source + ")")}`,
-			);
-			if (out.config.corrupt)
-				log.warn(
-					"config.json is corrupt — repair or remove it before changing settings",
-				);
-			log.raw(c.bold("\nTargets:"));
-			for (const t of visibleTargets) {
-				const state = t.global?.state;
-				const tag =
-					state === "pointer"
-						? c.green("●")
-						: state === "native"
-							? c.yellow("●")
-							: state === "missing"
-								? c.gray("○")
-								: state === "pointer-stale"
-									? c.yellow("○")
-									: c.gray("○");
-				const label =
-					state === "pointer"
-						? c.green("pointer")
-						: state === "native"
-							? c.yellow("native")
-							: state === "missing"
-								? c.gray("absent")
-								: state === "pointer-stale"
-									? c.yellow("stale")
-									: c.gray("—");
-				const en = t.globalEnabled ? c.green("on") : c.gray("off");
-				log.raw(
-					`  ${tag} ${c.bold(t.id.padEnd(9))} ${t.name.padEnd(30)} ${en} ${label.padEnd(8)} ${c.gray(t.global?.path ? pretty(t.global.path) : "(no global)")}`,
-				);
-			}
-			const s = out.targetsSummary;
-			log.dim(
-				s.pointer + s.missing + s.stale + s.native === 0
-					? "no targets"
-					: `${s.pointer} pointer · ${s.missing} absent · ${s.stale} stale (need re-link) · ${s.native} native (user content)`,
-			);
-		}
-	});
-
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------// ---------------------------------------------------------------------------
 // agent edit / pull / where
 // ---------------------------------------------------------------------------
 program

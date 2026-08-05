@@ -144,7 +144,7 @@ test("init in a fresh home succeeds and reports the step", () => {
 test("init rejects a corrupt master without replacing it", () => {
 	const home = mkdtempSync(path.join(tmpdir(), "agent-corrupt-init-"));
 	mkdirSync(path.join(home, ".agents"), { recursive: true });
-	const master = path.join(home, ".agents", "AGENTS.md");
+	const master = path.join(home, "AGENTS.md");
 	writeFileSync(master, "x");
 	const r = run(["init", "--json"], { envHome: home });
 	bad(r);
@@ -778,13 +778,13 @@ test("brief prefers project core over global core and includes project lessons",
 test("init --no-skill suppresses the skill-cli block in the master", () => {
 	const withSkill = run(["init"]).home;
 	const masterWith = readFileSync(
-		path.join(withSkill, ".agents", "AGENTS.md"),
+		path.join(withSkill, "AGENTS.md"),
 		"utf8",
 	);
 	assert.match(masterWith, /BEGIN skill-cli/);
 	const noSkill = run(["init", "--no-skill"]).home;
 	const masterNo = readFileSync(
-		path.join(noSkill, ".agents", "AGENTS.md"),
+		path.join(noSkill, "AGENTS.md"),
 		"utf8",
 	);
 	assert.ok(!/BEGIN skill-cli/.test(masterNo));

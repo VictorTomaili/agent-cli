@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -201,6 +201,10 @@ test("unlinkTarget removes an actual pointer stub", async () => {
 
 test("unlinkTarget can preserve a shared pointer path", async () => {
 	const codex = targets.getTarget("codex");
+	const projectCwd = path.join(TMP, "preserve-test");
+	mkdirSync(projectCwd, { recursive: true });
+	process.chdir(projectCwd);
+	pointer.setExpectedCtx({ masterAbs: MASTER_ABS, masterTilde: "~/.agents/AGENTS.md" });
 	await pointer.linkTarget(codex, "project", {
 		masterAbs: MASTER_ABS,
 		masterTilde: "~/.agents/AGENTS.md",
@@ -212,6 +216,7 @@ test("unlinkTarget can preserve a shared pointer path", async () => {
 		(await fs.readFile(p, "utf8")).includes(pointer.POINTER_MARK),
 		true,
 	);
+	process.chdir(TMP);
 });
 
 test("classify reports pointer-stale when the expected master path changed", async () => {

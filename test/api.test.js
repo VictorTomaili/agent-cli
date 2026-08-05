@@ -88,7 +88,7 @@ test("thin wrappers return CLI-shaped payloads", async () => {
 test("api masterPaths resolves project vs global masters", () => {
 	const project = path.join(tmpdir(), "api-proj");
 	const g = api.masterPaths("global");
-	assert.equal(g.masterAbs, path.join(HOME, ".agents", "AGENTS.md"));
+	assert.equal(g.masterAbs, path.join(HOME, "AGENTS.md"));
 	const p = api.masterPaths("project", project);
 	assert.equal(p.masterAbs, path.join(project, ".agents", "AGENTS.md"));
 });

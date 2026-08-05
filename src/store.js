@@ -1,8 +1,9 @@
-// src/store.js — the canonical master file (~/.agents/AGENTS.md): seed, read, write.
+// src/store.js — the canonical master file (~/AGENTS.md): seed, read, write.
 
 import path from "node:path";
 import {
 	MASTER_FILE,
+	POINTER_MASTER_FILE,
 	AGENTS_DIR,
 	HOME,
 	exists,
@@ -11,8 +12,15 @@ import {
 	writeFile,
 	ensureDir,
 	pretty,
+	normalizeEndings,
 } from "./util.js";
 import { ensureBlocks } from "./blocks.js";
+
+import {
+	masterPointerContent,
+	parseMasterPointer,
+} from "./pointer.js";
+
 
 // Candidate sources to seed the master from (home-relative), richest first.
 const SEED_CANDIDATES = [
@@ -32,7 +40,7 @@ export async function readMaster() {
 }
 
 export async function writeMaster(content) {
-	await ensureDir(AGENTS_DIR);
+	await ensureDir(path.dirname(MASTER_FILE));
 	const out = content.endsWith("\n") ? content : content + "\n";
 	await writeFile(MASTER_FILE, out);
 }
@@ -131,6 +139,88 @@ export async function refreshBlocks() {
 		return { changed: true };
 	}
 	return { changed: false };
+}
+/**
+ * Ensure the agent-cli self-pointer stub at POINTER_MASTER_FILE
+ * (~/.agents/AGENTS.md) exists and points at MASTER_FILE (~/AGENTS.md).
+ *
+ * - If the file is missing → write a fresh stub. Returns { action: "created" }.
+ * - If the file IS a master-pointer stub but stale → overwrite. Returns { action: "updated" }.
+ * - If the file IS a master-pointer stub and current → skip. Returns { action: "skipped" }.
+ * - If the file exists and is NOT a master-pointer stub (native content) → refuse
+ *   unless force=true. Returns { skipped: "native-content" } or { action: "overwritten" }.
+ */
+export async function ensureMasterPointer({
+	masterAbs = MASTER_FILE,
+	masterTilde: tilde = pretty(MASTER_FILE),
+	force = false,
+} = {}) {
+	await ensureDir(AGENTS_DIR);
+	const existing = await readIfExists(POINTER_MASTER_FILE);
+	const desired = masterPointerContent({ masterAbs, masterTilde: tilde });
+	if (existing == null) {
+		await writeFile(POINTER_MASTER_FILE, desired);
+		return {
+			path: POINTER_MASTER_FILE,
+			action: "created",
+			masterAbs,
+			masterTilde: tilde,
+		};
+	}
+	const parsed = parseMasterPointer(existing);
+	if (!parsed) {
+		if (!force) {
+			return {
+				path: POINTER_MASTER_FILE,
+				skipped: "native-content",
+				hint: "agent init --force",
+			};
+		}
+		await writeFile(POINTER_MASTER_FILE, desired);
+		return {
+			path: POINTER_MASTER_FILE,
+			action: "overwritten",
+			masterAbs,
+			masterTilde: tilde,
+		};
+	}
+	const same =
+		normalizeEndings(existing).trim() === normalizeEndings(desired).trim();
+	if (same) {
+		return {
+			path: POINTER_MASTER_FILE,
+			action: "skipped",
+			masterAbs,
+			masterTilde: tilde,
+		};
+	}
+	await writeFile(POINTER_MASTER_FILE, desired);
+	return {
+		path: POINTER_MASTER_FILE,
+		action: "updated",
+		masterAbs,
+		masterTilde: tilde,
+	};
+}
+
+/** Classify the current state of the self-pointer stub. */
+export async function classifyMasterPointer() {
+	const existing = await readIfExists(POINTER_MASTER_FILE);
+	if (existing == null) return { path: POINTER_MASTER_FILE, state: "missing" };
+	const parsed = parseMasterPointer(existing);
+	if (!parsed) return { path: POINTER_MASTER_FILE, state: "native" };
+	const desired = masterPointerContent({
+		masterAbs: parsed.masterAbs,
+		masterTilde: parsed.masterTilde,
+	});
+	return {
+		path: POINTER_MASTER_FILE,
+		state:
+			normalizeEndings(existing).trim() ===
+			normalizeEndings(desired).trim()
+				? "pointer"
+				: "pointer-stale",
+	};
 }
 
 export function masterPath() {

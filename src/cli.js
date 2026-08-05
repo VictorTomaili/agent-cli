@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // src/cli.js — agent-cli entry point. AI-first: --json everywhere, idempotent, no
-// interactive prompts (safe for agents/CI). Pointer model: edit ~/.agents/AGENTS.md
+// interactive prompts (safe for agents/CI). Pointer model: edit ~/AGENTS.md
 // once; per-agent files are stubs that redirect there.
 
 import { createRequire } from "node:module";
@@ -13,6 +13,7 @@ import {
 	log,
 	pretty,
 	MASTER_FILE,
+	POINTER_MASTER_FILE,
 	CONFIG_FILE,
 	AGENTS_DIR,
 	exists,
@@ -36,6 +37,7 @@ import {
 	writeMaster,
 	refreshBlocks,
 	masterTilde,
+	ensureMasterPointer,
 } from "./store.js";
 import { hasAgentCliBlock } from "./blocks.js";
 import {
@@ -158,7 +160,7 @@ function ctxPaths() {
 }
 
 // --- project-aware master resolution (Finding 13) ---
-// The global master lives at ~/.agents/AGENTS.md; a project master lives at
+// The global master lives at ~/AGENTS.md; a project master lives at
 // [cwd]/.agents/AGENTS.md and is what project-scoped pointers must redirect to.
 const SKILL_BEGIN = "<!-- BEGIN skill-cli -->";
 const SKILL_END = "<!-- END skill-cli -->";
@@ -225,7 +227,7 @@ registerTargetCommand(program, {
 program
 	.name("agent")
 	.description(
-		"Manage AGENTS.md and point every coding agent at one canonical source (~/.agents/AGENTS.md). Bundles skill-cli.",
+		"Manage AGENTS.md and point every coding agent at one canonical source (~/AGENTS.md). Bundles skill-cli.",
 	)
 	.version(VERSION, "-v, --version")
 	.option("--json", "Emit machine-readable JSON (AI/CI friendly)")
@@ -258,12 +260,16 @@ program
 program
 	.command("init")
 	.description(
-		"Bootstrap ~/.agents/ master, deploy pointer stubs, and set up skill-cli.",
+		"Bootstrap ~/AGENTS.md master, deploy pointer stubs, deploy the self-pointer at ~/.agents/AGENTS.md, install SessionStart brief hooks, and set up skill-cli. Idempotent — re-runs repair any missing parts.",
 	)
 	.option("--no-skill", "Skip skill-cli setup")
 	.option(
 		"--yes",
 		"Confirm any non-interactive defaults (no-op; agent-cli never prompts)",
+	)
+	.option(
+		"--force",
+		"Overwrite native content in ~/.agents/AGENTS.md (destructive) and re-write all missing parts",
 	)
 	.action(async (opts) => {
 		const result = { command: "init", steps: {} };
@@ -352,14 +358,25 @@ program
 			modelsMdCreated,
 		};
 
-		// 5. deploy pointers (non-destructive; auto-convert the seed source)
+		// 5. deploy self-pointer stub (idempotent; re-creates ~/.agents/AGENTS.md
+		//    if missing or stale so agent-cli is the only writer of that path).
+		const mTildeForPointer = ctxPaths().masterTilde;
+		const masterPointer = await ensureMasterPointer({
+			masterAbs: MASTER_FILE,
+			masterTilde: mTildeForPointer,
+			force: !!opts.force,
+		});
+		result.steps.masterPointer = masterPointer;
+
+		// 6. deploy per-target pointer stubs (non-destructive; auto-convert the seed source)
 		const { masterAbs, masterTilde: mTilde } = ctxPaths();
 		const seedId = master.seed ? getTargetByFile(master.seed) : null;
 		const deploy = [];
 		for (const id of cfg.global) {
 			const t = getTarget(id);
 			if (!t) continue;
-			const force = seedId === id; // seed content already lives in master
+			const seedForce = seedId === id; // seed content already lives in master
+			const force = seedForce || !!opts.force; // --force on init promotes seed+re-init overwrite
 			const r = await linkTarget(t, "global", {
 				masterAbs,
 				masterTilde: mTilde,
@@ -370,26 +387,55 @@ program
 		result.steps.deploy = deploy;
 		result.config = { global: cfg.global, project: cfg.project };
 
-		emit(result);
-		if (!JSON_MODE) {
-			log.success(
-				`Master ready at ${c.cyan(mTilde)} (${master.action}${master.seed ? " ← " + master.seed : ""})`,
-			);
-			const linked = deploy.filter((d) => d.linked).length;
-			const blocked = deploy.filter((d) => d.blocked);
-			log.info(
-				`Pointers: ${c.green(linked + " linked")}, ${cfg.global.length} global targets enabled`,
-			);
-			if (blocked.length) {
-				for (const b of blocked) {
-					log.warn(
-						`${b.name}: native content — run ${c.cyan("agent pull " + b.id)} then ${c.cyan("agent link --force")}`,
-					);
-				}
+		// 7. auto-install SessionStart brief hooks for enabled targets (best-effort).
+		try {
+			const hooks = await import("./hooks.js");
+			const enabledIds = new Set(cfg.global);
+			const hookCapable = hooks
+				.targetsWithHooks()
+				.filter((t) => enabledIds.has(t.id));
+			const hookResults = [];
+			for (const t of hookCapable) {
+				hookResults.push(await hooks.installHook(t, { force: !!opts.force }));
 			}
-			log.dim(
-				`Next: run ${c.cyan("agent brief")}, then read every file under "Load at session start". Edit the master: ${c.cyan("agent edit")}.`,
+			result.steps.hooks = {
+				count: hookResults.length,
+				installed: hookResults.filter((r) => r.installed).length,
+				skipped: hookResults.filter((r) => r.skipped).length,
+				blocked: hookResults.filter((r) => r.blocked).length,
+			};
+		} catch (e) {
+			result.steps.hooks = { error: e.message };
+		}
+
+		emit(result);
+
+		if (!JSON_MODE) {
+		const linked = deploy.filter((d) => d.linked).length;
+		const blocked = deploy.filter((d) => d.blocked);
+		log.info(
+			`Pointers: ${c.green(linked + " linked")}, ${cfg.global.length} global targets enabled`,
+		);
+		if (masterPointer.action === "created") {
+			log.success(`Self-pointer stub written: ${c.cyan(pretty(POINTER_MASTER_FILE))}`);
+		} else if (masterPointer.action === "updated") {
+			log.info(`Self-pointer stub refreshed: ${c.cyan(pretty(POINTER_MASTER_FILE))}`);
+		} else if (masterPointer.skipped === "native-content") {
+			log.warn(
+				`Self-pointer stub at ${c.cyan(pretty(POINTER_MASTER_FILE))} has native content — run ${c.cyan("agent init --force")} to replace it.`,
 			);
+		}
+		if (blocked.length) {
+			for (const b of blocked) {
+				log.warn(
+					`${b.name}: native content — run ${c.cyan("agent pull " + b.id)} then ${c.cyan("agent link --force")}`,
+				);
+			}
+		}
+		log.dim(
+			`Next: run ${c.cyan("agent brief")}, then read every file under "Load at session start". Edit the master: ${c.cyan("agent edit")}.`,
+		);
+
 		}
 	});
 
@@ -516,6 +562,86 @@ program
 		}
 	});
 
+// ---------------------------------------------------------------------------
+// agent brief-hooks (SessionStart auto-brief for supported agents)
+//
+// Named `brief-hooks` (not `hooks`) because `agent hooks` is already the
+// git-hooks command; commander requires unique command names. The two share
+// the same noun in user-facing help text but operate on entirely different
+// files.
+// ---------------------------------------------------------------------------
+program
+	.command("brief-hooks <action>")
+	.description(
+		"Manage native SessionStart hooks for supported agents. Action: install | uninstall | status. Each installs a hook that calls `agent brief --oneline` at session start.",
+	)
+	.option(
+		"-t, --target <ids...>",
+		"Restrict to a subset of hook-capable target ids (default: all enabled)",
+	)
+	.option("--force", "Overwrite native (non-agent-cli) hook entries (destructive)")
+	.action(async (action, opts) => {
+		const hooks = await import("./hooks.js");
+		const cfg = await loadConfig();
+		const enabledIds = new Set(cfg.global);
+		const known = hooks.targetsWithHooks().map((t) => t.id);
+		let ids = opts.target || known;
+		// When the user didn't pass --target, restrict to ENABLED targets.
+		if (!opts.target) ids = ids.filter((id) => enabledIds.has(id));
+		const targets = ids
+			.map((id) => hooks.getTarget(id) || getTarget(id))
+			.filter(Boolean);
+		const unknown = ids.filter((id) => !targets.find((t) => t.id === id));
+		if (unknown.length) {
+			fail(
+				`Unknown target id${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. Hook-capable ids: ${known.join(", ")}.`,
+				{ command: "brief-hooks", action, target: unknown },
+			);
+		}
+		const out = { command: "brief-hooks", action, results: [] };
+		const force = !!opts.force;
+		if (action === "install") {
+			for (const t of targets) {
+				const r = await hooks.installHook(t, { force });
+				out.results.push({ id: t.id, name: t.name, ...r });
+			}
+		} else if (action === "uninstall") {
+			for (const t of targets) {
+				const r = await hooks.uninstallHook(t);
+				out.results.push({ id: t.id, name: t.name, ...r });
+			}
+		} else if (action === "status") {
+			for (const t of targets) {
+				const r = await hooks.statusHook(t);
+				out.results.push(r);
+			}
+		} else {
+			fail(`Unknown brief-hooks action: ${action}. Use install | uninstall | status.`, {
+				command: "brief-hooks",
+				action,
+			});
+		}
+		out.count = out.results.length;
+		emit(out);
+		if (!JSON_MODE) {
+			if (action === "status") {
+				for (const r of out.results) {
+					const mark = r.installed ? c.green("✓") : c.gray("·");
+					log.raw(`  ${mark} ${r.id.padEnd(9)} ${r.state.padEnd(14)} ${c.gray(r.prettyPath || "")}`);
+				}
+			} else {
+				const installed = out.results.filter((r) => r.installed).length;
+				const unlinked = out.results.filter((r) => r.unlinked).length;
+				const skipped = out.results.filter((r) => r.skipped).length;
+				const blocked = out.results.filter((r) => r.blocked).length;
+				if (action === "install") {
+					log.success(`${installed} installed, ${skipped} skipped, ${blocked} blocked (use --force to overwrite)`);
+				} else if (action === "uninstall") {
+					log.success(`${unlinked} removed, ${skipped} skipped`);
+				}
+			}
+		}
+	});
 // ---------------------------------------------------------------------------
 // agent status / targets / target enable|disable
 // ---------------------------------------------------------------------------

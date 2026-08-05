@@ -1,9 +1,16 @@
 // src/pointer.js — generate + write + inspect the thin pointer stubs that redirect
-// each agent's native config file to the canonical ~/.agents/AGENTS.md master.
+// each agent's native config file to the canonical ~/AGENTS.md master.
 
 import path from "node:path";
 import { lstat } from "node:fs/promises";
-import { readIfExists, writeFile, pretty, normalizeEndings } from "./util.js";
+import {
+	readIfExists,
+	writeFile,
+	pretty,
+	normalizeEndings,
+	MASTER_FILE,
+	POINTER_MASTER_FILE,
+} from "./util.js";
 import { pathFor, scopesFor, adaptContent } from "./targets.js";
 import { resolveScope } from "./util.js";
 
@@ -34,6 +41,69 @@ function pointerLines(target, scope, { masterAbs, masterTilde }) {
 		"(`agent edit`), or redeploy stubs with `agent link`.",
 	];
 }
+
+// --- master-pointer stub (the agent-cli-managed pointer at ~/.agents/AGENTS.md) ---
+// When the canonical master lives at ~/AGENTS.md, the old ~/.agents/AGENTS.md file
+// becomes a self-pointing stub — a pointer file written by agent-cli itself, not by
+// a target agent. It uses sentinel values for target/scope/native so the generic
+// `parsePointer` (which compares against a real target's id) cannot match it.
+const MASTER_POINTER_TARGET = "agent-cli-master-pointer";
+const MASTER_POINTER_SCOPE = "agent-cli";
+const MASTER_POINTER_NATIVE = "AGENTS.md";
+const MASTER_POINTER_HEAD = "# AGENTS.md (agent-cli's local copy) → redirected by agent-cli";
+
+/**
+ * Build the on-disk body for the agent-cli self-pointer stub at
+ * ~/.agents/AGENTS.md (POINTER_MASTER_FILE). Mirrors the shape of
+ * `pointerContent` but with sentinel values that the generic parser ignores.
+ */
+export function masterPointerContent({ masterAbs, masterTilde }) {
+	return [
+		POINTER_MARK,
+		`<!-- target: ${MASTER_POINTER_TARGET} -->`,
+		`<!-- scope: ${MASTER_POINTER_SCOPE} -->`,
+		`<!-- native: ${MASTER_POINTER_NATIVE} -->`,
+		`<!-- master-abs: ${masterAbs} -->`,
+		`<!-- master-tilde: ${masterTilde} -->`,
+		"",
+		MASTER_POINTER_HEAD,
+		"",
+		"This file is a **pointer stub**. Your canonical agent instructions live in ONE",
+		"shared source of truth, used by all your coding agents:",
+		"",
+		`    ${masterAbs}`,
+		`    (short: ${masterTilde})`,
+		"",
+		"➡️ **Read that file now** with your file-reading tool and follow it as your",
+		"   primary AGENTS.md. Everything that belongs here is there.",
+		"",
+		"Do NOT edit this pointer — it has no effect. Edit the canonical file instead",
+		"(`agent edit`), or redeploy with `agent init`.",
+	].join("\n");
+}
+
+/**
+ * Parse a self-pointer stub body (written by `masterPointerContent`).
+ * Returns { ok: true, masterAbs, masterTilde } on match, else null.
+ */
+export function parseMasterPointer(content) {
+	if (content == null) return null;
+	const lines = normalizeEndings(content).split("\n");
+	if (lines.length < 6) return null;
+	if (lines[0] !== POINTER_MARK) return null;
+	if (lines[1] !== `<!-- target: ${MASTER_POINTER_TARGET} -->`) return null;
+	if (lines[2] !== `<!-- scope: ${MASTER_POINTER_SCOPE} -->`) return null;
+	if (lines[3] !== `<!-- native: ${MASTER_POINTER_NATIVE} -->`) return null;
+	const absMatch = lines[4].match(/^<!-- master-abs: (.+) -->$/);
+	const tildeMatch = lines[5].match(/^<!-- master-tilde: (.+) -->$/);
+	if (!absMatch || !tildeMatch) return null;
+	return {
+		ok: true,
+		masterAbs: absMatch[1],
+		masterTilde: tildeMatch[1],
+	};
+}
+
 
 // --- ONE renderer/ownership contract ------------------------------------------
 // Every operation that creates or recognizes agent-cli pointer stubs funnels
@@ -172,8 +242,8 @@ export function setExpectedCtx(ctx) {
 function expectedCtx() {
 	return (
 		_ctx || {
-			masterAbs: "~/.agents/AGENTS.md",
-			masterTilde: "~/.agents/AGENTS.md",
+			masterAbs: pretty(MASTER_FILE),
+			masterTilde: pretty(MASTER_FILE),
 		}
 	);
 }
@@ -192,6 +262,12 @@ export async function linkTarget(
 	if (!p) return { target, scope, path: null, skipped: "unsupported" };
 	if (await isSymlinkPath(p)) {
 		return { target, scope, path: p, blocked: "native-content", hint: "remove-symlink" };
+	}
+	if (p === MASTER_FILE || p === POINTER_MASTER_FILE) {
+		// Both the canonical master and the agent-cli self-pointer stub are
+		// never `linkTarget` targets — the master is content, the self-pointer
+		// is owned by `ensureMasterPointer`. Skip silently.
+		return { target, scope, path: p, skipped: "is-master" };
 	}
 	const desired = pointerContent(target, scope, { masterAbs, masterTilde });
 	const existing = await readIfExists(p);

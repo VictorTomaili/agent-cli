@@ -173,7 +173,7 @@ export function buildActions(s) {
 			id: "init",
 			command: "agent",
 			args: ["init"],
-			reason: "no master at ~/.agents/AGENTS.md",
+			reason: "no master at ~/AGENTS.md",
 			severity: "critical",
 			idempotent: true,
 			safeToAutomate: false,

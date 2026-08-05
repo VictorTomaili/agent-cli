@@ -15,7 +15,7 @@ const TMP = mkdtempSync(path.join(tmpdir(), "agent-store-"));
 process.env.AGENT_CLI_HOME = TMP;
 
 const store = await import("../src/store.js");
-const master = () => path.join(TMP, ".agents", "AGENTS.md");
+const master = () => path.join(TMP, "AGENTS.md");
 
 test("readMaster is null when the master is absent", async () => {
 	assert.equal(await store.readMaster(), null);
@@ -23,7 +23,7 @@ test("readMaster is null when the master is absent", async () => {
 
 test("masterPath / masterTilde point under HOME", () => {
 	assert.equal(store.masterPath(), master());
-	assert.equal(store.masterTilde(), "~/.agents/AGENTS.md");
+	assert.equal(store.masterTilde(), "~/AGENTS.md");
 });
 
 test("findSeedSource is null when no candidate exists", async () => {

@@ -18,7 +18,7 @@
 function cursorTransform(content) {
 	return [
 		"---",
-		"description: Synced by agent-cli from ~/.agents/AGENTS.md",
+		"description: Synced by agent-cli from ~/AGENTS.md",
 		"alwaysApply: true",
 		"---",
 		"",
@@ -30,10 +30,11 @@ export const TARGETS = [
 	{
 		id: "claude",
 		name: "Claude Code",
-		docs: "https://docs.claude.com/en/docs/claude-code/memory",
+		docs: "https://code.claude.com/docs/en/hooks",
 		global: ".claude/CLAUDE.md",
 		project: "CLAUDE.md",
 		detect: ".claude",
+		hooks: { event: "SessionStart", configFile: ".claude/settings.json" },
 	},
 	{
 		id: "codex",
@@ -42,6 +43,7 @@ export const TARGETS = [
 		global: ".codex/AGENTS.md",
 		project: "AGENTS.md",
 		detect: ".codex",
+		hooks: { event: "SessionStart", configFile: ".codex/hooks.json" },
 	},
 	{
 		id: "pi",
@@ -50,6 +52,11 @@ export const TARGETS = [
 		global: ".pi/agent/AGENTS.md",
 		project: "AGENTS.md",
 		detect: ".pi",
+		hooks: {
+			event: "SessionStart",
+			configFile: ".pi/agent/hooks.json",
+			note: "Requires the @hsingjui/pi-hooks adapter; install it separately.",
+		},
 	},
 	{
 		id: "gemini",
@@ -59,6 +66,7 @@ export const TARGETS = [
 		project: "GEMINI.md",
 		detect: ".gemini",
 		note: "Shared by Gemini CLI, Gemini Code Assist, and Google Antigravity IDE.",
+		hooks: { event: "SessionStart", configFile: ".gemini/settings.json" },
 	},
 	{
 		id: "qwen",
@@ -77,6 +85,7 @@ export const TARGETS = [
 		detect: ".cursor",
 		note: "Writes an alwaysApply .mdc rule. Cursor has no user-level rules file.",
 		transform: cursorTransform,
+		hooks: { event: "sessionStart", configFile: ".cursor/hooks.json" },
 	},
 	{
 		id: "windsurf",
@@ -87,6 +96,11 @@ export const TARGETS = [
 		detect: ".windsurf",
 		note: "Also writes legacy .windsurfrules for older versions.",
 		legacyProject: ".windsurfrules",
+		hooks: {
+			event: "pre_user_prompt",
+			configFile: ".codeium/windsurf/hooks.json",
+			note: "Cascade lacks SessionStart; we use pre_user_prompt as the nearest lifecycle hook.",
+		},
 	},
 	{
 		id: "cline",
@@ -96,6 +110,7 @@ export const TARGETS = [
 		project: ".clinerules/agent-cli.md",
 		detect: ".cline",
 		note: "Reads all .md/.txt in the rules dir. Roo Code uses the same format.",
+		hooks: { event: "SessionStart", configFile: ".clinerules/hooks/hooks.json" },
 	},
 	{
 		id: "copilot",
@@ -105,6 +120,7 @@ export const TARGETS = [
 		project: ".github/copilot-instructions.md",
 		detect: null,
 		note: "Project-only. Copilot also reads AGENTS.md/CLAUDE.md/GEMINI.md natively.",
+		hooks: { event: "sessionStart", configFile: ".copilot/hooks/hooks.json" },
 	},
 	{
 		id: "aider",
@@ -122,6 +138,7 @@ export const TARGETS = [
 		global: null,
 		project: ".junie/guidelines.md",
 		detect: ".junie",
+		hooks: { event: "SessionStart", configFile: ".junie/config.json" },
 	},
 	{
 		id: "trae",
@@ -130,6 +147,7 @@ export const TARGETS = [
 		global: null,
 		project: ".trae/rules/agent-cli.md",
 		detect: ".trae",
+		hooks: { event: "SessionStart", configFile: ".trae/hooks/hooks.json" },
 	},
 	{
 		id: "zed",
@@ -157,6 +175,7 @@ export const TARGETS = [
 		project: "AGENTS.md",
 		detect: ".opencode",
 		note: "OpenCode reads AGENTS.md.",
+		hooks: { event: "session_start", configFile: "opencode.json" },
 	},
 	{
 		id: "goose",
@@ -166,6 +185,7 @@ export const TARGETS = [
 		project: ".goose/hints",
 		detect: ".goose",
 		note: "Goose reads .goose/hints and AGENTS.md.",
+		hooks: { event: "SessionStart", configFile: ".config/goose/config.yaml" },
 	},
 ];
 
@@ -186,6 +206,10 @@ export function pathFor(target, scope) {
 	if (scope === "project") return target.project ?? null;
 	return null;
 }
+/** Targets that support a given scope. */
+export function targetsWithScope(scope) {
+	return TARGETS.filter((t) => pathFor(t, scope));
+}
 
 /** All scopes a target supports. */
 export function scopesFor(target) {
@@ -195,10 +219,11 @@ export function scopesFor(target) {
 	return scopes;
 }
 
-/** Targets that support a given scope. */
-export function targetsWithScope(scope) {
-	return TARGETS.filter((t) => pathFor(t, scope));
+/** Targets that declare a native startup hook we can install. */
+export function targetsWithHooks() {
+	return TARGETS.filter((t) => t.hooks && t.hooks.event && t.hooks.configFile);
 }
+
 
 /**
  * Adapt master content to a target's native format (e.g. Cursor frontmatter).

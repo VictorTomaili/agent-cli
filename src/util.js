@@ -13,8 +13,10 @@ export const HOME = process.env.AGENT_CLI_HOME || os.homedir();
 
 /** ~/.agents — the canonical source directory. */
 export const AGENTS_DIR = path.join(HOME, ".agents");
-/** ~/.agents/AGENTS.md — the single source of truth. */
-export const MASTER_FILE = path.join(AGENTS_DIR, "AGENTS.md");
+/** ~/AGENTS.md — the canonical single source of truth (relocated from ~/.agents/AGENTS.md). */
+export const MASTER_FILE = path.join(HOME, "AGENTS.md");
+/** ~/.agents/AGENTS.md — the agent-cli-managed pointer stub that points at MASTER_FILE. */
+export const POINTER_MASTER_FILE = path.join(AGENTS_DIR, "AGENTS.md");
 /** ~/.agents/config.json */
 export const CONFIG_FILE = path.join(AGENTS_DIR, "config.json");
 /** ~/.agents/backups */

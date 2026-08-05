@@ -65,8 +65,8 @@ function harness() {
 			throw err;
 		},
 		ctxPaths: () => ({
-			masterAbs: path.join(HOME, ".agents", "AGENTS.md"),
-			masterTilde: "~/.agents/AGENTS.md",
+			masterAbs: path.join(HOME, "AGENTS.md"),
+			masterTilde: "~/AGENTS.md",
 		}),
 		isJson: () => false,
 	});

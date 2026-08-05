@@ -3848,6 +3848,14 @@ program
 				...(spectHeadline ? { spectHeadline } : {}),
 			},
 		};
+		// --since: unchanged state → no actions (etag cache for cron/CI polling).
+		if (opts.since && opts.since === etag) {
+			out.actions = [];
+			out.suggestedActions = [];
+			out.unchanged = true;
+		}
+		// --next: highest-priority action only.
+		if (opts.next) out.actions = out.actions.length ? [out.actions[0]] : [];
 		if (opts.oneline) {
 			const onelineText = `v${VERSION} ${out.health === "ready" ? "✓" : "!"} ${out.actions.length} action${out.actions.length === 1 ? "" : "s"}${out.drift.length ? ` drift:${out.drift.join(",")}` : ""}`;
 			// Default: print the plain oneline text to stdout (so shell prompts

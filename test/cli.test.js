@@ -902,6 +902,28 @@ test("link reports changed/nothingToDo booleans (idempotent second run)", () => 
 	assert.equal(second.data.nothingToDo, true);
 });
 
+test("brief --since returns no actions when the state etag is unchanged", () => {
+	const home = run(["init"]).home;
+	// create actionable state: drift
+	run(["target", "enable", "claude"], { envHome: home });
+	run(["unlink", "claude"], { envHome: home });
+	const first = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
+	assert.ok(first.data.actions.length >= 1);
+	const etag = first.data.etag;
+	// same etag → cache hit: no actions, unchanged flag set
+	const cached = parseJson(
+		run(["brief", "--since", etag, "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(cached.data.actions.length, 0);
+	assert.equal(cached.data.unchanged, true);
+	// a stale etag returns the current state with actions
+	const stale = parseJson(
+		run(["brief", "--since", "aaaaaaaaaaaaaaaa", "--json"], { envHome: home }).stdout,
+	);
+	assert.ok(stale.data.actions.length >= 1);
+	assert.equal(stale.data.unchanged, undefined);
+});
+
 test("brief --check exits 2 when suggested work exists", () => {
 	const home = run(["init"]).home;
 	// Create actionable state: enable then unlink a target so there's drift.

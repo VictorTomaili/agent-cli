@@ -23,7 +23,12 @@ export function projectAgentsDir(cwd = process.cwd()) {
 	return path.join(cwd, ".agents", "agents");
 }
 
-/** The unified identity/memory file set (kind → filename). */
+/** The unified identity/memory file set (kind → filename).
+ *  `globalOnly: true` means the kind has NO project-scope override — only the
+ *  global file is loaded by `agent brief`, regardless of whether a project-scope
+ *  file exists. These are characteristics of the agent/machine/operator that
+ *  don't vary per project: who the agent IS (identity), who the operator IS
+ *  (user), and what models the machine can reach (models). */
 export const IDENTITY_FILES = [
 	{
 		kind: "agents",
@@ -39,8 +44,14 @@ export const IDENTITY_FILES = [
 		kind: "identity",
 		file: "IDENTITY.md",
 		desc: "Name, role, mission, persona",
+		globalOnly: true,
 	},
-	{ kind: "user", file: "USER.md", desc: "User preferences, goals, context" },
+	{
+		kind: "user",
+		file: "USER.md",
+		desc: "User preferences, goals, context",
+		globalOnly: true,
+	},
 	{
 		kind: "lessons",
 		file: "LESSONS.md",
@@ -55,6 +66,7 @@ export const IDENTITY_FILES = [
 		kind: "models",
 		file: "MODELS.md",
 		desc: "Model aliases + curated catalog (provider/model + category + thinking)",
+		globalOnly: true,
 	},
 ];
 
@@ -217,14 +229,16 @@ export async function scaffoldAgent(
 	return { created: true, path: fp };
 }
 
-/** Inspect the unified identity/memory file set (existence + size). */
+/** Inspect the unified identity/memory file set (existence + size).
+ *  Passes through `globalOnly` from IDENTITY_FILES so consumers can tell which
+ *  kinds never have a project-scope override. */
 export async function identityInventory({
 	scope = "global",
 	cwd = process.cwd(),
 } = {}) {
 	const base = identityBase(scope, cwd);
 	const files = [];
-	for (const { kind, file, desc } of IDENTITY_FILES) {
+	for (const { kind, file, desc, globalOnly } of IDENTITY_FILES) {
 		const fp = path.join(base, file);
 		let size = null;
 		let filled = null;
@@ -245,6 +259,7 @@ export async function identityInventory({
 			kind,
 			file,
 			desc,
+			globalOnly: !!globalOnly,
 			path: fp,
 			exists: size !== null,
 			size,

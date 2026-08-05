@@ -388,29 +388,55 @@ test("spect init is project-only and brief loads the project manifest", () => {
 	assert.ok(brief.data.sessionStart.load.some((f) => f.kind === "spect"));
 });
 
-test("brief manifest includes global models and project overrides", () => {
+test("brief manifest: globalOnly kinds get only the global entry; project-overridable kinds get both", () => {
 	const home = run(["init"]).home;
 	const project = mkdtempSync(path.join(tmpdir(), "agent-cli-project-"));
 	mkdirSync(path.join(project, ".agents"), { recursive: true });
+	// Create project files for BOTH a globalOnly kind (user) and an
+	// overridable kind (soul). The user.md MUST be ignored; the soul.md
+	// MUST be loaded — that's the new contract.
 	writeFileSync(path.join(project, ".agents", "USER.md"), "# project user\n");
+	writeFileSync(path.join(project, ".agents", "SOUL.md"), "# project soul\n");
 	const j = parseJson(
 		run(["brief", "--json"], { envHome: home, cwd: project }).stdout,
 	);
-	assert.ok(
-		j.data.sessionStart.load.some(
-			(f) => f.kind === "models" && f.scope === "global",
-		),
-	);
-	assert.ok(
-		j.data.sessionStart.load.some(
-			(f) => f.kind === "user" && f.scope === "global",
-		),
-	);
-	assert.ok(
-		j.data.sessionStart.load.some(
-			(f) => f.kind === "user" && f.scope === "project",
-		),
-	);
+	const load = j.data.sessionStart.load;
+
+	// globalOnly kinds: exactly 1 entry, scope=global, flagged globalOnly.
+	for (const kind of ["identity", "user", "models"]) {
+		const entries = load.filter((f) => f.kind === kind);
+		assert.equal(
+			entries.length,
+			1,
+			`globalOnly kind '${kind}' should have exactly 1 entry, got ${entries.length}: ${JSON.stringify(entries)}`,
+		);
+		assert.equal(
+			entries[0].scope,
+			"global",
+			`globalOnly kind '${kind}' should only have a global entry`,
+		);
+		assert.equal(
+			entries[0].globalOnly,
+			true,
+			`globalOnly kind '${kind}' entry should be flagged globalOnly`,
+		);
+	}
+
+	// Project-overridable kinds: exactly 2 entries (global + project).
+	for (const kind of ["agents", "soul", "lessons", "environments"]) {
+		const entries = load.filter((f) => f.kind === kind);
+		assert.equal(
+			entries.length,
+			2,
+			`overridable kind '${kind}' should have 2 entries (global + project), got ${entries.length}: ${JSON.stringify(entries)}`,
+		);
+		const scopes = entries.map((f) => f.scope).sort();
+		assert.deepEqual(
+			scopes,
+			["global", "project"],
+			`overridable kind '${kind}' must have one global + one project entry`,
+		);
+	}
 });
 
 test("brief surfaces lesson summaries in the index", () => {

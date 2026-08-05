@@ -379,7 +379,9 @@ export function registerSessionCoreCommands(
 				gaps: gapReport,
 				...(archetypeNeeded ? idMod.onboardSuggest() : {}),
 			};
-			// F2: load manifest = global + project override + MODELS.md (precedence global → project).
+			// F2: load manifest = global + (project override where allowed) + MODELS.md.
+			// Kinds flagged `globalOnly` (identity / user / models) never get a project
+			// entry — they have a single canonical home and don't vary per project.
 			const sessionLoad = [];
 			for (const gF of invG.files) {
 				sessionLoad.push({
@@ -389,8 +391,9 @@ export function registerSessionCoreCommands(
 					exists: gF.exists,
 					filled: gF.filled,
 					gaps: gF.gaps,
+					globalOnly: !!gF.globalOnly,
 				});
-				if (invP) {
+				if (invP && !gF.globalOnly) {
 					const pF = invP.files.find((x) => x.kind === gF.kind);
 					if (pF) {
 						sessionLoad.push({
@@ -400,6 +403,7 @@ export function registerSessionCoreCommands(
 							exists: pF.exists,
 							filled: pF.filled,
 							gaps: pF.gaps,
+							globalOnly: false,
 						});
 					}
 				}
@@ -720,6 +724,11 @@ export function registerSessionCoreCommands(
 					else if (f.filled === false || (f.gaps && f.gaps.length))
 						tag = c.yellow(`(gap: ${(f.gaps || []).join(", ") || "unfilled"})`);
 					else tag = c.green("✓");
+					// Make the global-only design explicit in the output: a model that
+					// sees `(global only)` knows not to look for a project override.
+					if (f.scope === "global" && f.globalOnly) {
+						tag += c.cyan(" (global only)");
+					}
 					const kindLabel =
 						f.scope === "project" ? `${f.kind} (proj)` : f.kind;
 					const num = String(i + 1).padStart(2, " ");

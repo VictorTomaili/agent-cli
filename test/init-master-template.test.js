@@ -108,6 +108,58 @@ test("agent-cli block lists all 7 canonical files in strict order", () => {
 	}
 });
 
+test("agent-cli block annotates identity / user / models as 'global only'", () => {
+	const block = readAgentCliBlock(master);
+	assert.ok(block !== null);
+	// The rule's order table must mark the three globalOnly kinds with the
+	// '— global only' annotation (matching the brief output's '(global only)'
+	// label). The other four kinds must NOT carry that annotation.
+	const GLOBAL_ONLY_KINDS = ["IDENTITY.md", "USER.md", "MODELS.md"];
+	const OVERRIDABLE_KINDS = ["AGENTS.md", "SOUL.md", "LESSONS.md", "ENVIRONMENTS.md"];
+
+	for (const kind of GLOBAL_ONLY_KINDS) {
+		// Find the rule's order-table line for this kind. It looks like
+		// '  3. IDENTITY.md      — name / role / archetype (which specific instance) — global only'
+		const lineRe = new RegExp(
+			`^\\s*\\d+\\.\\s+${kind}\\b[^\n]*—\\s*global only\\s*$`,
+			"m",
+		);
+		assert.ok(
+			lineRe.test(block),
+			`agent-cli block rule line for '${kind}' must be annotated '— global only'`,
+		);
+	}
+	for (const kind of OVERRIDABLE_KINDS) {
+		// Same shape, but must NOT have '— global only' on the same line.
+		const lineRe = new RegExp(`^\\s*\\d+\\.\\s+${kind}\\b[^\n]*$`, "m");
+		const match = block.match(lineRe);
+		assert.ok(
+			match !== null,
+			`agent-cli block rule line for '${kind}' (overridable) is missing or malformed`,
+		);
+		assert.ok(
+			!/—\s*global only/.test(match[0]),
+			`agent-cli block rule line for '${kind}' must NOT be annotated '— global only' (it has a project override)`,
+		);
+	}
+});
+
+test("agent-cli block explains WHY identity / user / models are global only", () => {
+	const block = readAgentCliBlock(master);
+	assert.ok(block !== null);
+	// The rationale paragraph is part of the contract — without it, the
+	// annotation is just a label and the design intent isn't conveyed to the
+	// model reading the master.
+	assert.ok(
+		/Global-only kinds \(identity \/ user \/ models\)/.test(block),
+		"agent-cli block must name the three globalOnly kinds in the rationale paragraph",
+	);
+	assert.ok(
+		/NO project-scope override/i.test(block),
+		"agent-cli block must explain that globalOnly kinds have no project override",
+	);
+});
+
 test("ensureMaster is idempotent — the rule survives a re-run exactly once", async () => {
 	const r = await store.ensureMaster();
 	assert.equal(r.action, "exists");
@@ -143,7 +195,7 @@ test("user-content outside the managed blocks survives refreshBlocks", async () 
 	const customNote = `\n## My project notes\n\nThis section belongs to me.\n`;
 	const withNote = before + customNote;
 	writeFileSync(masterPath, withNote);
-	const r = await store.refreshBlocks();
+	await store.refreshBlocks();
 	const after = readFileSync(masterPath, "utf8");
 	assert.ok(
 		after.includes("## My project notes"),

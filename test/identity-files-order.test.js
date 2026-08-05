@@ -46,6 +46,12 @@ const EXPECTED_FILES = {
 	models: "MODELS.md",
 };
 
+// Kinds that have NO project-scope override. They live in a single canonical
+// home (the global file under ~/.agents/) and don't vary per project, because
+// they describe characteristics of the agent/machine/operator, not the project.
+// MUST match the contract in src/agents-lib.js → IDENTITY_FILES.
+const EXPECTED_GLOBAL_ONLY = new Set(["identity", "user", "models"]);
+
 test("IDENTITY_FILES: order matches the canonical session-start read order", () => {
 	const actual = IDENTITY_FILES.map((f) => f.kind);
 	assert.deepEqual(
@@ -109,4 +115,32 @@ test("EXPECTED_ORDER covers every kind the contract defines", () => {
 		[...Object.keys(EXPECTED_FILES)].sort(),
 		"EXPECTED_ORDER and EXPECTED_FILES must describe the same set of kinds",
 	);
+});
+
+test("IDENTITY_FILES: globalOnly flag matches the contract (identity/user/models only)", () => {
+	for (const f of IDENTITY_FILES) {
+		const expected = EXPECTED_GLOBAL_ONLY.has(f.kind);
+		assert.equal(
+			!!f.globalOnly,
+			expected,
+			`kind=${f.kind}: globalOnly=${f.globalOnly}, expected ${expected}. ` +
+				`globalOnly kinds (identity / user / models) have NO project-scope override. ` +
+				`Other kinds (agents / soul / lessons / environments) DO have a project override.`,
+		);
+	}
+});
+
+test("IDENTITY_FILES: globalOnly kinds count + identity is exhaustive", () => {
+	// Guard against EXPECTED_GLOBAL_ONLY drifting from the contract.
+	assert.equal(
+		EXPECTED_GLOBAL_ONLY.size,
+		3,
+		"EXPECTED_GLOBAL_ONLY must list exactly 3 kinds (identity, user, models)",
+	);
+	for (const k of EXPECTED_GLOBAL_ONLY) {
+		assert.ok(
+			EXPECTED_FILES[k],
+			`EXPECTED_GLOBAL_ONLY references unknown kind '${k}'`,
+		);
+	}
 });

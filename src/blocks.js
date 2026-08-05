@@ -36,19 +36,28 @@ The canonical order is:
 
   1. AGENTS.md        — master contract (HOW to read the rest; governs behavior)
   2. SOUL.md          — personality / values / beliefs (what kind of being)
-  3. IDENTITY.md      — name / role / archetype (which specific instance)
-  4. USER.md          — the human you serve (goals, preferences, context)
+  3. IDENTITY.md      — name / role / archetype (which specific instance) — global only
+  4. USER.md          — the human you serve (goals, preferences, context) — global only
   5. LESSONS.md       — accumulated rules (honor these; learned from past work)
   6. ENVIRONMENTS.md  — operating context (local / SSH / container / etc.)
-  7. MODELS.md        — model aliases + catalog (tools — read LAST)
+  7. MODELS.md        — model aliases + catalog (tools — read LAST) — global only
+
+Global-only kinds (identity / user / models) have NO project-scope override —
+they describe characteristics of the agent, the operator, and the machine, which
+don't vary per project. If a project-scope file with the same name exists, it is
+ignored. The other four kinds (agents / soul / lessons / environments) DO have a
+project override (loaded after the global entry).
 
 If a file is missing, skip it and proceed to the next. SPECT project files
 (loaded after the canonical 7 when the project uses SPECT) follow the same rule:
 read them in the order \`agent brief\` emits them.
 
-This rule is enforced three ways: (a) this AGENTS.md instruction, (b) the
-numbered list \`agent brief\` prints, (c) a regression test that locks the order
-in \`src/agents-lib.js → IDENTITY_FILES\`. All three must agree.`;
+This rule is enforced four ways: (a) this AGENTS.md instruction, (b) the
+numbered list \`agent brief\` prints (with a "(global only)" annotation on
+the relevant entries), (c) \`src/agents-lib.js → IDENTITY_FILES\` (locks both
+the order AND the \`globalOnly\` flag), (d) a regression test that asserts the
+session-start load list contains exactly ONE entry per global-only kind and TWO
+per overridable kind. All four must agree.`;
 
 export const AGENT_CLI_BLOCK = `${BEGIN_AGENT_CLI}\n${AGENT_CLI_BODY}\n${END_AGENT_CLI}`;
 

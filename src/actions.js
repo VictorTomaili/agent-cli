@@ -82,10 +82,13 @@ export async function collectState(opts = {}) {
 	// load manifest
 	const sessionLoad = [];
 	for (const gF of invG.files) {
-		sessionLoad.push({ kind: gF.kind, scope: "global", path: gF.path, exists: gF.exists, filled: gF.filled, gaps: gF.gaps });
-		if (invP) {
+		sessionLoad.push({ kind: gF.kind, scope: "global", path: gF.path, exists: gF.exists, filled: gF.filled, gaps: gF.gaps, globalOnly: !!gF.globalOnly });
+		// Project-scope override is ONLY for kinds that allow it. Kinds flagged
+		// `globalOnly` (identity / user / models) have a single canonical home —
+		// they don't vary per project — so we never load a project version.
+		if (invP && !gF.globalOnly) {
 			const pF = invP.files.find((x) => x.kind === gF.kind);
-			if (pF) sessionLoad.push({ kind: pF.kind, scope: "project", path: pF.path, exists: pF.exists, filled: pF.filled, gaps: pF.gaps });
+			if (pF) sessionLoad.push({ kind: pF.kind, scope: "project", path: pF.path, exists: pF.exists, filled: pF.filled, gaps: pF.gaps, globalOnly: false });
 		}
 	}
 	if (spect.initialized || spect.partial)

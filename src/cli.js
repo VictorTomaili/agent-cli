@@ -2752,6 +2752,7 @@ program
 					process.exit(EXIT.ERROR);
 				}
 				log.success(`ENVIRONMENTS.md: ${r.field}: ${r.value}`);
+				if (r.warning) log.warn(r.warning);
 			}
 			if (!r.ok) process.exit(EXIT.ERROR);
 			return;

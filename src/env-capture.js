@@ -102,7 +102,17 @@ export async function setEnvironmentField(
 	if (!(await exists(file)))
 		return { ok: false, reason: `ENVIRONMENTS.md not found (${file})` };
 	const raw = await readFile(file);
+	// Typos guard: updating an existing line is always allowed. Adding a NEW
+	// field that is not a tracked ENV_LOCAL_* key succeeds but is flagged with
+	// a warning (the gap detector won't track it), so a misspelling is visible
+	// instead of silently appending an unfillable junk line.
+	const { ENVIRONMENT_FIELDS } = await import("./fields.js");
+	const known = ENVIRONMENT_FIELDS.map((f) => f.key);
 	const re = new RegExp(`^-\\s*${field}\\s*:.*$`, "m");
+	const warning =
+		!re.test(raw) && !known.includes(field)
+			? `note: '${field}' is not a tracked ENV_LOCAL_* field (${known.join(", ")}) — the gap detector won't monitor it`
+			: null;
 	let content;
 	if (re.test(raw)) {
 		content = raw.replace(re, `- ${field}: ${value}`);
@@ -117,5 +127,5 @@ export async function setEnvironmentField(
 		}
 	}
 	await writeFile(file, content);
-	return { ok: true, file, field, value };
+	return { ok: true, file, field, value, ...(warning ? { warning } : {}) };
 }

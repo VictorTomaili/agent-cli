@@ -72,6 +72,7 @@ import {
 import { registerTargetCommand } from "./commands/target.js";
 import { registerInfoCommands } from "./commands/info.js";
 import { registerInspectCommands } from "./commands/inspect.js";
+import { registerProtocolCommands } from "./commands/protocol.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
@@ -253,6 +254,14 @@ registerInspectCommands(program, {
 	pretty,
 	readFile,
 	identityInventory,
+	isJson: () => JSON_MODE,
+});
+registerProtocolCommands(program, {
+	emit,
+	fail,
+	program,
+	collectCommands,
+	EXIT,
 	isJson: () => JSON_MODE,
 });
 program
@@ -4505,48 +4514,6 @@ program
 			return;
 		}
 		fail(`Unknown automation action: ${action}. Use add|list|remove|run`, { command: "automation", action });
-	});
-
-program
-	.command("manifest")
-	.description(
-		"Emit the machine-readable command surface + exit-code contract.",
-	)
-	.action(async () => {
-		emit({
-			command: "manifest",
-			commands: collectCommands(),
-			exitCodes: EXIT,
-		});
-	});
-
-program
-	.command("schema [command]")
-	.description("Print the JSON envelope contract (or one command's shape).")
-	.action(async (name) => {
-		const contract = {
-			ok: "boolean",
-			command: "string",
-			apiVersion: "string",
-			data: "object",
-			error: "string (optional)",
-		};
-		if (name) {
-			const cmd = program.commands.find((c) => c.name() === name);
-			if (!cmd) fail(`Unknown command: ${name}`, { command: "schema", name });
-			emit({
-				command: "schema",
-				envelope: contract,
-				exitCodes: EXIT,
-				requested: {
-					name: cmd.name(),
-					description: cmd.description(),
-					options: (cmd.options || []).map((o) => o.flags),
-				},
-			});
-			return;
-		}
-		emit({ command: "schema", envelope: contract, exitCodes: EXIT });
 	});
 
 // `agent help [command]` — explicit subcommand so the built-in help command is

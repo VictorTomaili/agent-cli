@@ -4,7 +4,12 @@ import crypto from "node:crypto";
 import c from "picocolors";
 import { STORE_DIR } from "../lib/paths.js";
 import { parseSkillMd } from "../lib/frontmatter.js";
-import { listStore, sanitizeSkillName } from "../lib/store.js";
+import {
+	listStore,
+	sanitizeSkillName,
+	guardStoreBase,
+	copySkillIntoStore,
+} from "../lib/store.js";
 import { fetchSkillsToTemp } from "../lib/npx.js";
 import { pad } from "../lib/format.js";
 
@@ -142,7 +147,13 @@ export function updateOne(entry) {
 			STORE_DIR,
 			`.${dir}.backup-${process.pid}-${Date.now()}`,
 		);
-		fs.cpSync(newSkillDir, stagedPath, { recursive: true });
+		// M1: refuse a store whose base is a symlink/junction, and refuse to
+		// stage a fetched tree that contains symlinks/junctions — a planted link
+		// would be swapped into the store and followed by later reads.
+		const baseUnsafe = guardStoreBase();
+		if (baseUnsafe) throw baseUnsafe;
+		const rejected = copySkillIntoStore(newSkillDir, stagedPath);
+		if (rejected) throw new Error(rejected);
 		fs.writeFileSync(path.join(stagedPath, ".source"), source + "\n");
 		let backedUp = false;
 		try {

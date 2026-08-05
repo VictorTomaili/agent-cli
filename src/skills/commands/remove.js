@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import c from 'picocolors'
 import { STORE_DIR } from '../lib/paths.js'
-import { listStore } from '../lib/store.js'
+import { listStore, guardStoreBase } from '../lib/store.js'
 import { readGlobalConfig, writeGlobalConfig, readProjectConfig, writeProjectConfig } from '../lib/config.js'
 import { pad } from '../lib/format.js'
 import { isInteractive } from '../lib/interactive.js'
@@ -77,6 +77,14 @@ export function cmdRemove(args) {
       console.log(c.gray('Aborted. Nothing removed.'))
       return
     }
+  }
+
+  // M1: a junctioned/symlinked store base would make every rmSync delete
+  // THROUGH the link — refuse loudly instead.
+  const baseUnsafe = guardStoreBase()
+  if (baseUnsafe) {
+    console.error(c.red('✗ ') + baseUnsafe.message)
+    process.exit(1)
   }
 
   let removed = 0

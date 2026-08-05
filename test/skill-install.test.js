@@ -7,6 +7,8 @@ import {
 	readFileSync,
 	rmSync,
 	existsSync,
+	symlinkSync,
+	lstatSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -22,6 +24,7 @@ const install = await import("../src/skills/commands/install.js");
 const npx = await import("../src/skills/lib/npx.js");
 const lockCmd = await import("../src/skills/commands/lock.js");
 const paths = await import("../src/skills/lib/paths.js");
+const storeLib = await import("../src/skills/lib/store.js");
 
 const STORE_DIR = paths.STORE_DIR;
 const FIXTURE_ENV = "SKILL_CLI_FETCH_FIXTURE";
@@ -100,6 +103,52 @@ test("installSource never writes outside the store for a traversal frontmatter n
 	} finally {
 		delete process.env[FIXTURE_ENV];
 	}
+});
+
+test("M1: install refuses a fetched skill containing a symlink", () => {
+	resetStore();
+	plantVictim();
+	// Build a fixture skill with a planted symlink inside it (as a malicious
+	// source could ship): helper.js -> <outside store>. Install must refuse.
+	const root = mkdtempSync(path.join(tmpdir(), "agent-skill-symlink-"));
+	const d = path.join(root, "evil");
+	mkdirSync(d, { recursive: true });
+	writeFileSync(
+		path.join(d, "SKILL.md"),
+		"---\nname: evil\nversion: 1.0.0\ndescription: test\n---\n\nbody\n",
+	);
+	// symlink creation fails without privileges on some CI (Windows non-admin
+	// needs developer mode); skip the assertion there.
+	try {
+		symlinkSync(VICTIM, path.join(d, "helper.js"));
+	} catch {
+		return; // no symlink privilege — nothing to test
+	}
+	process.env[FIXTURE_ENV] = root;
+	try {
+		assert.throws(() => install.installSource("fixture-src"));
+		// nothing planted into the store
+		assert.equal(existsSync(path.join(STORE_DIR, "evil")), false);
+		assertVictimIntact();
+	} finally {
+		delete process.env[FIXTURE_ENV];
+	}
+});
+
+test("M1: readSkill skips a symlinked SKILL.md (read-side containment)", () => {
+	resetStore();
+	// Plant a skill whose SKILL.md is a symlink to a file outside the store.
+	mkdirSync(path.join(STORE_DIR, "planted"), { recursive: true });
+	writeFileSync(VICTIM, "secret outside");
+	try {
+		symlinkSync(VICTIM, path.join(STORE_DIR, "planted", "SKILL.md"));
+	} catch {
+		return; // no symlink privilege — nothing to test
+	}
+	// The symlinked skill must not be readable (listStore skips it too).
+	assert.equal(storeLib.readSkill("planted"), null);
+	const listed = storeLib.listStore().map((s) => s.name);
+	assert.ok(!listed.includes("planted"), "symlinked skill must not be listed");
 });
 
 test("reinstalling the same skill reports reinstalled:true", () => {

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import c from 'picocolors'
 import { resolveSkillTarget } from './validate.js'
+import { isPlainSkillFile } from '../lib/store.js'
 
 // Tool modules may only import from this allowlist of Node builtins. Anything
 // that reaches the network or spawns processes (child_process, net, http,
@@ -72,6 +73,12 @@ export async function cmdRun(args) {
   const toolPath = path.join(path.dirname(res.path), 'SKILL.tool.js')
   if (!fs.existsSync(toolPath)) {
     console.error(c.red(name + ' has no SKILL.tool.js'))
+    process.exit(1)
+  }
+  // M1: never execute a symlinked/junctioned tool file — a planted link could
+  // point at an arbitrary script outside the store.
+  if (!isPlainSkillFile(toolPath)) {
+    console.error(c.red(name + ' tool file is a symlink/junction — refusing to run'))
     process.exit(1)
   }
   try {

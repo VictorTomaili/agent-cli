@@ -5,7 +5,7 @@ import c from 'picocolors'
 import { STORE_DIR } from '../lib/paths.js'
 import { parseSkillMd } from '../lib/frontmatter.js'
 import { fetchSkillsToTemp } from '../lib/npx.js'
-import { sanitizeSkillName } from '../lib/store.js'
+import { sanitizeSkillName, guardStoreBase, copySkillIntoStore } from '../lib/store.js'
 import { writeLock } from './lock.js'
 import { cmdEnable } from './enable.js'
 
@@ -33,6 +33,8 @@ export function installSource(source) {
   }
 
   try {
+    const baseUnsafe = guardStoreBase()
+    if (baseUnsafe) throw baseUnsafe
     fs.mkdirSync(STORE_DIR, { recursive: true })
     const moved = []
     const skipped = []
@@ -57,7 +59,14 @@ export function installSource(source) {
       const reinstalled = fs.existsSync(dest)
       fs.rmSync(dest, { recursive: true, force: true })
       // cpSync (not renameSync): rename fails across volumes (EXDEV: C: temp → S: store).
-      fs.cpSync(srcSkillDir, dest, { recursive: true })
+      // M1: copySkillIntoStore refuses a symlinked dest and any fetched tree that
+      // contains symlinks/junctions (they'd escape the store on later reads).
+      const rejected = copySkillIntoStore(srcSkillDir, dest)
+      if (rejected) {
+        skipped.push(entry.name)
+        console.log(c.yellow('  ⚠ skipped ') + c.bold(entry.name) + c.gray(' — ' + rejected))
+        continue
+      }
       // remember the source so `skill update` can re-fetch it later
       fs.writeFileSync(path.join(dest, '.source'), resolved + '\n')
       // provenance lock (source + SKILL.md content hash) — `skill lock` re-reads it

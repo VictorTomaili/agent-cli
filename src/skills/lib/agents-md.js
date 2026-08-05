@@ -25,9 +25,9 @@ Usage:
 ${GATE_POLICY_TEXT}`
 
 export function injectBlock(content) {
-  const wrapped = `${BEGIN}\n${AGENTS_BLOCK}\n${END}`
-  if (content.includes(BEGIN)) {
-    return content.replace(new RegExp(`${BEGIN}[\\s\\S]*?${END}`), wrapped)
-  }
-  return (content ? content.replace(/\n*$/, '') + '\n\n' : '') + wrapped + '\n'
+	const wrapped = `${BEGIN}\n${AGENTS_BLOCK}\n${END}`
+	if (content.includes(BEGIN)) {
+		return content.replace(new RegExp(`${BEGIN}[\\s\\S]*?${END}`), wrapped)
+	}
+	return (content ? content.replace(/\n*$/, '') + '\n\n' : '') + wrapped + '\n'
 }

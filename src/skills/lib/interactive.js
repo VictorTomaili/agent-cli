@@ -4,5 +4,5 @@
 // (`search`, and the forthcoming manager). SKILL_CLI_FORCE_TTY lets tests exercise
 // the prompt branch on a piped stdin.
 export function isInteractive() {
-  return process.stdin.isTTY === true || process.env.SKILL_CLI_FORCE_TTY === '1'
+	return process.stdin.isTTY === true || process.env.SKILL_CLI_FORCE_TTY === '1'
 }

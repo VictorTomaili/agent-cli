@@ -28,111 +28,111 @@ ${c.gray('Single global store + activation (skill.config) + bootstrap (AGENTS.md
 ${c.bold('skill')}                  ${c.gray('interactive manager (↑↓ space d enter — TTY only)')}
 
 ${c.bold('Setup')}
-  ${c.cyan('skill init -g')}              global setup (store + AGENTS.md injection)
-  ${c.cyan('skill init')}                 create skill.config for this project
+	${c.cyan('skill init -g')}              global setup (store + AGENTS.md injection)
+	${c.cyan('skill init')}                 create skill.config for this project
 
 ${c.bold('Acquire skills')}
-  ${c.cyan('skill install')} ${c.gray('<source>')}    fetch to store via npx skills (agent dirs untouched)
-  ${c.cyan('skill search')}                  interactive search & multi-install (TTY only)
+	${c.cyan('skill install')} ${c.gray('<source>')}    fetch to store via npx skills (agent dirs untouched)
+	${c.cyan('skill search')}                  interactive search & multi-install (TTY only)
 
 ${c.bold('Activation')}
-  ${c.cyan('skill enable')} ${c.gray('<name> [-g]')}  allow in project, or global default (-g)
-  ${c.cyan('skill disable')} ${c.gray('<name> [-g]')} deny in project, or remove global default (-g)
-  ${c.cyan('skill list')}                  installed + active skills (cwd-aware)
-  ${c.cyan('skill active')}               active skills + descriptions (agent runs on start; alias: status)
+	${c.cyan('skill enable')} ${c.gray('<name> [-g]')}  allow in project, or global default (-g)
+	${c.cyan('skill disable')} ${c.gray('<name> [-g]')} deny in project, or remove global default (-g)
+	${c.cyan('skill list')}                  installed + active skills (cwd-aware)
+	${c.cyan('skill active')}               active skills + descriptions (agent runs on start; alias: status)
 
 ${c.bold('Defaults (active + auto-load)')}
-  ${c.cyan('skill default')} ${c.gray('<name>')}    mark a default skill (global: active in every project)
-  ${c.cyan('skill undefault')} ${c.gray('<name>')}  remove the default flag
+	${c.cyan('skill default')} ${c.gray('<name>')}    mark a default skill (global: active in every project)
+	${c.cyan('skill undefault')} ${c.gray('<name>')}  remove the default flag
 
 ${c.bold('Usage (agent)')}
-  ${c.cyan('skill show')} ${c.gray('<name>')}         metadata + path + triggers
-  ${c.cyan('skill cat')} ${c.gray('<name>')}          dump content to context
-  ${c.cyan('skill trigger')} ${c.gray('<keyword|name>')}   /X trigger or skill name → content
+	${c.cyan('skill show')} ${c.gray('<name>')}         metadata + path + triggers
+	${c.cyan('skill cat')} ${c.gray('<name>')}          dump content to context
+	${c.cyan('skill trigger')} ${c.gray('<keyword|name>')}   /X trigger or skill name → content
 
 ${c.bold('Maintenance')}
-  ${c.cyan('skill update')} ${c.gray('[name|--all]')} refresh store from source
-  ${c.cyan('skill remove')} ${c.gray('<name> [-y]')}  remove from store (prompt unless -y / non-TTY)
+	${c.cyan('skill update')} ${c.gray('[name|--all]')} refresh store from source
+	${c.cyan('skill remove')} ${c.gray('<name> [-y]')}  remove from store (prompt unless -y / non-TTY)
 
 ${c.bold('Authoring')}
-  ${c.cyan('skill create')} ${c.gray('<name> [-d dir] [--tool]')}  scaffold a skill (SKILL.md [+ SKILL.tool.js])
-  ${c.cyan('skill validate')} ${c.gray('<name|path>')}   check frontmatter + body
-  ${c.cyan('skill preview')} ${c.gray('<name|path>')}   render what the agent would load
-  ${c.cyan('skill test')} ${c.gray('<name|path>')}      validate + run SKILL.tool.js (allowlisted builtins)
-  ${c.cyan('skill run')} ${c.gray('<name> [-- args]')}  execute SKILL.tool.js
-  ${c.cyan('skill lock')} ${c.gray('<name> [--source]')} write provenance lock (source + content hash)
-  ${c.cyan('skill provenance')} ${c.gray('[name]')} show source/revision/hash for installed skills
-  ${c.cyan('skill capture')} ${c.gray('<name> <lesson>')} append a lesson to SKILL.md
+	${c.cyan('skill create')} ${c.gray('<name> [-d dir] [--tool]')}  scaffold a skill (SKILL.md [+ SKILL.tool.js])
+	${c.cyan('skill validate')} ${c.gray('<name|path>')}   check frontmatter + body
+	${c.cyan('skill preview')} ${c.gray('<name|path>')}   render what the agent would load
+	${c.cyan('skill test')} ${c.gray('<name|path>')}      validate + run SKILL.tool.js (allowlisted builtins)
+	${c.cyan('skill run')} ${c.gray('<name> [-- args]')}  execute SKILL.tool.js
+	${c.cyan('skill lock')} ${c.gray('<name> [--source]')} write provenance lock (source + content hash)
+	${c.cyan('skill provenance')} ${c.gray('[name]')} show source/revision/hash for installed skills
+	${c.cyan('skill capture')} ${c.gray('<name> <lesson>')} append a lesson to SKILL.md
 
 ${c.gray('Source formats (install): owner/repo | github/gitlab URL | git URL | local path | npm package')}
 ${c.gray('Test (no real ~ touched): SKILL_CLI_HOME=/tmp/sktest skill init -g')}
 
 ${c.bold('★ Enjoying skill-cli?')} ${c.gray('Star the repo — it helps others find it.')}
-  ${c.cyan('gh repo star victortomaili/skill-cli')}
-  ${c.gray('or: https://github.com/victortomaili/skill-cli')}
+	${c.cyan('gh repo star victortomaili/skill-cli')}
+	${c.gray('or: https://github.com/victortomaili/skill-cli')}
 `
 
 const [, , cmd, ...rest] = process.argv
 
 async function main() {
-  switch (cmd) {
-    case 'manager': case 'ui':
-      if (!isInteractive()) {
-        console.error(c.red("'skill manager' is interactive — run it in a terminal, or use 'skill list'."))
-        process.exit(1)
-      }
-      await cmdManager()
-      break
-    case undefined:
-      if (isInteractive()) { await cmdManager() }
-      else { console.log(HELP) }
-      break
-    case '-h': case '--help': case 'help':
-      console.log(HELP); break
-    case 'init': cmdInit(rest); break
-    case 'install': case 'add':
-      // No source + a real terminal → interactive search TUI. Agents/CI (non-TTY)
-      // and explicit sources stay non-interactive.
-      if (rest.length === 0 && isInteractive()) { await cmdSearch(rest) }
-      else { cmdInstall(rest) }
-      break
-    case 'search': case 'browse':
-      if (!isInteractive()) {
-        console.error(c.red("'skill search' is interactive — run it in a terminal, or use 'skill install <source>'."))
-        process.exit(1)
-      }
-      await cmdSearch(rest)
-      break
-    case 'enable': case 'on': cmdEnable(rest); break
-    case 'disable': case 'off': cmdDisable(rest); break
-    case 'list': case 'ls': cmdList(rest); break
-    case 'active': case 'status': cmdActive(rest); break
-    case 'defaults': case 'defs': cmdDefaults(rest); break
-    case 'default': case 'def': cmdDefault(rest); break
-    case 'undefault': case 'undef': cmdUndefault(rest); break
-    case 'show': case 'info': cmdShow(rest); break
-    case 'cat': cmdCat(rest); break
-    case 'trigger': cmdTrigger(rest); break
-    case 'update': cmdUpdate(rest); break
-    case 'remove': case 'rm': case 'uninstall': cmdRemove(rest); break
-    case 'create': cmdCreate(rest); break
-    case 'validate': cmdValidate(rest); break
-    case 'preview': cmdPreview(rest); break
-    case 'test': cmdTest(rest); break
-    case 'run': cmdRun(rest); break
-    case 'lock': cmdLock(rest); break
-    case 'provenance': cmdProvenance(rest); break
-    case 'capture': cmdCapture(rest); break
-    case '-v': case '--version':
-      console.log('skill-cli ' + VERSION); break
-    default:
-      console.error(c.red('Unknown command: ' + cmd))
-      console.error(c.gray('  skill --help'))
-      process.exit(1)
-  }
+	switch (cmd) {
+		case 'manager': case 'ui':
+			if (!isInteractive()) {
+				console.error(c.red("'skill manager' is interactive — run it in a terminal, or use 'skill list'."))
+				process.exit(1)
+			}
+			await cmdManager()
+			break
+		case undefined:
+			if (isInteractive()) { await cmdManager() }
+			else { console.log(HELP) }
+			break
+		case '-h': case '--help': case 'help':
+			console.log(HELP); break
+		case 'init': cmdInit(rest); break
+		case 'install': case 'add':
+			// No source + a real terminal → interactive search TUI. Agents/CI (non-TTY)
+			// and explicit sources stay non-interactive.
+			if (rest.length === 0 && isInteractive()) { await cmdSearch(rest) }
+			else { cmdInstall(rest) }
+			break
+		case 'search': case 'browse':
+			if (!isInteractive()) {
+				console.error(c.red("'skill search' is interactive — run it in a terminal, or use 'skill install <source>'."))
+				process.exit(1)
+			}
+			await cmdSearch(rest)
+			break
+		case 'enable': case 'on': cmdEnable(rest); break
+		case 'disable': case 'off': cmdDisable(rest); break
+		case 'list': case 'ls': cmdList(rest); break
+		case 'active': case 'status': cmdActive(rest); break
+		case 'defaults': case 'defs': cmdDefaults(rest); break
+		case 'default': case 'def': cmdDefault(rest); break
+		case 'undefault': case 'undef': cmdUndefault(rest); break
+		case 'show': case 'info': cmdShow(rest); break
+		case 'cat': cmdCat(rest); break
+		case 'trigger': cmdTrigger(rest); break
+		case 'update': cmdUpdate(rest); break
+		case 'remove': case 'rm': case 'uninstall': cmdRemove(rest); break
+		case 'create': cmdCreate(rest); break
+		case 'validate': cmdValidate(rest); break
+		case 'preview': cmdPreview(rest); break
+		case 'test': cmdTest(rest); break
+		case 'run': cmdRun(rest); break
+		case 'lock': cmdLock(rest); break
+		case 'provenance': cmdProvenance(rest); break
+		case 'capture': cmdCapture(rest); break
+		case '-v': case '--version':
+			console.log('skill-cli ' + VERSION); break
+		default:
+			console.error(c.red('Unknown command: ' + cmd))
+			console.error(c.gray('  skill --help'))
+			process.exit(1)
+	}
 }
 
 main().catch(e => {
-  console.error(c.red('Error: ') + e.message)
-  process.exit(1)
+	console.error(c.red('Error: ') + e.message)
+	process.exit(1)
 })

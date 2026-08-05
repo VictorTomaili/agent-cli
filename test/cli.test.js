@@ -1069,6 +1069,16 @@ test("models suggest --reassign lists every alias even when all resolve", () => 
 	);
 });
 
+test("brief --for attaches task-aware search hits", () => {
+	const home = run(["init"]).home;
+	const r = parseJson(
+		run(["brief", "--for", "canonical AGENTS.md", "--json"], { envHome: home }).stdout,
+	);
+	assert.ok(r.data.forTask, "expected forTask payload");
+	assert.equal(r.data.forTask.query, "canonical AGENTS.md");
+	assert.ok(Array.isArray(r.data.forTask.hits));
+});
+
 test("brief --oneline emits a one-line summary", () => {
 	const home = run(["init"]).home;
 	const r = parseJson(run(["brief", "--oneline", "--json"], { envHome: home }).stdout);

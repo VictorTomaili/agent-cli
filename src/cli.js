@@ -3553,7 +3553,7 @@ program
 		"--apply-safe",
 		"execute safeToAutomate actions, stop before user/destructive",
 	)
-	.option("--for <task>", "task-aware retrieval: attach relevant search hits")
+	.option("--for <task>", "task-aware retrieval: attach relevant search hits (alias: --for-task)")
 	.option(
 		"--since <etag>",
 		"return no actions when the state etag is unchanged (cache)",
@@ -3728,12 +3728,14 @@ program
 			inboxCount,
 			upd,
 		});
-		// --for: task-aware retrieval (search over the brain).
+		// --for: task-aware retrieval (search over the brain). The option is
+		// declared as '--for <task>' so commander exposes it as opts.for.
 		let forTask = null;
-		if (opts.forTask) {
+		const taskQuery = opts.for || opts.forTask;
+		if (taskQuery) {
 			const searchMod = await import("./search.js");
-			const sr = await searchMod.searchAll(opts.forTask, { project: true });
-			forTask = { query: opts.forTask, hits: sr.results.slice(0, 5) };
+			const sr = await searchMod.searchAll(taskQuery, { project: true });
+			forTask = { query: taskQuery, hits: sr.results.slice(0, 5) };
 		}
 		// --apply-safe: run the safe prefix now, emit receipts, and exit.
 		if (opts.applySafe) {

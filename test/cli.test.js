@@ -531,11 +531,16 @@ test("update diff shows staged-vs-live changes", () => {
 test("update diff rejects files outside the staged payload", () => {
 	const home = run(["init"]).home;
 	run(["update", "stage"], { envHome: home });
+	// Use the actual staged version (the previous hardcoded "0.2.1" worked
+	// only because the installed version matched; after the bump to 0.3.0
+	// the version check would fire first and the path-traversal check
+	// would never run).
+	const ver = parseJson(
+		run(["update", "list", "--json"], { envHome: home }).stdout,
+	).data.staged[0].version;
 	const r = run(
-		["update", "diff", "0.2.1", "--file", "../../secret.txt", "--json"],
-		{
-			envHome: home,
-		},
+		["update", "diff", ver, "--file", "../../secret.txt", "--json"],
+		{ envHome: home },
 	);
 	bad(r);
 	const j = parseJson(r.stdout);

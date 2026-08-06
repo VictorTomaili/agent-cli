@@ -10,13 +10,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import {
-	pretty,
-	AGENTS_DIR,
-	MASTER_FILE,
-	exists,
-	readFile,
-} from "./util.js";
+import { pretty, AGENTS_DIR, MASTER_FILE, exists, readFile } from "./util.js";
 import { loadConfig } from "./config.js";
 import { readMaster } from "./store.js";
 import { hasAgentCliBlock } from "./blocks.js";
@@ -47,9 +41,7 @@ export async function collectState(opts = {}) {
 	const consP = conMod.assess({ scope: "project", cwd });
 	const npm = await import("./npm-check.js");
 	const offline =
-		opts.offline ||
-		opts.network === false ||
-		process.env.AGENT_OFFLINE === "1";
+		opts.offline || opts.network === false || process.env.AGENT_OFFLINE === "1";
 	let upd;
 	if (opts.refresh && !offline) {
 		upd = await npm.ensureUpdateCheck(cfg, "agent-cli", PKG_VERSION, {
@@ -64,15 +56,21 @@ export async function collectState(opts = {}) {
 	const idMod = await import("./identity.js");
 	const invG = await identityInventory({ scope: "global", cwd });
 	const projectBase = path.join(cwd, ".agents");
-	const invP = projectBase !== AGENTS_DIR ? await identityInventory({ scope: "project", cwd }) : null;
+	const invP =
+		projectBase !== AGENTS_DIR
+			? await identityInventory({ scope: "project", cwd })
+			: null;
 	const modelsMod = await import("./models.js");
 	const modelsMdPath = modelsMod.MODELS_MD;
 	const modelsMdExists = await exists(modelsMdPath);
 	const spectMod = await import("./spect.js");
 	const spect = await spectMod.inspectSpect(cwd);
 	const spectHeadline =
-		spect.initialized || spect.partial ? await spectMod.spectHeadline(cwd) : null;
-	const { gapReport, archetypeNeeded, gapRecommended } = computeOnboarding(invG);
+		spect.initialized || spect.partial
+			? await spectMod.spectHeadline(cwd)
+			: null;
+	const { gapReport, archetypeNeeded, gapRecommended } =
+		computeOnboarding(invG);
 	const onboarding = {
 		recommended: gapRecommended,
 		archetypeNeeded,
@@ -82,17 +80,37 @@ export async function collectState(opts = {}) {
 	// load manifest
 	const sessionLoad = [];
 	for (const gF of invG.files) {
-		sessionLoad.push({ kind: gF.kind, scope: "global", path: gF.path, exists: gF.exists, filled: gF.filled, gaps: gF.gaps, globalOnly: !!gF.globalOnly });
+		sessionLoad.push({
+			kind: gF.kind,
+			scope: "global",
+			path: gF.path,
+			exists: gF.exists,
+			filled: gF.filled,
+			gaps: gF.gaps,
+			globalOnly: !!gF.globalOnly,
+		});
 		// Project-scope override is ONLY for kinds that allow it. Kinds flagged
 		// `globalOnly` (identity / user / models) have a single canonical home —
 		// they don't vary per project — so we never load a project version.
 		if (invP && !gF.globalOnly) {
 			const pF = invP.files.find((x) => x.kind === gF.kind);
-			if (pF) sessionLoad.push({ kind: pF.kind, scope: "project", path: pF.path, exists: pF.exists, filled: pF.filled, gaps: pF.gaps, globalOnly: false });
+			if (pF)
+				sessionLoad.push({
+					kind: pF.kind,
+					scope: "project",
+					path: pF.path,
+					exists: pF.exists,
+					filled: pF.filled,
+					gaps: pF.gaps,
+					globalOnly: false,
+				});
 		}
 	}
 	if (spect.initialized || spect.partial)
-		for (const file of new Set([...(spect.load || []), ...(spect.missingFiles || [])]))
+		for (const file of new Set([
+			...(spect.load || []),
+			...(spect.missingFiles || []),
+		]))
 			sessionLoad.push({
 				kind: "spect",
 				scope: "project",
@@ -103,7 +121,12 @@ export async function collectState(opts = {}) {
 			});
 	const { listLessons, coreFile } = await import("./lessons-lib.js");
 	const lessonsIndex = (await listLessons({ includeProject: true, cwd }))
-		.map((l) => ({ path: l.path, scope: l.scope, occurrences: l.occurrences, marked: l.marked }))
+		.map((l) => ({
+			path: l.path,
+			scope: l.scope,
+			occurrences: l.occurrences,
+			marked: l.marked,
+		}))
 		.sort((a, b) => a.path.localeCompare(b.path));
 	const inboxCount = (consG.metrics.inbox || 0) + (consP.metrics.inbox || 0);
 	let coreContent = null;
@@ -113,7 +136,10 @@ export async function collectState(opts = {}) {
 			const md = await readFile(coreFile(scope, cwd));
 			const idx = md.indexOf("## Core");
 			if (idx >= 0) {
-				const cleaned = md.slice(idx + "## Core".length).replace(/<!--[\s\S]*?-->/g, "").trim();
+				const cleaned = md
+					.slice(idx + "## Core".length)
+					.replace(/<!--[\s\S]*?-->/g, "")
+					.trim();
 				if (cleaned) {
 					coreContent = cleaned;
 					coreScope = scope;
@@ -131,7 +157,12 @@ export async function collectState(opts = {}) {
 		const t = getTarget(id);
 		if (!t || !t.global) continue;
 		const cls = await classify(t, "global");
-		pointerTargets.push({ id, scope: "global", state: cls.state, path: cls.path });
+		pointerTargets.push({
+			id,
+			scope: "global",
+			state: cls.state,
+			path: cls.path,
+		});
 		if (cls.state !== "pointer") drift.push(id);
 	}
 	return {
@@ -341,13 +372,21 @@ export function gapFixHints(gapReport) {
 	for (const [kind, fields] of Object.entries(gapReport || {})) {
 		for (const f of fields) {
 			if (kind === "identity") {
-				out.push(`agent identity set ${f.replace(/^AGENT_/, "").toLowerCase()} "<value>"`);
+				out.push(
+					`agent identity set ${f.replace(/^AGENT_/, "").toLowerCase()} "<value>"`,
+				);
 			} else if (kind === "user") {
-				out.push(`agent user set ${f.replace(/^USER_/, "").toLowerCase()} "<value>"`);
+				out.push(
+					`agent user set ${f.replace(/^USER_/, "").toLowerCase()} "<value>"`,
+				);
 			} else if (kind === "environments") {
-				out.push(`agent env set ${f.replace(/^ENV_LOCAL_/, "").toLowerCase()} "<value>"  (or: agent env capture to auto-detect)`);
+				out.push(
+					`agent env set ${f.replace(/^ENV_LOCAL_/, "").toLowerCase()} "<value>"  (or: agent env capture to auto-detect)`,
+				);
 			} else if (kind === "lessons") {
-				out.push(`agent lessons add <topic/descriptive-name> --body "..."  (or just run agents — they capture lessons automatically)`);
+				out.push(
+					`agent lessons add <topic/descriptive-name> --body "..."  (or just run agents — they capture lessons automatically)`,
+				);
 			} else {
 				out.push(`fill ${kind}.${f} in the relevant markdown file`);
 			}
@@ -362,7 +401,10 @@ export function gapFixHints(gapReport) {
  * the placeholder is highlighted and the action id is appended for the run path. */
 export function suggestedStrings(actions) {
 	return actions.map((a) => {
-		const joined = a.command === "agent" ? `agent ${a.args.join(" ")}` : `${a.command} ${a.args.join(" ")}`;
+		const joined =
+			a.command === "agent"
+				? `agent ${a.args.join(" ")}`
+				: `${a.command} ${a.args.join(" ")}`;
 		const needsInput = a.args.some((x) => /<[^>]+>/.test(String(x)));
 		return needsInput
 			? `${a.reason} → ${joined}  ${a.id ? `(or: agent run ${a.id})` : ""}`
@@ -397,10 +439,20 @@ export function runAction(action) {
 			encoding: "utf8",
 			env: { ...process.env, AGENT_CLI_HOME: process.env.AGENT_CLI_HOME },
 		});
-		return { ok: r.status === 0, code: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+		return {
+			ok: r.status === 0,
+			code: r.status,
+			stdout: r.stdout ?? "",
+			stderr: r.stderr ?? "",
+		};
 	}
 	const r = spawnSync(action.command, action.args, { encoding: "utf8" });
-	return { ok: r.status === 0, code: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+	return {
+		ok: r.status === 0,
+		code: r.status,
+		stdout: r.stdout ?? "",
+		stderr: r.stderr ?? "",
+	};
 }
 
 /** Apply the safeToAutomate prefix of the plan; stop before user/destructive. */
@@ -410,7 +462,12 @@ export function applySafe(actions) {
 	for (const a of actions) {
 		if (!a.safeToAutomate) {
 			stoppedAt = a.id;
-			receipts.push({ id: a.id, applied: false, skipped: true, reason: "not safe to automate" });
+			receipts.push({
+				id: a.id,
+				applied: false,
+				skipped: true,
+				reason: "not safe to automate",
+			});
 			break;
 		}
 		const r = runAction(a);
@@ -434,7 +491,21 @@ export function applySafe(actions) {
 /** Run an action's verification command, if any. */
 export function verifyAction(action) {
 	const v = action.verification;
-	if (!v) return { ok: true, verified: null, reason: "no verification command" };
-	const r = v.command === "agent" ? runAction({ command: "agent", args: v.args }) : { ok: false, code: 1, stdout: "", stderr: "unsupported verification command" };
-	return { ok: r.ok, verified: r.ok, code: r.code, output: ((r.stdout || "") + (r.stderr || "")).slice(0, 800) };
+	if (!v)
+		return { ok: true, verified: null, reason: "no verification command" };
+	const r =
+		v.command === "agent"
+			? runAction({ command: "agent", args: v.args })
+			: {
+					ok: false,
+					code: 1,
+					stdout: "",
+					stderr: "unsupported verification command",
+				};
+	return {
+		ok: r.ok,
+		verified: r.ok,
+		code: r.code,
+		output: ((r.stdout || "") + (r.stderr || "")).slice(0, 800),
+	};
 }

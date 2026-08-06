@@ -722,7 +722,11 @@ export function registerSessionCoreCommands(
 					// "no project-specific lessons yet", which is a legitimate state (the
 					// global LESSONS.md carries the system-wide lessons). Don't surface it
 					// as a gap or a missing-file warning — only flag global lessons.
-					if (f.kind === "lessons" && f.scope === "project" && f.filled !== true) {
+					if (
+						f.kind === "lessons" &&
+						f.scope === "project" &&
+						f.filled !== true
+					) {
 						tag = c.cyan("(no project lessons yet)");
 					} else if (!f.exists) tag = c.gray("(missing)");
 					else if (f.filled === false || (f.gaps && f.gaps.length))

@@ -42,10 +42,7 @@ function readAgentCliBlock(content) {
 	const beginIdx = content.indexOf(AGENT_CLI_BLOCK_BEGIN);
 	const endIdx = content.indexOf(AGENT_CLI_BLOCK_END);
 	if (beginIdx < 0 || endIdx <= beginIdx) return null;
-	return content.slice(
-		beginIdx,
-		endIdx + AGENT_CLI_BLOCK_END.length,
-	);
+	return content.slice(beginIdx, endIdx + AGENT_CLI_BLOCK_END.length);
 }
 
 // Run ensureMaster once — on a clean install (no master, no seed source)
@@ -115,7 +112,12 @@ test("agent-cli block annotates identity / user / models as 'global only'", () =
 	// '— global only' annotation (matching the brief output's '(global only)'
 	// label). The other four kinds must NOT carry that annotation.
 	const GLOBAL_ONLY_KINDS = ["IDENTITY.md", "USER.md", "MODELS.md"];
-	const OVERRIDABLE_KINDS = ["AGENTS.md", "SOUL.md", "LESSONS.md", "ENVIRONMENTS.md"];
+	const OVERRIDABLE_KINDS = [
+		"AGENTS.md",
+		"SOUL.md",
+		"LESSONS.md",
+		"ENVIRONMENTS.md",
+	];
 
 	for (const kind of GLOBAL_ONLY_KINDS) {
 		// Find the rule's order-table line for this kind. It looks like

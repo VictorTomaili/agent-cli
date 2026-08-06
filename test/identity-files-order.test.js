@@ -85,10 +85,7 @@ test("IDENTITY_FILES: every entry has kind, .md file, and non-empty desc", () =>
 			"string",
 			`file not string: ${JSON.stringify(f)}`,
 		);
-		assert.ok(
-			f.file.endsWith(".md"),
-			`file not .md: ${JSON.stringify(f)}`,
-		);
+		assert.ok(f.file.endsWith(".md"), `file not .md: ${JSON.stringify(f)}`);
 		assert.equal(
 			typeof f.desc,
 			"string",

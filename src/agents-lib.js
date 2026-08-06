@@ -315,7 +315,10 @@ export function isFilled(content, kind) {
 		// curated catalog section is present. The first install creates the file
 		// with a starter catalog, so don't mark it unfilled just because the user
 		// hasn't added aliases yet.
-		return /<ALIAS\s+name=/.test(content) || /##\s+Curated model catalog/.test(content);
+		return (
+			/<ALIAS\s+name=/.test(content) ||
+			/##\s+Curated model catalog/.test(content)
+		);
 	}
 	const body = content
 		.replace(/<!--[\s\S]*?-->/g, "")

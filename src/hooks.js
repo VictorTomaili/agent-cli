@@ -203,6 +203,17 @@ export function renderHookConfig(target, { agentBin, briefArgs = "--oneline" } =
 		};
 	}
 	// Default Claude-Code shape (claude, codex, gemini, cline, junie, trae, pi):
+	// The `name` field is our primary marker, but Claude Code's own CLI
+	// (plugin install/uninstall, and likely other settings.json rewrites)
+	// re-serializes through its typed schema and silently drops unrecognized
+	// fields like `name` — confirmed reproducible. For the `claude` target
+	// specifically (the only one whose config file Claude Code's own tooling
+	// rewrites), also embed the marker as a trailing shell comment, the same
+	// technique windsurf already uses above — safe here too, since Claude
+	// Code hook commands run via bash or PowerShell, both of which treat `#`
+	// as a comment. This keeps re-install/status/uninstall working even after
+	// Claude Code strips the `name` field.
+	const claudeCmd = id === "claude" ? `${cmd} # ${HOOK_MARKER}` : cmd;
 	return {
 		event,
 		json: {
@@ -210,7 +221,7 @@ export function renderHookConfig(target, { agentBin, briefArgs = "--oneline" } =
 				[event]: [
 					{
 						hooks: [
-							{ type: "command", name: HOOK_MARKER, command: cmd },
+							{ type: "command", name: HOOK_MARKER, command: claudeCmd },
 						],
 					},
 				],

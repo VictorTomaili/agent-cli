@@ -47,6 +47,26 @@ test("renderHookConfig produces the Claude shape with our marker", () => {
 	assert.ok(r.json.hooks.SessionStart[0].hooks[0].command.includes(AGENT_BIN));
 });
 
+test("renderHookConfig embeds the marker in the claude target's command string too (regression: `claude plugin install/uninstall` re-serializes settings.json through its own schema and silently drops the `name` field)", () => {
+	const claude = targets.getTarget("claude");
+	const r = hooks.renderHookConfig(claude, { agentBin: AGENT_BIN });
+	const command = r.json.hooks.SessionStart[0].hooks[0].command;
+	assert.ok(command.includes(hooks.HOOK_MARKER), "command string must carry the marker independent of the name field");
+	// Simulate Claude Code stripping the `name` field on a settings.json rewrite:
+	// parseAgentCliHookEntry must still recognize the entry via the command string alone.
+	const strippedEntry = { type: "command", command };
+	assert.equal(hooks.parseAgentCliHookEntry(strippedEntry), true);
+});
+
+test("renderHookConfig does NOT embed the marker comment in other default-shape targets (codex/pi/gemini aren't rewritten by an external schema-typed tool)", () => {
+	for (const id of ["codex", "pi", "gemini"]) {
+		const target = targets.getTarget(id);
+		const r = hooks.renderHookConfig(target, { agentBin: AGENT_BIN });
+		const command = r.json.hooks[r.event][0].hooks[0].command;
+		assert.ok(!command.includes(hooks.HOOK_MARKER), `${id} command should rely on the name field only, got: ${command}`);
+	}
+});
+
 test("renderHookConfig produces the opencode array shape", () => {
 	const oc = targets.getTarget("opencode");
 	const r = hooks.renderHookConfig(oc, { agentBin: AGENT_BIN });
@@ -120,8 +140,10 @@ test("detectAgentBin returns { bin, extraArgs } with a non-empty bin (no exact a
 });
 
 test("renderHookConfig quotes a single-token agentBin as one path, args unquoted (regression: quoteCommand used to wrap the whole invocation in one quote pair, making it an unparseable single token)", () => {
-	const claude = targets.getTarget("claude");
-	const r = hooks.renderHookConfig(claude, { agentBin: "C:\\Program Files\\agent-cli\\agent.cmd", briefArgs: "--json --compact --offline" });
+	// Uses "codex" rather than "claude" so the assertion isolates quoteCommand's
+	// behavior from the claude-specific marker-comment suffix tested separately below.
+	const codex = targets.getTarget("codex");
+	const r = hooks.renderHookConfig(codex, { agentBin: "C:\\Program Files\\agent-cli\\agent.cmd", briefArgs: "--json --compact --offline" });
 	const command = r.json.hooks.SessionStart[0].hooks[0].command;
 	assert.equal(command, '"C:\\Program Files\\agent-cli\\agent.cmd" brief --json --compact --offline');
 	// The binary path is quoted as its own token; args are separate, unquoted tokens.
@@ -129,8 +151,8 @@ test("renderHookConfig quotes a single-token agentBin as one path, args unquoted
 });
 
 test("renderHookConfig quotes each path segment of a two-token agentBin (node.exe + cli.js fallback) individually", () => {
-	const claude = targets.getTarget("claude");
-	const r = hooks.renderHookConfig(claude, {
+	const codex = targets.getTarget("codex");
+	const r = hooks.renderHookConfig(codex, {
 		agentBin: { bin: "C:\\Program Files\\nodejs\\node.exe", extraArgs: ["C:\\Users\\victor\\AppData\\Roaming\\npm\\node_modules\\agent-cli\\src\\cli.js"] },
 		briefArgs: "--oneline",
 	});

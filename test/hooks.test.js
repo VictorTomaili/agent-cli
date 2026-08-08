@@ -96,9 +96,33 @@ test("parseAgentCliHookEntry identifies our entries and rejects others", () => {
 	assert.equal(hooks.parseAgentCliHookEntry(null), false);
 });
 
-test("detectAgentBin returns a non-empty string (no exact assertion)", () => {
-	const bin = hooks.detectAgentBin();
-	assert.ok(typeof bin === "string" && bin.length > 0, `expected non-empty string, got: ${bin}`);
+test("detectAgentBin returns { bin, extraArgs } with a non-empty bin (no exact assertion)", () => {
+	const result = hooks.detectAgentBin();
+	assert.ok(typeof result === "object" && result !== null, "expected an object");
+	assert.ok(typeof result.bin === "string" && result.bin.length > 0, `expected non-empty bin, got: ${result.bin}`);
+	assert.ok(Array.isArray(result.extraArgs), "expected extraArgs to be an array");
+});
+
+test("renderHookConfig quotes a single-token agentBin as one path, args unquoted (regression: quoteCommand used to wrap the whole invocation in one quote pair, making it an unparseable single token)", () => {
+	const claude = targets.getTarget("claude");
+	const r = hooks.renderHookConfig(claude, { agentBin: "C:\\Program Files\\agent-cli\\agent.cmd", briefArgs: "--json --compact --offline" });
+	const command = r.json.hooks.SessionStart[0].hooks[0].command;
+	assert.equal(command, '"C:\\Program Files\\agent-cli\\agent.cmd" brief --json --compact --offline');
+	// The binary path is quoted as its own token; args are separate, unquoted tokens.
+	assert.ok(!command.startsWith('"C:\\Program Files\\agent-cli\\agent.cmd brief'), "must not wrap args inside the binary's quotes");
+});
+
+test("renderHookConfig quotes each path segment of a two-token agentBin (node.exe + cli.js fallback) individually", () => {
+	const claude = targets.getTarget("claude");
+	const r = hooks.renderHookConfig(claude, {
+		agentBin: { bin: "C:\\Program Files\\nodejs\\node.exe", extraArgs: ["C:\\Users\\victor\\AppData\\Roaming\\npm\\node_modules\\agent-cli\\src\\cli.js"] },
+		briefArgs: "--oneline",
+	});
+	const command = r.json.hooks.SessionStart[0].hooks[0].command;
+	assert.equal(
+		command,
+		'"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\victor\\AppData\\Roaming\\npm\\node_modules\\agent-cli\\src\\cli.js" brief --oneline',
+	);
 });
 
 test("installHook: no existing file → creates file with our entry, returns installed:true", async () => {

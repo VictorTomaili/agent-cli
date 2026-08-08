@@ -28,31 +28,51 @@ import { targetsWithHooks, getTarget } from "./targets.js";
 export const HOOK_MARKER = "agent-cli-session-brief";
 
 /**
- * Detect the absolute path of the running `agent` binary, with a robust
+ * Detect the invocation for the running `agent` binary, with a robust
  * fallback for environments where `agent` is not on PATH.
  *
  * On Windows: prefer `where agent`; fall back to `<node.exe> <cli.js>`.
  * On POSIX:   prefer `which agent`; fall back to `<node> <cli.js>`.
  *
- * The fallback path is always non-empty — the hook must work even on a
- * dev install before `npm link`.
+ * Returns `{ bin, extraArgs }`: `bin` is the executable to invoke, `extraArgs`
+ * are argv entries that must precede the `brief` subcommand (e.g. the cli.js
+ * script path when falling back to `node <cli.js>`). `bin` and each entry of
+ * `extraArgs` are independent path tokens that may themselves contain spaces
+ * (e.g. `C:\Program Files\nodejs\node.exe`) — callers must quote each one
+ * individually rather than concatenating them into a single quoted blob.
+ *
+ * The fallback is always non-empty — the hook must work even on a dev
+ * install before `npm link`.
  */
 export function detectAgentBin() {
 	try {
 		const cmd = process.platform === "win32" ? "where" : "which";
 		const out = execFileSync(cmd, ["agent"], { encoding: "utf8" });
 		const first = out.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
-		if (first) return first;
+		if (first) return { bin: first, extraArgs: [] };
 	} catch {
 		/* not on PATH — fall through */
 	}
 	const cliPath = fileURLToPath(new URL("./cli.js", import.meta.url));
-	return `${process.execPath} ${cliPath}`;
+	return { bin: process.execPath, extraArgs: [cliPath] };
 }
 
-/** Stable shell-quoted command string. Wraps in double quotes; no inner escaping required. */
-function quoteCommand(agentBin, briefArgs) {
-	return `"${agentBin} brief ${briefArgs}"`;
+/** Normalize an `agentBin` option (plain path string, or a detectAgentBin() result) to `{ bin, extraArgs }`. */
+function normalizeAgentBin(agentBin) {
+	if (typeof agentBin === "string") return { bin: agentBin, extraArgs: [] };
+	return agentBin;
+}
+
+/**
+ * Build a shell command string that invokes `bin` (plus any `extraArgs` path
+ * tokens) followed by `brief <briefArgs>`. Each path token is quoted
+ * individually — wrapping the whole invocation (binary + args) in a single
+ * quote pair turns it into one unparseable token, which is the historical
+ * bug this guards against.
+ */
+function quoteCommand(bin, extraArgs, briefArgs) {
+	const tokens = [bin, ...extraArgs].map((t) => `"${t}"`);
+	return `${tokens.join(" ")} brief ${briefArgs}`;
 }
 
 /**
@@ -70,20 +90,23 @@ export function renderHookConfig(target, { agentBin, briefArgs = "--oneline" } =
 	if (!target.hooks) {
 		throw new Error(`target ${target.id} has no hooks config`);
 	}
-	const cmd = quoteCommand(agentBin, briefArgs);
+	const { bin, extraArgs } = normalizeAgentBin(agentBin);
+	const cmd = quoteCommand(bin, extraArgs, briefArgs);
 	const id = target.id;
 	const event = target.hooks.event;
 	const configFile = target.hooks.configFile;
 
 	if (id === "opencode") {
 		// opencode.json: top-level array of {event, command:[...]} objects.
+		// Array form is exec'd directly (no shell), so argv entries are raw
+		// path strings — no quoting needed, unlike the shell-string targets below.
 		// Include a `name` field with our marker so parseAgentCliHookEntry can
 		// identify our entry even though opencode's schema doesn't require it.
 		return {
 			event,
 			json: {
 				hooks: [
-					{ name: HOOK_MARKER, event, command: [agentBin, "brief", briefArgs] },
+					{ name: HOOK_MARKER, event, command: [bin, ...extraArgs, "brief", briefArgs] },
 				],
 			},
 			configFile,
@@ -116,7 +139,7 @@ export function renderHookConfig(target, { agentBin, briefArgs = "--oneline" } =
 		// copilot ~/.copilot/hooks/hooks.json — same camelCase sessionStart shape,
 		// with both command and powershell keys for Windows.
 		const ps = process.platform === "win32"
-			? `"${agentBin}.cmd" brief ${briefArgs}`
+			? quoteCommand(`${bin}.cmd`, extraArgs, briefArgs)
 			: cmd;
 		return {
 			event,
@@ -224,7 +247,7 @@ export async function installHook(target, { force = false, agentBin } = {}) {
 		// goose config.yaml: append a single entry under the `hooks:` array. The
 		// `yaml` package is already a dep.
 		const { default: YAML } = await import("yaml");
-		const bin = agentBin || detectAgentBin();
+		const { bin, extraArgs } = normalizeAgentBin(agentBin || detectAgentBin());
 		await ensureDir(path.dirname(abs));
 		const existing = await readIfExists(abs);
 		const doc = existing ? YAML.parse(existing) || {} : {};
@@ -241,7 +264,7 @@ export async function installHook(target, { force = false, agentBin } = {}) {
 		if (!has && existingHooks.length > 0 && !force) {
 			return { target: target.id, path: abs, blocked: "native-content", hint: "agent hooks install --force" };
 		}
-		const cmd = `"${bin} brief --oneline"`;
+		const cmd = quoteCommand(bin, extraArgs, "--oneline");
 		const next = [
 			...existingHooks.filter(
 				(h) =>

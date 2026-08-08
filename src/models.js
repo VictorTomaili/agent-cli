@@ -1,6 +1,7 @@
 // src/models.js — model aliases: category → alias → concrete model (+thinking).
 // Stored in config.json `models.aliases` (machine) + MODELS.md (human-readable).
 
+import fs from "node:fs";
 import path from "node:path";
 import { HOME, writeFileSync } from "./util.js";
 import {
@@ -72,7 +73,47 @@ export function setAlias(name, { model, category, thinking, fallbacks }) {
 	saveConfigSync(cfg);
 	return cfg.models.aliases[name];
 }
-export function writeModelsMd({ includeCatalog = true } = {}) {
+/** Best-effort synchronous read of the existing MODELS.md; null if absent/unreadable. */
+function readExistingModelsMd() {
+	try {
+		return fs.readFileSync(MODELS_MD, "utf8");
+	} catch {
+		return null;
+	}
+}
+
+/** Replace a `## Heading` section in place (up to the next `## ` heading or
+ *  EOF), or append it if the heading isn't present yet. Same pattern as
+ *  mergeLiveCatalogSection's "## Live model catalog" handling below. */
+function replaceOrAppendSection(content, heading, newSection) {
+	const re = new RegExp(`${heading}[\\s\\S]*?(?=\\n## |$)`);
+	const found = content.match(re);
+	if (found) {
+		// Preserve a blank line before whatever follows, unless this section is at EOF.
+		const followedByMore = found.index + found[0].length < content.length;
+		return content.replace(re, newSection.trimEnd() + (followedByMore ? "\n" : ""));
+	}
+	return content.trimEnd() + "\n\n" + newSection.trimEnd() + "\n";
+}
+
+/**
+ * Sync MODELS.md's `## Aliases` block with config.json, WITHOUT touching
+ * anything else in the file. Every other section — `## Categories`, the
+ * curated/live model catalog, and any content a user or agent appended
+ * (e.g. a "Pi Agent Bridge" or notes section) — is preserved byte-for-byte
+ * on an existing file; only a brand-new file gets the full starter
+ * document. This mirrors the managed-block pattern `src/blocks.js` uses for
+ * the master AGENTS.md: the tool owns a specific region, not the whole file.
+ *
+ * `includeCatalog` only controls whether a MISSING catalog section gets
+ * seeded with the bundled baseline (first write, or a file that never had
+ * one) — it does not replace an existing catalog. Pass `refreshCatalog:
+ * true` (used by `agent models research --refresh`) to explicitly replace
+ * an already-present catalog section with the bundled baseline; that is
+ * the one call site where blowing away hand-curated catalog content is the
+ * intended, user-requested action.
+ */
+export function writeModelsMd({ includeCatalog = true, refreshCatalog = false } = {}) {
 	// Refuse to generate a misleading document from a corrupt config.
 	const cfg = readConfig();
 	const a = cfg.models?.aliases ?? {};
@@ -82,36 +123,53 @@ export function writeModelsMd({ includeCatalog = true } = {}) {
 			.replace(/"/g, "&quot;")
 			.replace(/</g, "&lt;")
 			.replace(/>/g, "&gt;");
-	const lines = [
-		"# MODELS.md — model aliases",
-		"",
-		"> When a configured model is unavailable, research the current host/provider model stack, select the best compatible equivalent, and test it with a minimal echo request before assigning it. Preserve the alias category, capability, and fallback intent. agent-cli only stores configuration; it does not perform research, model calls, or capability tests.",
-		"> Edit with `agent models set <alias> <provider/model> --fallback <provider/model>...`.",
-		"> Run `agent models research` to refresh the curated catalog below; run `agent models suggest` to auto-pick a model for each unresolved alias.",
-		"",
-		"## Aliases",
-		"",
-	];
+
+	const aliasLines = ["## Aliases", ""];
 	if (Object.keys(a).length === 0) {
-		lines.push(
+		aliasLines.push(
 			"_No aliases configured yet. Run `agent models suggest` to auto-pick, or `agent models set <alias> <provider/model>` to assign manually._",
+			"",
 		);
-		lines.push("");
 	}
 	for (const [name, v] of Object.entries(a))
-		lines.push(
+		aliasLines.push(
 			`<ALIAS name="${esc(name)}" category="${esc(v.category)}" thinking="${esc(v.thinking)}" fallbacks="${esc((v.fallbacks || []).join(","))}">${esc(v.model)}</ALIAS>`,
 		);
-	lines.push(
-		"",
+	aliasLines.push("");
+	const aliasSection = aliasLines.join("\n");
+	const categoriesSection = [
 		"## Categories",
 		...CATEGORIES.map((c) => `- **${c}** — ${CAT_DESC[c]}`),
 		"",
-	);
-	if (includeCatalog) {
-		lines.push(catalogMarkdown());
+	].join("\n");
+
+	const existing = readExistingModelsMd();
+	if (existing == null) {
+		// First-time creation: no prior content to preserve.
+		const lines = [
+			"# MODELS.md — model aliases",
+			"",
+			"> When a configured model is unavailable, research the current host/provider model stack, select the best compatible equivalent, and test it with a minimal echo request before assigning it. Preserve the alias category, capability, and fallback intent. agent-cli only stores configuration; it does not perform research, model calls, or capability tests.",
+			"> Edit with `agent models set <alias> <provider/model> --fallback <provider/model>...`.",
+			"> Run `agent models research` to refresh the curated catalog below; run `agent models suggest` to auto-pick a model for each unresolved alias.",
+			"",
+			aliasSection,
+			categoriesSection,
+		];
+		if (includeCatalog) lines.push(catalogMarkdown());
+		writeFileSync(MODELS_MD, lines.join("\n"));
+		return MODELS_MD;
 	}
-	writeFileSync(MODELS_MD, lines.join("\n"));
+
+	let out = replaceOrAppendSection(existing, "## Aliases", aliasSection);
+	if (!/##\s+Categories/.test(out)) {
+		out = out.trimEnd() + "\n\n" + categoriesSection;
+	}
+	const hasCatalog = /##\s+Curated model catalog/.test(out);
+	if (includeCatalog && (!hasCatalog || refreshCatalog)) {
+		out = replaceOrAppendSection(out, "## Curated model catalog", catalogMarkdown());
+	}
+	writeFileSync(MODELS_MD, out.trimEnd() + "\n");
 	return MODELS_MD;
 }
 

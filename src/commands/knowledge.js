@@ -168,7 +168,10 @@ export function registerKnowledgeCommands(
 				const want = m.catalogMarkdown();
 				const hasCatalog = before.includes("## Curated model catalog");
 				if (!hasCatalog || opts.refresh) {
-					const out = m.writeModelsMd({ includeCatalog: true });
+					const out = m.writeModelsMd({
+						includeCatalog: true,
+						refreshCatalog: true,
+					});
 					emit({
 						command: "models",
 						action: "research",

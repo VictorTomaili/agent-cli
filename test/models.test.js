@@ -94,6 +94,51 @@ test("writeModelsMd writes a tagged XML alias document", () => {
 	assert.ok(md.includes("## Categories"));
 });
 
+// Regression: agent models set/write must never destroy hand-curated content
+// (a custom catalog, or trailing sections like "Pi Agent Bridge") — only the
+// "## Aliases" block is config-truth and safe to regenerate unconditionally.
+test("writeModelsMd preserves an existing custom catalog and trailing sections by default", () => {
+	const f = models.writeModelsMd();
+	const before = readFileSync(f, "utf8");
+	const customized =
+		before.replace(
+			/## Curated model catalog[\s\S]*$/,
+			"## Curated model catalog\n\n| id | notes |\n|---|---|\n| `hand-written-entry` | do not clobber me |\n",
+		) + "\n## Pi Agent Bridge\n\nSome hand-written notes that must survive.\n";
+	writeFileSync(f, customized);
+
+	models.setAlias("smart-model", { model: "zai/glm-5.2", category: "smart" });
+	models.writeModelsMd(); // default call, as used by `agent models set`
+
+	const after = readFileSync(f, "utf8");
+	assert.ok(after.includes("hand-written-entry"), "custom catalog row survived");
+	assert.ok(
+		after.includes("Some hand-written notes that must survive."),
+		"trailing custom section survived",
+	);
+	assert.ok(after.includes("<ALIAS "), "alias section still regenerated");
+	assert.match(after, /smart-model[\s\S]*?zai\/glm-5\.2|zai\/glm-5\.2<\/ALIAS>/);
+});
+
+test("writeModelsMd({ refreshCatalog: true }) explicitly replaces an existing catalog (agent models research --refresh)", () => {
+	const f = models.writeModelsMd();
+	const before = readFileSync(f, "utf8");
+	const customized = before.replace(
+		/## Curated model catalog[\s\S]*$/,
+		"## Curated model catalog\n\n| id | notes |\n|---|---|\n| `stale-custom-entry` | should be replaced by --refresh |\n",
+	);
+	writeFileSync(f, customized);
+
+	models.writeModelsMd({ includeCatalog: true, refreshCatalog: true });
+
+	const after = readFileSync(f, "utf8");
+	assert.ok(
+		!after.includes("stale-custom-entry"),
+		"refreshCatalog:true replaces the catalog as intended",
+	);
+	assert.ok(after.includes("Bundled 2026-Q2 baseline"), "bundled catalog restored");
+});
+
 test("getAliases treats corrupt config as empty (no throw)", () => {
 	const p = cfgPath();
 	mkdirSync(path.dirname(p), { recursive: true });

@@ -1,12 +1,12 @@
 // src/commands/evaluate.js — compliance scoring (ROADMAP Phase 2). Injected
-// deps: { emit, fail, log, c, pretty, isJson, path, AGENTS_DIR }.
+// deps: { emit, fail, log, c, pretty, isJson, path, AGENTS_DIR, resolveContained }.
 // This is the one place scoreSession's I/O lives — src/evaluate.js itself
 // stays pure (no fs), per the file's own header comment.
 
 /** Register the `evaluate` command. */
 export function registerEvaluateCommands(
 	program,
-	{ emit, fail, log, c, pretty, isJson, path, AGENTS_DIR },
+	{ emit, fail, log, c, pretty, isJson, path, AGENTS_DIR, resolveContained },
 ) {
 	const sessionsDir = () => path.join(AGENTS_DIR, "sessions");
 
@@ -42,10 +42,17 @@ export function registerEvaluateCommands(
 					});
 				}
 			} else if (name) {
-				const file = path.join(
+				const file = resolveContained(
 					sessionsDir(),
 					name.endsWith(".json") ? name : `${name}.json`,
 				);
+				if (!file) {
+					fail(`Invalid session name: ${name}`, {
+						command: "evaluate",
+						action,
+						name,
+					});
+				}
 				let raw;
 				try {
 					raw = await fsp.readFile(file, "utf8");

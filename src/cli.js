@@ -568,6 +568,7 @@ registerEvaluateCommands(program, {
 	isJson: () => JSON_MODE,
 	path,
 	AGENTS_DIR,
+	resolveContained,
 });
 program
 	.name("agent")

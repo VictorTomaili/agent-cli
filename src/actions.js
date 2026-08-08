@@ -386,6 +386,10 @@ export function gapFixHints(gapReport) {
 				out.push(
 					`agent user set ${f.replace(/^USER_/, "").toLowerCase()} "<value>"`,
 				);
+			} else if (kind === "soul") {
+				out.push(
+					`agent soul set ${f.replace(/^SOUL_/, "").toLowerCase()} "<value>"`,
+				);
 			} else if (kind === "environments") {
 				out.push(
 					`agent env set ${f.replace(/^ENV_LOCAL_/, "").toLowerCase()} "<value>"  (or: agent env capture to auto-detect)`,

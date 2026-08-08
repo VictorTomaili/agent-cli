@@ -101,13 +101,16 @@ USER.md, SOUL.md (structured \`<TAG>\` fields; see \`src/fields.js →
 FIELD_TAGS\`), and ENVIRONMENTS.md (freeform \`- Field:\` gaps; see
 \`ENVIRONMENT_FIELDS\`). When a gap is reported, do NOT silently ignore it
 and do NOT guess a plausible-sounding value to fill it in. Surface the
-specific missing field to the user as a question, via the onboarding/gap-fill
-mechanism \`agent brief\` points at (today: \`agent onboard suggest\`, which
-asks the one highest-priority question with options; write the user's answer
-back with \`agent identity apply <choice>\`). A background task is
-generalizing this mechanism beyond identity fields — if the command surface
-has moved by the time you read this, use whatever \`agent brief\`'s own gap
-output names as the next step, not a hardcoded guess.
+specific missing field to the user as a question, via \`agent onboard
+suggest\` — it picks the single highest-priority unresolved gap (identity
+archetype > identity name > user > soul > environments) and returns one
+concrete question. For the identity-archetype case it returns options and
+a default; write the user's answer back with \`agent identity apply
+<choice>\`. For every other case (identity name, user, soul, environments)
+it returns an open-ended question plus the exact fix command (e.g.
+\`agent user set <field> "<value>"\`, \`agent soul set <field> "<value>"\`,
+\`agent env set <field> "<value>"\`) — use that command verbatim, never
+guess one.
 
 A gap is a signal that the brain files don't yet know something true about
 this agent, its user, or its environment. Filling it with an invented value
@@ -115,28 +118,34 @@ corrupts the record for every future session that trusts it; asking once
 fixes it permanently.
 
 This rule is enforced three ways: (a) this AGENTS.md instruction, (b)
-\`src/agents-lib.js → computeOnboarding\`/\`identityInventory\` (computes the
-gap report and the \`archetypeNeeded\`/\`gapRecommended\` flags from
+\`src/agents-lib.js → computeOnboarding\`/\`nextGapSuggestion\` (computes the
+gap report and picks the single ranked next question, from
 \`src/fields.js\`'s tag schema, pure and unit-tested), (c) the \`agent onboard
-suggest\` command (\`src/commands/edit.js\`, backed by \`src/identity.js →
-onboardSuggest\`), which turns a gap into a single concrete question instead
-of leaving it for the agent to paper over.
+suggest\` command (\`src/commands/edit.js\`), which turns a gap into a
+single concrete question and fix command instead of leaving it for the
+agent to paper over.
 
 ## Session report (MANDATORY)
 
-At the natural end of a session or task, close the loop: run \`agent session
-end\` (if a session was started) and \`agent session report\`. This is how
-lesson candidates reach the inbox and how the brain stays current for
-whichever coding tool — Claude Code, Codex, Gemini, or otherwise — picks up
-the next session. Skipping it doesn't lose data catastrophically, but it
-starves the next session of context this one already earned.
+At the natural end of a session or task, close the loop: run \`agent
+session end\` (if a session was started). It returns a suggested lesson
+topic derived from the session's task (\`session/<slugified-task>\`) plus
+the exact command to file it (\`agent lessons capture <topic> --inbox\`)
+directly in its own output — ending already surfaces the next step, no
+separate call needed. This is how lesson candidates reach the inbox and
+how the brain stays current for whichever coding tool — Claude Code,
+Codex, Gemini, or otherwise — picks up the next session. Skipping it
+doesn't lose data catastrophically, but it starves the next session of
+context this one already earned.
 
-\`agent session report\` reads the active session and returns a suggested
-lesson topic derived from the session's task (\`session/<slugified-task>\`)
-plus the exact command to file it (\`agent lessons capture <topic>
---inbox\`) — use it as a checklist, not just a status dump. \`agent session
-end\` archives the session to \`~/.agents/sessions/\` and clears the active
-slot so the next \`agent session start\` doesn't collide with a stale one.
+\`agent session report\` is the mid-session variant of the same checklist —
+run it BEFORE \`agent session end\` if you want the lesson-suggestion
+without closing the session yet (e.g. a natural checkpoint partway through
+a long task). Do NOT run it after \`agent session end\`: ending clears the
+active session, so a report call afterward has nothing to report and
+returns an error. \`agent session end\` archives the session to
+\`~/.agents/sessions/\` and clears the active slot so the next \`agent
+session start\` doesn't collide with a stale one.
 
 This rule is enforced two ways: (a) this AGENTS.md instruction, (b)
 \`src/session.js\` (\`sessionEnd\`/\`sessionReport\`, exercised by
@@ -154,8 +163,9 @@ Before ending a turn, tick through this list:
   the user, not an invented value.
 - Lessons captured — anything surprising, corrected, or confirmed
   non-obvious got an \`agent lessons add\`, not just a mental note.
-- Session reported — \`agent session end\` / \`agent session report\` ran so
-  the next session inherits this one's context.`;
+- Session reported — \`agent session end\` ran (or \`agent session report\`
+  mid-session, never after \`end\`) so the next session inherits this one's
+  context.`;
 
 export const AGENT_CLI_BLOCK = `${BEGIN_AGENT_CLI}\n${AGENT_CLI_BODY}\n${END_AGENT_CLI}`;
 

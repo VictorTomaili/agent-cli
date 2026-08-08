@@ -1594,3 +1594,21 @@ test("evaluate session <name> scores a specific archived session file", () => {
 	assert.equal(jMissing.ok, false);
 	assert.match(jMissing.error, /no archived session/i);
 });
+
+test("evaluate session <name> rejects a path-traversal name instead of reading outside sessions/", () => {
+	const home = run(["init"]).home;
+	ok(run(["session", "start", "traversal probe"], { envHome: home }));
+	ok(run(["session", "end"], { envHome: home }));
+	// A file that exists OUTSIDE ~/.agents/sessions — must never be reachable.
+	const secretFile = path.join(home, ".agents", "config.json");
+	assert.ok(existsSync(secretFile), "sanity: the file we must not leak exists");
+
+	const rTraversal = run(
+		["evaluate", "session", "../config", "--json"],
+		{ envHome: home },
+	);
+	bad(rTraversal);
+	const jTraversal = parseJson(rTraversal.stdout);
+	assert.equal(jTraversal.ok, false);
+	assert.match(jTraversal.error, /invalid session name/i);
+});

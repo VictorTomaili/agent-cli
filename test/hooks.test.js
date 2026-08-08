@@ -96,6 +96,22 @@ test("parseAgentCliHookEntry identifies our entries and rejects others", () => {
 	assert.equal(hooks.parseAgentCliHookEntry(null), false);
 });
 
+test("pickWindowsAgentBin prefers a .exe/.cmd/.bat match over an extensionless POSIX shim (regression: `where agent` on Windows can list the shim first, which native shells can't execute)", () => {
+	assert.equal(
+		hooks.pickWindowsAgentBin([
+			"C:\\Users\\victor\\AppData\\Roaming\\npm\\agent",
+			"C:\\Users\\victor\\AppData\\Roaming\\npm\\agent.cmd",
+			"C:\\Users\\victor\\.grok\\bin\\agent.exe",
+		]),
+		"C:\\Users\\victor\\AppData\\Roaming\\npm\\agent.cmd",
+	);
+	assert.equal(
+		hooks.pickWindowsAgentBin(["C:\\only\\extensionless\\agent"]),
+		"C:\\only\\extensionless\\agent",
+		"falls back to the first line when nothing matches a recognized extension",
+	);
+});
+
 test("detectAgentBin returns { bin, extraArgs } with a non-empty bin (no exact assertion)", () => {
 	const result = hooks.detectAgentBin();
 	assert.ok(typeof result === "object" && result !== null, "expected an object");

@@ -48,13 +48,30 @@ export function detectAgentBin() {
 	try {
 		const cmd = process.platform === "win32" ? "where" : "which";
 		const out = execFileSync(cmd, ["agent"], { encoding: "utf8" });
-		const first = out.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
-		if (first) return { bin: first, extraArgs: [] };
+		const lines = out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+		if (lines.length > 0) {
+			const bin = process.platform === "win32" ? pickWindowsAgentBin(lines) : lines[0];
+			return { bin, extraArgs: [] };
+		}
 	} catch {
 		/* not on PATH — fall through */
 	}
 	const cliPath = fileURLToPath(new URL("./cli.js", import.meta.url));
 	return { bin: process.execPath, extraArgs: [cliPath] };
+}
+
+/**
+ * From a list of `where agent` match lines, prefer a recognized Windows
+ * executable extension (.exe/.cmd/.bat) over an extensionless match.
+ *
+ * npm installs both an extensionless POSIX shim (for Git Bash) and a
+ * .cmd/.ps1 wrapper (for cmd.exe/PowerShell) for the same binary name;
+ * `where` can list the extensionless shim first, but native Windows shells
+ * cannot execute it directly (it's a `#!/bin/sh` script, not a Windows
+ * executable) — falls back to the first line if nothing matches.
+ */
+export function pickWindowsAgentBin(lines) {
+	return lines.find((l) => /\.(exe|cmd|bat)$/i.test(l)) || lines[0];
 }
 
 /** Normalize an `agentBin` option (plain path string, or a detectAgentBin() result) to `{ bin, extraArgs }`. */

@@ -48,9 +48,22 @@ export async function sessionStart({ task = null, cwd = process.cwd() } = {}) {
 	fs.writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2) + "\n");
 	return { ok: true, session };
 }
+/** Derive the lesson-candidate topic + capture command for a session.
+ * Shared by sessionEnd() (so ending a session surfaces the next step
+ * without a separate call) and sessionReport() (still useful mid-session). */
+function suggestLessonTopic(session) {
+	return {
+		topic: `session/${(session.task || "untitled")
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")}`,
+		suggestion: "agent lessons capture <topic> --inbox",
+	};
+}
+
 export async function sessionEnd() {
 	const session = readSession();
 	if (!session) return { ok: false, reason: "no active session — run agent session start" };
+	const lesson = suggestLessonTopic(session);
 	const ended = { ...session, endedAt: new Date().toISOString() };
 	const durationMs = new Date(ended.endedAt) - new Date(ended.startedAt);
 	// Archive the ended session so the user can review the history without it
@@ -68,24 +81,43 @@ export async function sessionEnd() {
 		/* best-effort archive; not blocking */
 	}
 	fs.writeFileSync(SESSION_FILE, "");
-	return { ok: true, session: ended, durationMs };
+	return { ok: true, session: ended, durationMs, lesson };
 }
 
 export async function sessionReport() {
 	const session = readSession();
 	if (!session) return { ok: false, reason: "no active session — run agent session start" };
+	const lesson = suggestLessonTopic(session);
+	const marked = markReported();
 	return {
 		ok: true,
-		session,
-		lesson: {
-			topic: `session/${(session.task || "untitled")
-				.toLowerCase()
-				.replace(/[^a-z0-9]+/g, "-")}`,
-			suggestion: "agent lessons capture <topic> --inbox",
-		},
+		session: marked.ok ? marked.session : session,
+		lesson,
 	};
 }
 
 export function currentSession() {
 	return readSession();
+}
+
+/** Append a lesson-capture pointer to the active session, if any. Silent
+ *  no-op when no session is active — lessons can be captured outside a
+ *  session and that's fine, not an error. */
+export function recordLessonCapture(topic) {
+	const session = readSession();
+	if (!session) return { ok: false };
+	session.lessonsCaptured = session.lessonsCaptured || [];
+	session.lessonsCaptured.push({ topic, at: new Date().toISOString() });
+	fs.writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2) + "\n");
+	return { ok: true, session };
+}
+
+/** Mark the active session as having been reported (`agent session report`
+ *  was run). Silent no-op when no session is active. */
+export function markReported() {
+	const session = readSession();
+	if (!session) return { ok: false };
+	session.reported = true;
+	fs.writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2) + "\n");
+	return { ok: true, session };
 }

@@ -208,6 +208,40 @@ export async function addLesson(
 	return { file: fp, created: true, occurrences: 1 };
 }
 
+/**
+ * Derive a candidate lesson topic/slug from a raw inbox capture's content.
+ * Prefers a `- Capture: <topic>` line; else the first non-empty body line
+ * outside the YAML frontmatter block; else `fallbackName`. Pure string
+ * transform — used by `agent lessons triage --plan` to map each inbox item
+ * to a suggested filing path without touching the filesystem.
+ */
+export function deriveTriageCandidate(content, fallbackName) {
+	const capture = /^-\s*Capture:\s*(.+)$/m.exec(content);
+	const lines = content.split(/\r?\n/).map((l) => l.trim());
+	let inFm = false;
+	const first = lines.find((l) => {
+		if (l.startsWith("---")) {
+			inFm = !inFm;
+			return false;
+		}
+		return (
+			!inFm &&
+			l &&
+			!l.startsWith("#") &&
+			!l.startsWith("-") &&
+			!l.startsWith("---")
+		);
+	});
+	const topic = (capture ? capture[1] : first || fallbackName).trim();
+	return {
+		candidate: topic
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+|-+$/g, ""),
+		topic,
+	};
+}
+
 export async function removeInbox(file) {
 	try {
 		await fsp.unlink(file);

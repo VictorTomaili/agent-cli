@@ -88,6 +88,7 @@ import { registerUpdateCommands } from "./commands/update-cmds.js";
 import { registerSkillCommands } from "./commands/skill-cmds.js";
 import { registerSessionCoreCommands } from "./commands/session-core.js";
 import { registerBootstrapCommands } from "./commands/bootstrap.js";
+import { registerEvaluateCommands } from "./commands/evaluate.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
@@ -528,22 +529,6 @@ registerSessionCoreCommands(program, {
 	loadConfig,
 	saveConfig,
 	readMaster,
-	detectInstalled,
-	getTarget,
-	classify,
-	isSkillAvailable,
-	identityInventory,
-	computeOnboarding,
-	findUnresolvedModels,
-	listAgents,
-	hasAgentCliBlock,
-	isConfigCorrupt,
-	exists,
-	readFile,
-	path,
-	os,
-	AGENTS_DIR,
-	MASTER_FILE,
 	VERSION,
 	PKG_NAME,
 });
@@ -573,6 +558,16 @@ registerBootstrapCommands(program, {
 	MASTER_FILE,
 	POINTER_MASTER_FILE,
 	VERSION,
+});
+registerEvaluateCommands(program, {
+	emit,
+	fail,
+	log,
+	c,
+	pretty,
+	isJson: () => JSON_MODE,
+	path,
+	AGENTS_DIR,
 });
 program
 	.name("agent")

@@ -39,7 +39,9 @@ export function registerInspectCommands(
 
 	program
 		.command("files")
-		.description("Show the unified identity/memory file inventory (~/.agents).")
+		.description(
+			"Show the unified identity/memory file inventory (~/.agents) with per-file gaps — broader than `whoami`'s one-line summary.",
+		)
 		.option("-p, --project", "project-local")
 		.action(async (opts) => {
 			const inv = await identityInventory({

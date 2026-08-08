@@ -33,7 +33,7 @@ export function registerUpdateCommands(
 	program
 		.command("update [action] [version]")
 		.description(
-			"Shipped-default updates: list staged payloads + npm latest version (default), stage seeds, diff <version> [--file <rel>], or clear <version>.",
+			"Shipped-default updates: list staged payloads + npm latest version (default), stage seeds, diff <version> [--file <rel>], apply <version> to install one reviewed payload, or clear <version>. Use `upgrade` to apply everything staged at once.",
 		)
 		.option("--force", "force a fresh npm version check (writes config.json)")
 		.option("--offline", "never hit the network; use the cached check only")

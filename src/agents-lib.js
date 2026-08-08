@@ -15,6 +15,7 @@ import {
 	resolveContained,
 } from "./util.js";
 import { FIELD_TAGS, fieldGaps, environmentGaps } from "./fields.js";
+import { onboardSuggest as identityOnboardSuggest } from "./identity.js";
 
 /** Global reusable sub-agent personalities dir: ~/.agents/agents */
 export const GLOBAL_AGENTS_DIR = path.join(HOME, ".agents", "agents");
@@ -425,4 +426,87 @@ export function computeOnboarding(inv) {
 		!identityFile?.exists;
 	const gapRecommended = Object.keys(gapReport).length > 0 || archetypeNeeded;
 	return { gapReport, archetypeNeeded, gapRecommended };
+}
+
+// Kind priority for nextGapSuggestion, low → high index = low → high priority.
+// "lessons" is intentionally absent: identityInventory() never computes a `gaps`
+// array for kind "lessons" (FIELD_TAGS has no "lessons" entry and it isn't
+// "environments"), so an empty/missing LESSONS.md can never appear in gapReport —
+// it's a legitimate steady state (the "(no project lessons yet)" convention in
+// blocks.js), not a gap to nag about.
+const GAP_KIND_PRIORITY = ["identity", "user", "soul", "environments"];
+
+// Open-ended questions for non-archetype field gaps, keyed by kind then tag.
+// Identity's archetype fields (AGENT_ROLE/MISSION/PERSONA) are never reached here —
+// any archetype gap sets archetypeNeeded, which nextGapSuggestion handles first by
+// delegating to identity.js's onboardSuggest(). Only AGENT_NAME can reach the
+// identity entry below (a filled archetype with an empty name).
+const GAP_FIELD_QUESTIONS = {
+	identity: {
+		AGENT_NAME: "What should this agent be named?",
+	},
+	user: {
+		USER_PREFS:
+			"What are your preferences (communication style, tools, conventions)?",
+		USER_GOALS: "What are your goals in this context?",
+		USER_CONTEXT: "What context should the agent know about you?",
+	},
+	soul: {
+		SOUL_PERSONALITY: "What personality should this agent have?",
+		SOUL_VALUES: "What values should guide this agent's decisions?",
+		SOUL_BELIEFS: "What beliefs should this agent hold about doing good work?",
+		SOUL_MOTIVATIONS:
+			"What should motivate this agent — its goals and drives?",
+	},
+	environments: {
+		ENV_LOCAL_USER: "What's your local username?",
+		ENV_LOCAL_OS: "What OS are you running locally?",
+		ENV_LOCAL_SHELL: "What shell do you use locally?",
+		ENV_LOCAL_HOME: "What's your local home directory?",
+	},
+};
+
+/** Fallback question for a (kind, tag) not covered by GAP_FIELD_QUESTIONS above
+ *  (defensive — keeps nextGapSuggestion from ever returning a blank question if
+ *  the field schema grows without an accompanying question being added). */
+function fallbackGapQuestion(kind, tag) {
+	if (kind === "environments")
+		return `What's your local ${tag.replace(/^ENV_LOCAL_/, "").toLowerCase()}?`;
+	const field = FIELD_TAGS[kind]?.find((f) => f.tag === tag);
+	const label = (field?.label || tag).toLowerCase();
+	return `What is your ${label} for ${kind}.md?`;
+}
+
+/**
+ * nextGapSuggestion(inv) — pick the single highest-priority unresolved gap across
+ * ALL brain files and turn it into one actionable question. Generalizes onboarding
+ * beyond identity archetype selection: identity.js's onboardSuggest() only ever
+ * asks about archetype, but USER.md/SOUL.md/ENVIRONMENTS.md gaps (reported by
+ * computeOnboarding()'s gapReport) previously had no question-generation at all.
+ * Pure (no I/O): consumes the same identityInventory() shape computeOnboarding() does.
+ *
+ * Priority: identity archetype (seeds role/mission/persona that other files
+ * reference) > identity non-archetype fields (AGENT_NAME) > user > soul >
+ * environments. LESSONS.md is excluded — see GAP_KIND_PRIORITY's comment.
+ *
+ * Returned shapes (discriminate on `kind`):
+ *   - identity archetype (multiple-choice — delegates to identity.js's
+ *     onboardSuggest(), not reimplemented here):
+ *       { kind: "identity", question, default, options, souls }
+ *   - identity (AGENT_NAME) | user | soul | environments (single open-ended field):
+ *       { kind, tag, question, freeform: true }
+ *   - nothing left to suggest:
+ *       null
+ */
+export function nextGapSuggestion(inv) {
+	const { gapReport, archetypeNeeded } = computeOnboarding(inv);
+	if (archetypeNeeded) return { kind: "identity", ...identityOnboardSuggest() };
+	for (const kind of GAP_KIND_PRIORITY) {
+		const gaps = gapReport[kind];
+		if (!gaps || !gaps.length) continue;
+		const tag = gaps[0];
+		const question = GAP_FIELD_QUESTIONS[kind]?.[tag] || fallbackGapQuestion(kind, tag);
+		return { kind, tag, question, freeform: true };
+	}
+	return null;
 }

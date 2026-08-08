@@ -21,6 +21,7 @@ import { isSkillAvailable } from "./skill.js";
 import {
 	identityInventory,
 	computeOnboarding,
+	nextGapSuggestion,
 	findUnresolvedModels,
 } from "./agents-lib.js";
 
@@ -33,6 +34,7 @@ export const ACTION_SEVERITY = { critical: 3, high: 2, medium: 1, low: 0 };
 /** Collect the full session state the brief reports (shared with agent run / api). */
 export async function collectState(opts = {}) {
 	const cwd = opts.cwd || process.cwd();
+	const pkgName = opts.pkgName || "agent-cli";
 	const cfg = await loadConfig();
 	const masterContent = await readMaster();
 	const installed = await detectInstalled();
@@ -44,7 +46,7 @@ export async function collectState(opts = {}) {
 		opts.offline || opts.network === false || process.env.AGENT_OFFLINE === "1";
 	let upd;
 	if (opts.refresh && !offline) {
-		upd = await npm.ensureUpdateCheck(cfg, "agent-cli", PKG_VERSION, {
+		upd = await npm.ensureUpdateCheck(cfg, pkgName, PKG_VERSION, {
 			force: true,
 			offline,
 		});
@@ -75,6 +77,7 @@ export async function collectState(opts = {}) {
 		recommended: gapRecommended,
 		archetypeNeeded,
 		gaps: gapReport,
+		nextSuggestion: nextGapSuggestion(invG),
 		...(archetypeNeeded ? idMod.onboardSuggest() : {}),
 	};
 	// load manifest
@@ -151,6 +154,8 @@ export async function collectState(opts = {}) {
 		}
 	}
 	const unresolvedModels = await findUnresolvedModels(cwd);
+	const sessionMod = await import("./session.js");
+	const session = sessionMod.currentSession();
 	const pointerTargets = [];
 	const drift = [];
 	for (const id of cfg.global) {
@@ -193,6 +198,7 @@ export async function collectState(opts = {}) {
 		unresolvedModels,
 		pointerTargets,
 		drift,
+		session,
 	};
 }
 
@@ -213,13 +219,14 @@ export function buildActions(s) {
 			verification: null,
 			rollback: "remove created files",
 		});
-	if (s.archetypeNeeded)
+	const nextSuggestion = s.onboarding?.nextSuggestion;
+	if (nextSuggestion)
 		add({
 			id: "onboard",
 			command: "agent",
 			args: ["onboard", "suggest"],
-			reason: "identity onboarding incomplete",
-			severity: "high",
+			reason: `${nextSuggestion.kind} gap: ${nextSuggestion.question}`,
+			severity: nextSuggestion.kind === "identity" ? "high" : "medium",
 			idempotent: true,
 			safeToAutomate: false,
 			precondition: "identity gaps present",

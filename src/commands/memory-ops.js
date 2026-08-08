@@ -128,7 +128,9 @@ export function registerMemoryOpsCommands(
 
 	program
 		.command("backups <action> [name]")
-		.description("Consolidation backup history: list | diff <name>.")
+		.description(
+			"Consolidation backup history: list | diff <name> — automatic backups from lesson consolidation, separate from `snapshot`/`restore`.",
+		)
 		.option("-p, --project", "project scope")
 		.action(async (action, name, opts) => {
 			const memMod = await import("../memory.js");

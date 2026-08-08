@@ -8,7 +8,9 @@ export function registerWhereCommand(
 ) {
 	program
 		.command("where")
-		.description("Print resolved paths for targets.")
+		.description(
+			"Print resolved paths for targets only — no health/enabled state; use `status` for that.",
+		)
 		.option("-g, --global")
 		.option("-p, --project")
 		.action(async (opts) => {

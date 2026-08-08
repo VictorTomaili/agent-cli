@@ -329,7 +329,7 @@ export function registerBootstrapCommands(
 	program
 		.command("brief-hooks <action>")
 		.description(
-			"Manage native SessionStart hooks for supported agents. Action: install | uninstall | status. Each installs a hook that calls `agent brief --oneline` at session start.",
+			"Manage native SessionStart hooks for supported agents. Action: install | uninstall | status. Each installs a hook that calls `agent brief --oneline` at session start (unrelated to `agent hooks`, which manages git post-merge/checkout hooks).",
 		)
 		.option(
 			"-t, --target <ids...>",

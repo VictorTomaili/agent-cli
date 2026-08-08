@@ -30,7 +30,7 @@ export function registerDelegationCommands(
 	program
 		.command("handoff <action> [id]")
 		.description(
-			"Delegation artifacts: create --to <name> --task <text> | list | show <id> | accept <id> | close <id> [--lesson <topic>]",
+			"Delegation artifacts: create --to <name> --task <text> | list | show <id> | accept <id> | close <id> [--lesson <topic>] — tracked, stateful handoffs (unlike `agents delegate`'s one-shot prompt).",
 		)
 		.option("--to <name>", "(create) target agent")
 		.option("--task <text>", "(create) task text")
@@ -111,7 +111,7 @@ export function registerDelegationCommands(
 	program
 		.command("agents [action] [name] [rest...]")
 		.description(
-			"Manage reusable sub-agent personalities: list | show | new | validate | path | roster | edit | rename | remove | export | import | delegate",
+			"Manage reusable sub-agent personalities: list | show | new | validate | path | roster | edit | rename | remove | export | import | delegate (prompt-only — use `handoff` for tracked delegation)",
 		)
 		.option("-p, --project", "project-local scope (for new)")
 		.option("--name <name>", "(import) override the personality name")

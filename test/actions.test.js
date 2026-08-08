@@ -107,6 +107,82 @@ test("verifyAction reports missing verification and runs real ones", async () =>
 	assert.equal(withV.verified, true);
 });
 
+test("buildActions adds a high-severity onboard action when the top gap is the identity archetype", () => {
+	const base = {
+		masterContent: "x",
+		onboarding: {
+			nextSuggestion: {
+				kind: "identity",
+				question: "What role should this agent have?",
+				default: "general-purpose",
+				options: [],
+				souls: [],
+			},
+		},
+		pointerTargets: [],
+		unresolvedModels: [],
+		stagedUpdates: [],
+		inboxCount: 0,
+		consG: { recommend: false },
+		consP: { recommend: false },
+		upd: { latest: null, upToDate: true },
+		liveCatalogAge: null,
+	};
+	const list = actions.buildActions(base);
+	const action = list.find((a) => a.id === "onboard");
+	assert.ok(action, "expected an onboard action");
+	assert.equal(action.severity, "high");
+	assert.deepEqual(action.args, ["onboard", "suggest"]);
+	assert.match(action.reason, /^identity gap: /);
+	assert.equal(action.idempotent, true);
+	assert.equal(action.safeToAutomate, false);
+});
+
+test("buildActions adds a medium-severity onboard action when the top gap is a non-identity field (e.g. USER.md)", () => {
+	const base = {
+		masterContent: "x",
+		onboarding: {
+			nextSuggestion: {
+				kind: "user",
+				tag: "USER_GOALS",
+				question: "What are your goals in this context?",
+				freeform: true,
+			},
+		},
+		pointerTargets: [],
+		unresolvedModels: [],
+		stagedUpdates: [],
+		inboxCount: 0,
+		consG: { recommend: false },
+		consP: { recommend: false },
+		upd: { latest: null, upToDate: true },
+		liveCatalogAge: null,
+	};
+	const list = actions.buildActions(base);
+	const action = list.find((a) => a.id === "onboard");
+	assert.ok(action, "expected an onboard action");
+	assert.equal(action.severity, "medium");
+	assert.deepEqual(action.args, ["onboard", "suggest"]);
+	assert.match(action.reason, /^user gap: /);
+});
+
+test("buildActions omits the onboard action entirely when nextGapSuggestion returns null", () => {
+	const base = {
+		masterContent: "x",
+		onboarding: { nextSuggestion: null },
+		pointerTargets: [],
+		unresolvedModels: [],
+		stagedUpdates: [],
+		inboxCount: 0,
+		consG: { recommend: false },
+		consP: { recommend: false },
+		upd: { latest: null, upToDate: true },
+		liveCatalogAge: null,
+	};
+	const list = actions.buildActions(base);
+	assert.ok(!list.some((a) => a.id === "onboard"));
+});
+
 test("buildActions suggests --fetch when the live catalog is stale but not fresh", () => {
 	const base = {
 		masterContent: "x",

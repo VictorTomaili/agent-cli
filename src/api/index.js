@@ -7,16 +7,8 @@
 // Scope: read-only. Mutating commands are intentionally NOT exposed.
 
 import path from "node:path";
-import os from "node:os";
 import { createRequire } from "node:module";
-import {
-	pretty,
-	HOME,
-	AGENTS_DIR,
-	MASTER_FILE,
-	exists,
-	readFile,
-} from "../util.js";
+import { pretty, HOME, AGENTS_DIR, MASTER_FILE } from "../util.js";
 import {
 	loadConfig,
 	isGlobalEnabled,
@@ -29,11 +21,7 @@ import { TARGETS, pathFor } from "../targets.js";
 import { detectInstalled } from "../detect.js";
 import { classify } from "../pointer.js";
 import { isSkillAvailable } from "../skill.js";
-import {
-	listAgents,
-	identityInventory,
-	computeOnboarding,
-} from "../agents-lib.js";
+import { identityInventory } from "../agents-lib.js";
 import { listLessons, inboxLessons, coreFile } from "../lessons-lib.js";
 import { inspectSpect } from "../spect.js";
 import { listSnapshots, snapshot } from "../snapshot.js";
@@ -49,8 +37,6 @@ function masterPaths(scope = "global", cwd = process.cwd()) {
 	}
 	return { masterAbs: MASTER_FILE, masterTilde: pretty(MASTER_FILE) };
 }
-
-import { findUnresolvedModels } from "../agents-lib.js";
 
 /** `agent status` payload. */
 export async function status({ all = false, cwd = process.cwd() } = {}) {
@@ -114,190 +100,22 @@ export async function status({ all = false, cwd = process.cwd() } = {}) {
 	};
 }
 
-/** `agent doctor` payload (issues + checks). */
+/** `agent doctor` payload (issues + checks). Delegates to
+ *  src/doctor-report.js#buildDoctorReport — the same pure builder the CLI
+ *  uses — so the SDK cannot drift from the CLI's checks. Read-only: the npm
+ *  update check is always the cached read, never a live fetch. */
 export async function doctor({ cwd = process.cwd() } = {}) {
 	const cfg = await loadConfig();
-	const issues = [];
-	const checks = [];
 	const masterContent = await readMaster();
-	const masterOk = masterContent != null;
-	checks.push({
-		check: "master-exists",
-		ok: masterOk,
-		detail: pretty(MASTER_FILE),
-	});
-	if (!masterOk) issues.push("Master missing — run `agent init`.");
-	checks.push({
-		check: "config-not-corrupt",
-		ok: !isConfigCorrupt(cfg),
-		detail: isConfigCorrupt(cfg) ? "config.json is corrupt" : "ok",
-	});
-	if (isConfigCorrupt(cfg))
-		issues.push("config.json is corrupt — repair or remove it before changing settings");
-	checks.push({
-		check: "agent-cli-block",
-		ok: hasAgentCliBlock(masterContent || ""),
-		detail: "managed block in master",
-	});
-	if (masterOk && !hasAgentCliBlock(masterContent || ""))
-		issues.push(
-			"agent-cli block missing — run `agent skill refresh` or `agent init`.",
-		);
-
-	for (const id of cfg.global) {
-		const t = TARGETS.find((x) => x.id === id);
-		if (!t || !t.global) continue;
-		const cls = await classify(t, "global");
-		const ok = cls.state === "pointer";
-		checks.push({
-			check: "pointer:" + id,
-			ok,
-			detail: cls.state + " " + pretty(cls.path),
-		});
-		if (!ok && cls.state !== "missing")
-			issues.push(`${id} pointer ${cls.state} — run \`agent link\`.`);
-	}
-	const skillOk = isSkillAvailable();
-	checks.push({
-		check: "skill-available",
-		ok: skillOk,
-		detail: skillOk ? "integrated" : "none",
-	});
-	if (!skillOk) issues.push("skill-cli unavailable — run `agent skill setup`.");
-
-	// project skill.config health (parity with CLI doctor).
-	const sgMod = await import("../skills-gate.js");
-	const projSkillConfig = sgMod.readProjectConfig(cwd);
-	const skillConfigOk = !projSkillConfig || projSkillConfig.ok !== false;
-	checks.push({
-		check: "skill-config",
-		ok: skillConfigOk,
-		detail:
-			projSkillConfig && projSkillConfig.ok === false
-				? "corrupt project skill.config"
-				: "ok",
-	});
-	if (!skillConfigOk)
-		issues.push("project skill.config is corrupt — repair or remove it");
-
-	const inv = await identityInventory({ scope: "global", cwd });
-	for (const f of inv.files) {
-		if (f.exists && f.filled === false) {
-			checks.push({
-				check: "identity-filled:" + f.kind,
-				ok: false,
-				detail: "unfilled template",
-			});
-			issues.push(
-				`${f.kind} is an unfilled template — edit it: agent edit ${f.kind}`,
-			);
-		}
-	}
-	const REQUIRED = new Set([
-		"identity",
-		"soul",
-		"user",
-		"lessons",
-		"environments",
-	]);
-	const modelsMdPath = path.join(HOME, ".agents", "MODELS.md");
-	const modelsMdExists = await exists(modelsMdPath);
-	for (const f of inv.files) {
-		if (!REQUIRED.has(f.kind)) continue;
-		if (!f.exists) {
-			checks.push({
-				check: "file-exists:" + f.kind,
-				ok: false,
-				detail: "missing",
-			});
-			issues.push(
-				`${f.kind} file missing (${pretty(f.path)}) — run \`agent init\` to seed it.`,
-			);
-		}
-	}
-	checks.push({
-		check: "file-exists:models",
-		ok: modelsMdExists,
-		detail: modelsMdExists ? pretty(modelsMdPath) : "missing",
-	});
-	if (!modelsMdExists)
-		issues.push(
-			`MODELS.md missing (${pretty(modelsMdPath)}) — run \`agent init\` to seed it.`,
-		);
-	const subList = await listAgents({ includeProject: false });
-	checks.push({
-		check: "personalities-discoverable",
-		ok: true,
-		detail: `${subList.length} in ~/.agents/agents`,
-	});
-	const unresolvedModels = await findUnresolvedModels(cwd);
-	checks.push({
-		check: "models-resolved",
-		ok: unresolvedModels.length === 0,
-		detail: unresolvedModels.length
-			? unresolvedModels.map((u) => `${u.name} (${u.model})`).join(", ")
-			: "all model aliases resolve",
-	});
-	if (unresolvedModels.length)
-		issues.push(
-			`unresolved model aliases: ${unresolvedModels
-				.map((u) => `${u.name} uses '${u.model}' — run ${u.guidance}`)
-				.join("; ")}`,
-		);
-	// no personalities stranded in the old ~/.pi/agent/agents path
-	const oldPiAgents = path.join(os.homedir(), ".pi", "agent", "agents");
-	let orphans = 0;
-	try {
-		const fspD = await import("node:fs/promises");
-		orphans = (await fspD.readdir(oldPiAgents)).filter((n) =>
-			n.endsWith(".md"),
-		).length;
-	} catch {
-		/* dir absent */
-	}
-	if (orphans > 0) {
-		checks.push({
-			check: "no-orphan-personalities",
-			ok: false,
-			detail: `${orphans} in old ~/.pi/agent/agents`,
-		});
-		issues.push(
-			`${orphans} personalities stranded in old path ~/.pi/agent/agents — move them to ~/.agents/agents`,
-		);
-	} else {
-		checks.push({
-			check: "no-orphan-personalities",
-			ok: true,
-			detail: "old path clean",
-		});
-	}
-	// npm latest version — cached only (read-only; no network)
 	const npm = await import("../npm-check.js");
 	const upd = npm.readCachedUpdate(cfg, PKG_VERSION);
-	checks.push({
-		check: "npm-update",
-		ok: !upd.latest || upd.upToDate,
-		detail: upd.latest
-			? upd.upToDate
-				? `latest ${upd.latest}`
-				: `latest ${upd.latest} (installed ${PKG_VERSION})`
-			: "unable to check",
+	const { buildDoctorReport } = await import("../doctor-report.js");
+	return buildDoctorReport(cfg, {
+		masterContent,
+		upd,
+		version: PKG_VERSION,
+		cwd,
 	});
-	if (upd.latest && !upd.upToDate)
-		issues.push(`agent-cli ${upd.latest} is available (installed ${PKG_VERSION}).`);
-	// staged update payloads awaiting migration
-	const seed = await import("../seed.js");
-	const staged = await seed.listStagedUpdates({ home: AGENTS_DIR });
-	checks.push({
-		check: "staged-updates",
-		ok: staged.length === 0,
-		detail: staged.length ? `${staged.length} payload(s)` : "none",
-	});
-	if (staged.length)
-		issues.push(
-			`${staged.length} staged update payload(s) under ~/.agents/update-* — review with the user and migrate (see: agent update list).`,
-		);
-	return { issues, checks };
 }
 
 /** `agent brief` payload (read-only; never hits the network). */

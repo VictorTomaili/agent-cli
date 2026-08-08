@@ -71,6 +71,7 @@ export function registerMemoryStackCommands(
 						process.exit(EXIT.ERROR);
 					}
 					log.success(`Session ended (${Math.round(r.durationMs / 1000)}s).`);
+					log.dim(r.lesson.suggestion);
 				}
 				if (!r.ok) process.exit(EXIT.ERROR);
 				return;

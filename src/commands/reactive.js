@@ -26,7 +26,7 @@ export function registerReactiveCommands(
 	program
 		.command("watch")
 		.description(
-			"Watch agent state (~/.agents, .agents, skill.config, .spect) and print change events.",
+			"Watch agent state (~/.agents, .agents, skill.config, .spect) and print change events — long-running, blocks until Ctrl+C; for interactive terminal use, not scripts/agents.",
 		)
 		.option("--interval <ms>", "poll interval ms (default 1000)")
 		.action(async (opts) => {
@@ -66,7 +66,7 @@ export function registerReactiveCommands(
 	program
 		.command("hooks <action>")
 		.description(
-			"Manage git hooks: install | remove | list. Hooks re-point agent files after merge/checkout.",
+			"Manage git hooks: install | remove | list. Hooks re-point agent files after merge/checkout (unrelated to `brief-hooks`, which manages native SessionStart hooks).",
 		)
 		.option("--git", "git hooks (default)")
 		.option(

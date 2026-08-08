@@ -219,6 +219,144 @@ function categoryFromId(id) {
 	return null;
 }
 
+/**
+ * Merge a freshly fetched "Live model catalog" Markdown section into the
+ * existing MODELS.md content: replaces the section in place when one is
+ * already present, else appends it. Pure string transform — the caller does
+ * the actual file write. Used by `agent models research --fetch`.
+ */
+export function mergeLiveCatalogSection(existing, liveSection) {
+	if (/##\s+Live model catalog/.test(existing)) {
+		return existing.replace(
+			/## Live model catalog[\s\S]*?(?=\n## |$)/,
+			liveSection.trimEnd(),
+		);
+	}
+	return existing.trimEnd() + "\n\n" + liveSection.trimEnd() + "\n";
+}
+
+/**
+ * Build `models suggest` rows: one candidate row per alias that needs
+ * (re)assignment, with an auto-picked model (when the catalog has a match
+ * for its category) and a human-readable guidance string. Pure computation
+ * over already-loaded state (config-backed alias reads only) — never writes.
+ *
+ * @param {Array} unresolved - findUnresolvedModels() output; ignored when
+ *   `reassign` is true (every existing alias is considered instead).
+ * @param {object} [opts]
+ * @param {boolean} [opts.reassign] - consider every existing alias, not just
+ *   unresolved ones, so a live-catalog refresh can upgrade stale picks.
+ * @param {string[]} [opts.preferredProviders] - providers to rank first.
+ * @returns {{ rows: object[], shared: string[] }}
+ */
+export function buildModelSuggestions(
+	unresolved,
+	{ reassign = false, preferredProviders = [] } = {},
+) {
+	const byAlias = new Map();
+	if (reassign) {
+		for (const [alias, v] of Object.entries(getAliases())) {
+			byAlias.set(alias, [
+				{ name: alias, model: alias, scope: "global", existing: v.model },
+			]);
+		}
+	} else {
+		for (const u of unresolved) {
+			const arr = byAlias.get(u.model) || [];
+			arr.push(u);
+			byAlias.set(u.model, arr);
+		}
+	}
+	const rows = [];
+	const shared = [];
+	for (const [alias, personas] of byAlias) {
+		// Derive a category from the alias name (strip "-model" suffix)
+		// or fall back to the persona's configured category.
+		const hint = String(alias).replace(/-model$/, "").toLowerCase();
+		let category = CATEGORIES.includes(hint) ? hint : null;
+		if (!category) {
+			for (const p of personas) {
+				const cfgForPersona = getAlias(p.name);
+				if (cfgForPersona?.category) {
+					category = cfgForPersona.category;
+					break;
+				}
+			}
+		}
+		const picked = category
+			? pickForCategory(category, { preferredProviders })
+			: null;
+		// Personas whose alias name doesn't match a category get a category
+		// hint from the alias shape ("review-model" → try to infer review
+		// or smart category by walking the alias name). If still no match,
+		// fall back to "smart" so at least one model is auto-pickable.
+		const fallbackCategory = !category ? "smart" : null;
+		const finalPick =
+			picked ||
+			(fallbackCategory
+				? pickForCategory(fallbackCategory, { preferredProviders })
+				: null);
+		const existing = personas[0]?.existing || getAlias(alias)?.model || null;
+		const row = {
+			alias,
+			category: category || fallbackCategory,
+			existing,
+			pick: finalPick
+				? {
+						id: finalPick.id,
+						provider: finalPick.provider,
+						thinking: finalPick.thinking,
+						notes: finalPick.notes,
+					}
+				: null,
+			personas: personas.map((p) => ({ name: p.name, scope: p.scope })),
+		};
+		const fullId =
+			finalPick && finalPick.id.includes("/")
+				? finalPick.id
+				: finalPick && `${finalPick.provider}/${finalPick.id}`;
+		row.guidance = finalPick
+			? `agent models set ${alias} ${fullId}${finalPick.thinking ? " --thinking on" : ""}  (applies to ${personas.length} persona${personas.length === 1 ? "" : "s"})`
+			: `agent models set ${alias} <provider/model>  (${personas.length} persona${personas.length === 1 ? "" : "s"} share this alias)`;
+		rows.push(row);
+		if (personas.length > 1) shared.push(alias);
+	}
+	return { rows, shared };
+}
+
+/**
+ * Decide which `models suggest` rows to write and which to skip (writes are
+ * the caller's job — this is the pure applied/unchanged/writes split behind
+ * `models suggest --apply`).
+ */
+export function planModelSuggestionApply(rows, { reassign = false } = {}) {
+	const applied = [];
+	const unchanged = [];
+	const writes = [];
+	for (const r of rows) {
+		if (!r.pick) continue;
+		const next = r.pick.id.includes("/")
+			? r.pick.id
+			: `${r.pick.provider}/${r.pick.id}`;
+		if (reassign && r.existing === next) {
+			unchanged.push({ alias: r.alias, model: next });
+			continue;
+		}
+		writes.push({
+			alias: r.alias,
+			model: next,
+			category: r.category,
+			thinking: r.pick.thinking ? "on" : undefined,
+		});
+		applied.push({
+			alias: r.alias,
+			model: next,
+			personas: r.personas.map((p) => p.name),
+		});
+	}
+	return { applied, unchanged, writes };
+}
+
 /** Read the persisted live catalog (from `models research --fetch`). */
 export function livePicks() {
 	let cfg;

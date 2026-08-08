@@ -159,6 +159,137 @@ test("computeOnboarding: nothing recommended when there are no gaps", () => {
 	assert.deepEqual(r.gapReport, {});
 });
 
+test("nextGapSuggestion: identity archetype gap wins over other gaps when present", () => {
+	const inv = {
+		files: [
+			{ kind: "identity", exists: true, gaps: ["AGENT_ROLE"] },
+			{ kind: "user", exists: true, gaps: ["USER_GOALS"] },
+			{ kind: "soul", exists: true, gaps: ["SOUL_VALUES"] },
+			{ kind: "environments", exists: true, gaps: ["ENV_LOCAL_OS"] },
+		],
+	};
+	const s = agents.nextGapSuggestion(inv);
+	assert.equal(s.kind, "identity");
+	assert.ok(s.question);
+	assert.ok(Array.isArray(s.options)); // delegated to identity.js onboardSuggest()
+	assert.ok(Array.isArray(s.souls));
+	assert.ok(s.default);
+});
+
+test("nextGapSuggestion: identity AGENT_NAME gap (non-archetype) still outranks user/soul/environments", () => {
+	const inv = {
+		files: [
+			{ kind: "identity", exists: true, gaps: ["AGENT_NAME"] },
+			{ kind: "user", exists: true, gaps: ["USER_GOALS"] },
+		],
+	};
+	const s = agents.nextGapSuggestion(inv);
+	assert.deepEqual(s, {
+		kind: "identity",
+		tag: "AGENT_NAME",
+		question: "What should this agent be named?",
+		freeform: true,
+	});
+});
+
+test("nextGapSuggestion: falls through to user gap when identity is complete", () => {
+	const inv = {
+		files: [
+			{ kind: "identity", exists: true, gaps: [] },
+			{ kind: "user", exists: true, gaps: ["USER_GOALS"] },
+			{ kind: "soul", exists: true, gaps: ["SOUL_VALUES"] },
+			{ kind: "environments", exists: true, gaps: ["ENV_LOCAL_OS"] },
+		],
+	};
+	const s = agents.nextGapSuggestion(inv);
+	assert.equal(s.kind, "user");
+	assert.equal(s.tag, "USER_GOALS");
+	assert.equal(s.freeform, true);
+	assert.ok(s.question);
+});
+
+test("nextGapSuggestion: falls through to soul gap when identity and user are complete", () => {
+	const inv = {
+		files: [
+			{ kind: "identity", exists: true, gaps: [] },
+			{ kind: "user", exists: true, gaps: [] },
+			{ kind: "soul", exists: true, gaps: ["SOUL_BELIEFS"] },
+			{ kind: "environments", exists: true, gaps: ["ENV_LOCAL_OS"] },
+		],
+	};
+	const s = agents.nextGapSuggestion(inv);
+	assert.equal(s.kind, "soul");
+	assert.equal(s.tag, "SOUL_BELIEFS");
+});
+
+test("nextGapSuggestion: falls through to environments gap when identity/user/soul are complete", () => {
+	const inv = {
+		files: [
+			{ kind: "identity", exists: true, gaps: [] },
+			{ kind: "user", exists: true, gaps: [] },
+			{ kind: "soul", exists: true, gaps: [] },
+			{ kind: "environments", exists: true, gaps: ["ENV_LOCAL_SHELL"] },
+		],
+	};
+	const s = agents.nextGapSuggestion(inv);
+	assert.deepEqual(s, {
+		kind: "environments",
+		tag: "ENV_LOCAL_SHELL",
+		question: "What shell do you use locally?",
+		freeform: true,
+	});
+});
+
+test("nextGapSuggestion: returns null when nothing to suggest", () => {
+	const inv = {
+		files: [
+			{ kind: "identity", exists: true, gaps: [] },
+			{ kind: "user", exists: true, gaps: [] },
+			{ kind: "soul", exists: true, gaps: [] },
+			{ kind: "environments", exists: true, gaps: [] },
+			{ kind: "lessons", exists: true, gaps: null },
+		],
+	};
+	assert.equal(agents.nextGapSuggestion(inv), null);
+});
+
+test("nextGapSuggestion: an empty-but-legitimate LESSONS.md is not treated as a gap", async () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-lessons-gap-"));
+	const agentsDir = path.join(cwd, ".agents");
+	mkdirSync(agentsDir, { recursive: true });
+	writeFileSync(
+		path.join(agentsDir, "IDENTITY.md"),
+		"# ID\n<AGENT_NAME>Bob</AGENT_NAME>\n<AGENT_ROLE>r</AGENT_ROLE>\n<AGENT_MISSION>m</AGENT_MISSION>\n<AGENT_PERSONA>p</AGENT_PERSONA>\n",
+	);
+	writeFileSync(
+		path.join(agentsDir, "SOUL.md"),
+		"# S\n<SOUL_PERSONALITY>x</SOUL_PERSONALITY>\n<SOUL_VALUES>x</SOUL_VALUES>\n<SOUL_BELIEFS>x</SOUL_BELIEFS>\n<SOUL_MOTIVATIONS>x</SOUL_MOTIVATIONS>\n",
+	);
+	writeFileSync(
+		path.join(agentsDir, "USER.md"),
+		"# U\n<USER_PREFS>x</USER_PREFS>\n<USER_GOALS>x</USER_GOALS>\n<USER_CONTEXT>x</USER_CONTEXT>\n",
+	);
+	writeFileSync(
+		path.join(agentsDir, "ENVIRONMENTS.md"),
+		"# E\n- User: bob\n- OS: linux\n- Shell: bash\n- Home: /home/bob\n",
+	);
+	// Empty project LESSONS.md — the documented "no project lessons yet" state.
+	writeFileSync(path.join(agentsDir, "LESSONS.md"), "");
+	const inv = await agents.identityInventory({ scope: "project", cwd });
+	const lessons = inv.files.find((f) => f.kind === "lessons");
+	assert.equal(lessons.exists, true);
+	assert.equal(
+		lessons.gaps,
+		null,
+		"identityInventory never computes gaps for kind 'lessons'",
+	);
+	assert.equal(
+		agents.nextGapSuggestion(inv),
+		null,
+		"an empty LESSONS.md must not surface as an onboarding suggestion",
+	);
+});
+
 test("parseFrontmatter: no frontmatter → empty fm, body as-is", () => {
 	const { frontmatter, body } = agents.parseFrontmatter("# hi\n\nbody");
 	assert.deepEqual(frontmatter, {});

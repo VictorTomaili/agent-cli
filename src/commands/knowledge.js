@@ -140,16 +140,7 @@ export function registerKnowledgeCommands(
 					// and bundled curated catalog sections already on disk.
 					const existing = (await readIfExists(m.MODELS_MD)) || "";
 					const liveSection = m.liveCatalogMarkdown(result);
-					let out;
-					if (/##\s+Live model catalog/.test(existing)) {
-						// Replace the previous live section in place.
-						out = existing.replace(
-							/## Live model catalog[\s\S]*?(?=\n## |$)/,
-							liveSection.trimEnd(),
-						);
-					} else {
-						out = existing.trimEnd() + "\n\n" + liveSection.trimEnd() + "\n";
-					}
+					const out = m.mergeLiveCatalogSection(existing, liveSection);
 					await writeFile(m.MODELS_MD, out);
 					// Persist for live-aware auto-pick (models suggest --apply).
 					try {
@@ -210,85 +201,10 @@ export function registerKnowledgeCommands(
 				// --reassign: consider EVERY existing alias (not just unresolved
 				// ones) so the agent can upgrade stale assignments to the current
 				// best model after a live-catalog fetch.
-				const byAlias = new Map();
-				if (opts.reassign) {
-					for (const [alias, v] of Object.entries(m.getAliases())) {
-						byAlias.set(alias, [
-							{
-								name: alias,
-								model: alias,
-								scope: "global",
-								existing: v.model,
-							},
-						]);
-					}
-				} else {
-					for (const u of unresolved) {
-						const arr = byAlias.get(u.model) || [];
-						arr.push(u);
-						byAlias.set(u.model, arr);
-					}
-				}
-				const rows = [];
-				const shared = [];
-				for (const [alias, personas] of byAlias) {
-					// Derive a category from the alias name (strip "-model" suffix)
-					// or fall back to the persona's configured category.
-					const hint = String(alias).replace(/-model$/, "").toLowerCase();
-					let category = m.CATEGORIES.includes(hint) ? hint : null;
-					if (!category) {
-						for (const p of personas) {
-							const cfgForPersona = m.getAlias(p.name);
-							if (cfgForPersona?.category) {
-								category = cfgForPersona.category;
-								break;
-							}
-						}
-					}
-					const picked = category
-						? m.pickForCategory(category, { preferredProviders })
-						: null;
-					// Personas whose alias name doesn't match a category get a category
-					// hint from the alias shape ("review-model" → try to infer review
-					// or smart category by walking the alias name). If still no match,
-					// fall back to "smart" so at least one model is auto-pickable.
-					const fallbackCategory = !category ? "smart" : null;
-					const finalPick =
-						picked ||
-						(fallbackCategory
-							? m.pickForCategory(fallbackCategory, {
-									preferredProviders,
-								})
-							: null);
-					const existing =
-						personas[0]?.existing || m.getAlias(alias)?.model || null;
-					const row = {
-						alias,
-						category: category || fallbackCategory,
-						existing,
-						pick: finalPick
-							? {
-									id: finalPick.id,
-									provider: finalPick.provider,
-									thinking: finalPick.thinking,
-									notes: finalPick.notes,
-								}
-							: null,
-						personas: personas.map((p) => ({
-							name: p.name,
-							scope: p.scope,
-						})),
-					};
-					const fullId =
-						finalPick && finalPick.id.includes("/")
-							? finalPick.id
-							: finalPick && `${finalPick.provider}/${finalPick.id}`;
-					row.guidance = finalPick
-						? `agent models set ${alias} ${fullId}${finalPick.thinking ? " --thinking on" : ""}  (applies to ${personas.length} persona${personas.length === 1 ? "" : "s"})`
-						: `agent models set ${alias} <provider/model>  (${personas.length} persona${personas.length === 1 ? "" : "s"} share this alias)`;
-					rows.push(row);
-					if (personas.length > 1) shared.push(alias);
-				}
+				const { rows, shared } = m.buildModelSuggestions(unresolved, {
+					reassign: !!opts.reassign,
+					preferredProviders,
+				});
 				emit({
 					command: "models",
 					action: "suggest",
@@ -337,28 +253,16 @@ export function registerKnowledgeCommands(
 					}
 				}
 				if (opts.apply) {
-					const applied = [];
-					const unchanged = [];
-					for (const r of rows) {
-						if (!r.pick) continue;
-						const next = r.pick.id.includes("/")
-							? r.pick.id
-							: `${r.pick.provider}/${r.pick.id}`;
-						if (opts.reassign && r.existing === next) {
-							unchanged.push({ alias: r.alias, model: next });
-							continue;
-						}
-						m.setAlias(r.alias, {
-							model: next,
-							category: r.category,
-							thinking: r.pick.thinking ? "on" : undefined,
+					const { applied, unchanged, writes } = m.planModelSuggestionApply(
+						rows,
+						{ reassign: !!opts.reassign },
+					);
+					for (const w of writes)
+						m.setAlias(w.alias, {
+							model: w.model,
+							category: w.category,
+							thinking: w.thinking,
 						});
-						applied.push({
-							alias: r.alias,
-							model: next,
-							personas: r.personas.map((p) => p.name),
-						});
-					}
 					m.writeModelsMd();
 					if (!isJson()) {
 						if (applied.length)
@@ -465,6 +369,7 @@ export function registerKnowledgeCommands(
 				deleteInboxItem,
 				clearInbox,
 				addInboxCapture,
+				deriveTriageCandidate,
 			} = await import("../lessons-lib.js");
 			action = action || "list";
 			const scope = opts.project ? "project" : "global";
@@ -502,6 +407,11 @@ export function registerKnowledgeCommands(
 					return;
 				}
 				const r = await addLesson(name, { body: opts.body, scope, cwd });
+				try {
+					(await import("../session.js")).recordLessonCapture(name);
+				} catch {
+					/* best-effort; lesson is already filed */
+				}
 				emit({ command: "lessons", action, ...r });
 				if (!isJson())
 					log.success(
@@ -556,40 +466,18 @@ export function registerKnowledgeCommands(
 								return "";
 							}
 						})();
-						// candidate topic from `- Capture: <topic>` or the first body line.
-						// Skip the YAML frontmatter block (between the leading `---` markers)
-						// so fields like `sourceSession:` are never picked as the topic.
-						const capture = /^-\s*Capture:\s*(.+)$/m.exec(content);
-						const lines = content.split(/\r?\n/).map((l) => l.trim());
-						let inFm = false;
-						let fmCount = 0;
-						const first = lines.find((l) => {
-							if (l.startsWith("---")) {
-								inFm = !inFm;
-								fmCount++;
-								return false;
-							}
-							return (
-								!inFm &&
-								l &&
-								!l.startsWith("#") &&
-								!l.startsWith("-") &&
-								!l.startsWith("---")
-							);
-						});
-						const topic = (
-							capture
-								? capture[1]
-								: first || items[i].name.replace(/\.md$/, "")
-						).trim();
+						// candidate topic from `- Capture: <topic>` or the first body line,
+						// skipping the YAML frontmatter block so fields like
+						// `sourceSession:` are never picked as the topic.
+						const { candidate, topic } = deriveTriageCandidate(
+							content,
+							items[i].name.replace(/\.md$/, ""),
+						);
 						plans.push({
 							index: i,
 							scope: items[i].scope,
 							file: items[i].file,
-							candidate: topic
-								.toLowerCase()
-								.replace(/[^a-z0-9]+/g, "-")
-								.replace(/^-+|-+$/g, ""),
+							candidate,
 							topic,
 						});
 					}
@@ -687,6 +575,11 @@ export function registerKnowledgeCommands(
 					return;
 				}
 				const r = await addLesson(name, { body: opts.body, scope, cwd });
+				try {
+					(await import("../session.js")).recordLessonCapture(name);
+				} catch {
+					/* best-effort; lesson is already filed */
+				}
 				emit({ command: "lessons", action: "capture", mode: "direct", ...r });
 				if (!isJson()) log.success(`Captured → ${pretty(r.file)}`);
 				return;

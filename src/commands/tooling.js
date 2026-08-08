@@ -198,7 +198,7 @@ export function registerToolingCommands(
 	program
 		.command("search <query>")
 		.description(
-			"Search lessons, identity files, and SPECT docs by relevance.",
+			"Search lessons, identity files, and SPECT docs by relevance — check before starting work to avoid duplicating existing guidance.",
 		)
 		.option("--kind <k>", "lessons|identity|spect|all (default all)")
 		.option("--project", "include the project scope")

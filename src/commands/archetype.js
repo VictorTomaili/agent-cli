@@ -8,7 +8,9 @@ export function registerArchetypeCommands(
 ) {
 	program
 		.command("archetype <action> [arg]")
-		.description("Identity/soul archetypes: list | export <id> | import <file>.")
+		.description(
+			"Identity/soul archetypes: list | export <id> | import <file> — for backing up/transferring identity files; use `identity apply`/`soul apply` to apply a catalog entry in place.",
+		)
 		.option("-p, --project", "project scope (for import)")
 		.action(async (action, arg, opts) => {
 			const arc = await import("../archetypes.js");
@@ -67,7 +69,9 @@ export function registerArchetypeCommands(
 
 	program
 		.command("template install <source>")
-		.description("Install a personality bundle (agents/*.md) from a local dir or git URL.")
+		.description(
+			"Install a personality bundle (agents/*.md) from a local dir or git URL — bulk install; use `agents import` for a single persona file.",
+		)
 		.action(async (source) => {
 			const fsp = await import("node:fs/promises");
 			const { spawnSync } = await import("node:child_process");

@@ -9,6 +9,7 @@ import {
 	writeFileSync,
 	mkdirSync,
 	readFileSync,
+	readdirSync,
 	unlinkSync,
 	existsSync,
 } from "node:fs";
@@ -171,6 +172,41 @@ test("brief --json after init is valid JSON with the expected shape", () => {
 	assert.ok(j.data.master);
 	assert.ok(j.data.onboarding);
 	assert.ok(j.data.update);
+});
+
+test("brief --json omits the open-session warning when no session is active", () => {
+	const home = run(["init"]).home;
+	const r = run(["brief", "--json"], { envHome: home });
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.data.session, null);
+	assert.ok(!j.data.warnings.some((w) => w.includes("session open since")));
+});
+
+test("brief --json surfaces the open-session warning while a session is active, and drops it after session end", () => {
+	const home = run(["init"]).home;
+	const started = run(["session", "start", "fix", "the", "thing"], {
+		envHome: home,
+	});
+	ok(started);
+	const active = parseJson(
+		run(["brief", "--json"], { envHome: home }).stdout,
+	);
+	assert.ok(active.data.session);
+	assert.equal(active.data.session.task, "fix the thing");
+	assert.ok(
+		active.data.warnings.some(
+			(w) =>
+				w.includes("session open since") &&
+				w.includes("agent session end"),
+		),
+		`expected open-session warning, got: ${JSON.stringify(active.data.warnings)}`,
+	);
+
+	ok(run(["session", "end"], { envHome: home }));
+	const ended = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
+	assert.equal(ended.data.session, null);
+	assert.ok(!ended.data.warnings.some((w) => w.includes("session open since")));
 });
 
 test("doctor --json after init surfaces issues (unfilled identity/lessons)", () => {
@@ -1488,4 +1524,73 @@ test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss
 		[...ids].sort(),
 		"all 6 concurrent enables must be persisted",
 	);
+});
+
+test("evaluate session with no archived sessions fails clearly", () => {
+	const home = run(["init"]).home;
+	const r = run(["evaluate", "session", "--json"], { envHome: home });
+	bad(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.match(j.error, /no archived sessions/i);
+});
+
+test("evaluate session --active scores the current unended session", () => {
+	const home = run(["init"]).home;
+	ok(run(["session", "start", "wip", "task"], { envHome: home }));
+	const r = run(["evaluate", "session", "--active", "--json"], {
+		envHome: home,
+	});
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.data.source, "active");
+	assert.equal(j.data.max, 100);
+	// still open: closed/reported/lessons all unmet
+	assert.equal(j.data.score, 0);
+	assert.equal(j.data.feedback.length, 3);
+	ok(run(["session", "end"], { envHome: home }));
+});
+
+test("evaluate session defaults to the most recently archived session and reflects reported+lessons", () => {
+	const home = run(["init"]).home;
+	ok(run(["session", "start", "close", "the", "loop"], { envHome: home }));
+	ok(run(["lessons", "add", "session/close-the-loop-topic"], {
+		envHome: home,
+	}));
+	ok(run(["session", "report"], { envHome: home }));
+	ok(run(["session", "end"], { envHome: home }));
+
+	const r = run(["evaluate", "session", "--json"], { envHome: home });
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.equal(j.data.score, j.data.max);
+	assert.equal(j.data.feedback.length, 0);
+	const bySignal = Object.fromEntries(
+		j.data.breakdown.map((b) => [b.signal, b]),
+	);
+	assert.equal(bySignal.closed.points, bySignal.closed.max);
+	assert.equal(bySignal.reported.points, bySignal.reported.max);
+	assert.equal(bySignal.lessons.points, bySignal.lessons.max);
+});
+
+test("evaluate session <name> scores a specific archived session file", () => {
+	const home = run(["init"]).home;
+	ok(run(["session", "start", "named lookup"], { envHome: home }));
+	ok(run(["session", "end"], { envHome: home }));
+	const sessionsDir = path.join(home, ".agents", "sessions");
+	const [file] = readdirSync(sessionsDir);
+	const stem = file.replace(/\.json$/, "");
+
+	const r = run(["evaluate", "session", stem, "--json"], { envHome: home });
+	ok(r);
+	const j = parseJson(r.stdout);
+	assert.match(j.data.source, new RegExp(stem.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&")));
+
+	const rMissing = run(["evaluate", "session", "does-not-exist", "--json"], {
+		envHome: home,
+	});
+	bad(rMissing);
+	const jMissing = parseJson(rMissing.stdout);
+	assert.equal(jMissing.ok, false);
+	assert.match(jMissing.error, /no archived session/i);
 });

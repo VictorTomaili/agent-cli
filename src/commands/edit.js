@@ -120,19 +120,35 @@ export function registerEditCommands(
 	program
 		.command("onboard [action]")
 		.description(
-			"Identity onboarding: suggest (the one question + options for the agent to ask the user).",
+			"Onboarding: suggest (the single highest-priority gap as one question to ask the user).",
 		)
 		.action(async (action) => {
-			const id = await import("../identity.js");
 			action = action || "suggest";
 			if (action === "suggest") {
-				const s = id.onboardSuggest();
+				const agentsLib = await import("../agents-lib.js");
+				const inv = await agentsLib.identityInventory({
+					scope: "global",
+					cwd: process.cwd(),
+				});
+				const s = agentsLib.nextGapSuggestion(inv);
+				if (!s) {
+					emit({ command: "onboard", kind: null, question: null, done: true });
+					if (!isJson())
+						log.success("Nothing to onboard — all tracked fields are filled.");
+					return;
+				}
 				emit({ command: "onboard", ...s });
 				if (!isJson()) {
 					log.raw(c.bold(s.question));
-					log.dim(
-						`Default: ${s.default}. Ask the user, then: agent identity apply <choice>`,
-					);
+					if (s.kind === "identity" && s.options) {
+						log.dim(
+							`Default: ${s.default}. Ask the user, then: agent identity apply <choice>`,
+						);
+					} else {
+						const { gapFixHints } = await import("../actions.js");
+						const [hint] = gapFixHints({ [s.kind]: [s.tag] });
+						log.dim(`Ask the user, then: ${hint}`);
+					}
 				}
 				return;
 			}

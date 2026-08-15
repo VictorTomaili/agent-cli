@@ -28,6 +28,7 @@ export function cmdList(_args = []) {
 		const sc = sourceLabel(c, active, isDef, isProjAllow)
 		const trg = s.triggers.length ? '  ' + c.gray('/' + s.triggers.join(', /')) : ''
 		console.log(`  ${mark} ${star} ${c.bold(s.name.padEnd(22))} ${c.gray(String(s.version).padEnd(8))} ${sc}${trg}`)
+		if (s.parseError) console.log(c.red('      ✗ frontmatter: ' + trunc(s.parseError, 64)))
 		if (s.description) console.log(c.gray('      ' + trunc(s.description, 68)))
 	}
 	console.log()

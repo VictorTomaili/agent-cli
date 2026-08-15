@@ -3,7 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import c from "picocolors";
 import { STORE_DIR } from "../lib/paths.js";
-import { parseSkillMd } from "../lib/frontmatter.js";
+import { parseSkillMd, stringField } from "../lib/frontmatter.js";
 import {
 	listStore,
 	sanitizeSkillName,
@@ -254,7 +254,8 @@ function getVer(dir) {
 	if (rawMd == null) return "?";
 	try {
 		const { data } = parseSkillMd(rawMd);
-		return data.version || "?";
+		// GAP-6: only a real string version surfaces (object/bool → "?").
+		return stringField(data.version, "?");
 	} catch {
 		return "?";
 	}

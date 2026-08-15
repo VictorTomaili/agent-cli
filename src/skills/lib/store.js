@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { STORE_DIR, CLI_ROOT } from './paths.js'
-import { parseSkillMd, getTriggers } from './frontmatter.js'
+import { parseSkillMd, getTriggers, stringField } from './frontmatter.js'
 
 // --- M5: bounded reads/traversals (local-DoS guard) --------------------------
 // A fetched skill is attacker-controlled: a giant SKILL.md or a zip-bomb tree
@@ -87,7 +87,7 @@ export function guardStoreBase() {
  * follow it out of the store.
  */
 export function containsSymlinks(dir) {
-	let stack = [{ d: dir, depth: 0 }];
+	const stack = [{ d: dir, depth: 0 }];
 	let visited = 0;
 	while (stack.length) {
 		const { d, depth } = stack.pop();
@@ -145,14 +145,19 @@ export function listStore() {
 		const raw = readSkillMdBounded(md)
 		if (raw == null) continue
 		try {
-			const { data } = parseSkillMd(raw)
+			const { data, parseError } = parseSkillMd(raw)
 			out.push({
-				name: data.name || entry.name,
+				// GAP-6: frontmatter name/description/version are untrusted — only real
+				// strings surface (a number `name` would crash padEnd/localeCompare;
+				// an object `description` would render "[object Object]").
+				name: stringField(data.name) || entry.name,
 				dir: entry.name,
-				description: data.description || '',
-				version: data.version || '-',
+				description: stringField(data.description),
+				version: stringField(data.version, '-'),
 				triggers: getTriggers(data),
 				path: md,
+				// GAP-15: carry the YAML parse error so list/show can surface it bounded.
+				parseError: parseError || null,
 			})
 		} catch { /* broken skill → skip */ }
 	}
@@ -205,6 +210,6 @@ export function readSkill(nameOrDir) {
 	if (!isPlainSkillFile(md)) return null
 	const raw = readSkillMdBounded(md)
 	if (raw == null) return null // missing or exceeds the size cap
-	const { data, body } = parseSkillMd(raw)
-	return { name: data.name || n, data, body, path: md }
+	const { data, body, parseError } = parseSkillMd(raw)
+	return { name: stringField(data.name) || n, data, body, path: md, parseError: parseError || null }
 }

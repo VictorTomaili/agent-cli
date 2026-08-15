@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import c from 'picocolors'
-import { parseSkillMd, getTriggers } from '../lib/frontmatter.js'
+import { parseSkillMd, getTriggers, stringField } from '../lib/frontmatter.js'
 import { sanitizeSkillName, listStore, readSkill, skillMdPath, readSkillMdBounded } from '../lib/store.js'
 
 // Resolve a user-supplied target: a store skill name, or a path to a
@@ -16,7 +16,7 @@ export function resolveSkillTarget(target) {
   if (hit) return { kind: 'store', name: hit.name, path: hit.path }
   // path?
   const p = path.resolve(target)
-  let md = fs.existsSync(p) && fs.statSync(p).isDirectory() ? path.join(p, 'SKILL.md') : p
+  const md = fs.existsSync(p) && fs.statSync(p).isDirectory() ? path.join(p, 'SKILL.md') : p
   if (fs.existsSync(md)) return { kind: 'path', name: path.basename(path.dirname(md)), path: md }
   return null
 }
@@ -34,9 +34,12 @@ export function loadSkillTarget(target) {
 // The validation checks shared by `skill validate` (and usable by `install`).
 // Returns { ok, name, errors[], warnings[], data, body }.
 export function validateSkill(content, { fileName = 'SKILL.md' } = {}) {
-  const { data, body } = parseSkillMd(content)
+  const { data, body, parseError } = parseSkillMd(content)
   const errors = []
   const warnings = []
+  // GAP-15: a YAML parse error is the root cause — report it, not a misleading
+  // cascade of "name is required" style errors against an empty mapping.
+  if (parseError) errors.push(`frontmatter is not valid YAML: ${parseError}`)
   const name = data.name
   if (!name) errors.push('frontmatter `name` is required')
   else if (!sanitizeSkillName(name)) errors.push(`frontmatter \`name\` is not a safe skill name: "${name}"`)
@@ -97,12 +100,14 @@ export function cmdPreview(args) {
     process.exit(1)
   }
   const { data, body } = parseSkillMd(fs.readFileSync(res.path, 'utf8'))
-  const name = data.name || res.name
+  const name = stringField(data.name) || res.name
   console.log(c.bold(name) + c.gray('  (' + res.path + ')'))
-  if (data.description) console.log(c.gray('  ' + String(data.description).replace(/[\r\n]+/g, ' ')))
+  const desc = stringField(data.description)
+  if (desc) console.log(c.gray('  ' + desc.replace(/[\r\n]+/g, ' ')))
   const trg = getTriggers(data)
   if (trg.length) console.log(c.gray('  triggers: /' + trg.join(', /')))
-  if (data.version) console.log(c.gray('  version: ' + data.version))
+  const ver = stringField(data.version)
+  if (ver) console.log(c.gray('  version: ' + ver))
   console.log()
   console.log(body.trimEnd())
 }

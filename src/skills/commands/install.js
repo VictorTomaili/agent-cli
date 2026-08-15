@@ -3,7 +3,7 @@ import path from 'node:path'
 import readline from 'node:readline'
 import c from 'picocolors'
 import { STORE_DIR } from '../lib/paths.js'
-import { parseSkillMd } from '../lib/frontmatter.js'
+import { parseSkillMd, stringField } from '../lib/frontmatter.js'
 import { fetchSkillsToTemp } from '../lib/fetch.js'
 import { sanitizeSkillName, guardStoreBase, copySkillIntoStore, readSkillMdBounded } from '../lib/store.js'
 import { writeLock } from './lock.js'
@@ -48,7 +48,7 @@ export function installSource(source) {
 				if (rawMd != null) {
 					try {
 						const { data } = parseSkillMd(rawMd)
-						if (data.name) raw = data.name
+						if (stringField(data.name)) raw = stringField(data.name)
 					} catch { /* fall back to dir name */ }
 				}
 			}

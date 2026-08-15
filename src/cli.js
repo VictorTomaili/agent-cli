@@ -180,7 +180,7 @@ function ctxPaths() {
 	return { masterAbs: MASTER_FILE, masterTilde: masterTilde() };
 }
 
-// --- project-aware master resolution (Finding 13) ---
+// --- project-aware master resolution ---
 // The global master lives at ~/AGENTS.md; a project master lives at
 // [cwd]/.agents/AGENTS.md and is what project-scoped pointers must redirect to.
 const SKILL_BEGIN = "<!-- BEGIN skill-cli -->";

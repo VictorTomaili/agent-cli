@@ -88,7 +88,7 @@ export function readGlobalConfig() {
 export function writeGlobalConfig(cfg) {
 	if (isGlobalConfigCorrupt(cfg)) throw new Error('skill-cli config.yaml is corrupt; repair or remove it before changing settings')
 	fs.mkdirSync(CLI_ROOT, { recursive: true })
-	// B2: write only the known schema, not arbitrary pass-through keys. readGlobalConfig
+	// write only the known schema, not arbitrary pass-through keys. readGlobalConfig
 	// merges parsed-over-defaults, which would otherwise round-trip dead keys (e.g.
 	// the removed `default_agents`) back into the file forever.
 	const out = {
@@ -121,7 +121,7 @@ export function readProjectConfig(cwd = process.cwd()) {
 
 export function writeProjectConfig(cwd, cfg) {
 	if (isProjectConfigCorrupt(cfg)) throw new Error('skill.config is corrupt; repair or remove it before changing settings')
-	// B2: normalize to the known schema on write (drops stale/junk keys).
+	// normalize to the known schema on write (drops stale/junk keys).
 	const out = {
 		inherit: cfg.inherit !== false,
 		deny: Array.isArray(cfg.deny) ? cfg.deny : [],

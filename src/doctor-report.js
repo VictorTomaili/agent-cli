@@ -124,7 +124,7 @@ export async function buildDoctorReport(
 			);
 		}
 	}
-	// F1: required files must EXIST (false-green guard — doctor must not report
+	// required files must EXIST (false-green guard — doctor must not report
 	// healthy when the load manifest would show files as missing).
 	const modelsMdExists = await exists(MODELS_MD);
 	for (const f of inv.files) {

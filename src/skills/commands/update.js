@@ -33,7 +33,7 @@ export function cmdUpdate(args) {
 	let targets = [];
 	let unknown = 0;
 	if (explicit.length) {
-		// B1: case-fold to the canonical installed entry (every other command does).
+		// case-fold to the canonical installed entry (every other command does).
 		for (const a of explicit) {
 			const entry = byLower.get(a.toLowerCase());
 			if (entry) targets.push(entry);
@@ -175,9 +175,9 @@ export function updateOne(entry) {
 			fs.rmSync(backupPath, { recursive: true, force: true });
 		}
 		const verInfo =
-			oldVer !== newVer
-				? c.green(`${oldVer} → ${newVer}`)
-				: c.gray("content changed");
+			oldVer === newVer
+				? c.gray("content changed")
+				: c.green(`${oldVer} → ${newVer}`);
 		console.log(c.green("  ↑ ") + c.bold(pad(name)) + verInfo);
 		return "updated";
 	} catch (e) {

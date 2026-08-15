@@ -344,7 +344,7 @@ export function atomicDisableProjectTarget(root, id) {
 function projectTargetList(cfg, root) {
 	if (
 		cfg.projectTargets &&
-		Object.prototype.hasOwnProperty.call(cfg.projectTargets, root)
+		Object.hasOwn(cfg.projectTargets, root)
 	)
 		return cfg.projectTargets[root]; // null or string[]
 	return Array.isArray(cfg.project) ? cfg.project : null;
@@ -375,7 +375,8 @@ export function disableGlobal(cfg, id) {
  * Enable a project target in ONE project root. When the root's state is null
  * ("all project targets"), enabling is a no-op: we record the root as explicitly
  * "all" rather than collapsing it into a one-item allowlist (which would silently
- * disable every other project target — the Finding 9 regression).
+ * disable every other project target in that root — collapsing "all" to a
+ * one-item allowlist would silently disable the rest).
  */
 export function enableProjectTarget(cfg, root, id) {
 	if (!isPlainObject(cfg.projectTargets)) cfg.projectTargets = {};

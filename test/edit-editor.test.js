@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -131,20 +131,23 @@ test("agent edit: EDITOR='node -e script' receives the target as argv (no shell)
 });
 
 test("agent edit: shell metacharacters in EDITOR are NOT executed", () => {
-	// With shell:true this would have run `calc`/`echo pwned`. Now: parseEditorCommand
-	// splits it into argv ["echo", "pwned>file", "||", "calc"] — spawnSync("echo", …)
-	// never invokes a shell, so the payload is inert. We assert no marker file.
+	// With shell:true this payload would have been shell-interpreted (redirect +
+	// `|| calc`). Now: parseEditorCommand splits it into argv [node, -e, script,
+	// "pwned>marker", "||", "calc"] — spawnSync("node", …) passes them as LITERAL
+	// argv, node ignores the extra script args, and no marker file appears.
+	// (`node` is the editor argv[0] so the test needs no PATH executables beyond
+	// the runtime itself — hermetic on win32 and POSIX.)
 	const marker = path.join(TMP, "pwned");
+	const script = "process.exit(0)";
 	const r = runCli(["edit", "lessons"], {
 		AGENT_CLI_HOME: TMP,
 		VISUAL: "",
-		EDITOR: `echo pwned>${marker.replace(/\\/g, "/")} || calc`,
+		EDITOR: `node -e "${script}" pwned>${JSON.stringify(marker).replaceAll('\\"', "")} || calc`,
 	});
-	// The editor "runs" (echo), exit code 0, but the redirection never happened.
 	assert.equal(r.status, 0, `stderr: ${r.stderr}`);
 	assert.equal(
-		spawnSync("node", ["-e", `require('fs').existsSync(${JSON.stringify(marker)}) ? process.exit(1) : process.exit(0)`]).status,
-		0,
+		existsSync(marker),
+		false,
 		"marker file must NOT exist — metacharacters must not be shell-interpreted",
 	);
 });

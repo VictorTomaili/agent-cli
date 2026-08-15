@@ -201,7 +201,7 @@ export function registerModelsCommands(
 				// ones) so the agent can upgrade stale assignments to the current
 				// best model after a live-catalog fetch.
 				const { rows, shared } = m.buildModelSuggestions(unresolved, {
-					reassign: !!opts.reassign,
+					reassign: opts.reassign === true,
 					preferredProviders,
 				});
 				emit({
@@ -237,11 +237,11 @@ export function registerModelsCommands(
 								);
 							}
 						}
-						const applyable = rows.filter((r) => r.pick).length;
-						if (applyable > 0) {
+						const applicable = rows.filter((r) => r.pick).length;
+						if (applicable > 0) {
 							const src = opts.reassign ? "live" : "bundled";
 							log.dim(
-								`${applyable} alias${applyable === 1 ? "" : "es"} auto-pickable from the ${src} catalog. Apply with: agent models suggest --apply${opts.reassign ? " --reassign" : ""}`,
+								`${applicable} alias${applicable === 1 ? "" : "es"} auto-pickable from the ${src} catalog. Apply with: agent models suggest --apply${opts.reassign ? " --reassign" : ""}`,
 							);
 						} else {
 							log.dim(
@@ -253,8 +253,8 @@ export function registerModelsCommands(
 				if (opts.apply) {
 					const { applied, unchanged, writes } = m.planModelSuggestionApply(
 						rows,
-						{ reassign: !!opts.reassign },
-					);
+						{ reassign: opts.reassign === true },
+						);
 					for (const w of writes)
 						m.setAlias(w.alias, {
 							model: w.model,

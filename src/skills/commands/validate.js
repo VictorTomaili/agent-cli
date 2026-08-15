@@ -33,7 +33,7 @@ export function loadSkillTarget(target) {
 
 // The validation checks shared by `skill validate` (and usable by `install`).
 // Returns { ok, name, errors[], warnings[], data, body }.
-export function validateSkill(content, { fileName = 'SKILL.md' } = {}) {
+export function validateSkill(content, { fileName: _fileName = 'SKILL.md' } = {}) {
   const { data, body, parseError } = parseSkillMd(content)
   const errors = []
   const warnings = []

@@ -22,7 +22,7 @@ manages everything under `~/.agents/`.
 
 ## Layers
 
-```
+```text
 src/cli.js                    entry point: Commander setup, JSON envelope/emit,
                                error handling, registers every command module
       │
@@ -126,7 +126,7 @@ first when touching one.
 
 ## `~/.agents/` on disk
 
-```
+```text
 ~/.agents/
 ├── AGENTS.md            self-pointer stub (points back to ~/AGENTS.md, the real master)
 ├── SOUL.md               \

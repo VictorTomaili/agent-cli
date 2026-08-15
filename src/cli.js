@@ -80,6 +80,7 @@ import { registerMemoryStackCommands } from "./commands/memory-stack.js";
 import { registerIdentityCommands } from "./commands/identity-cmds.js";
 import { registerDelegationCommands } from "./commands/delegation.js";
 import { registerKnowledgeCommands } from "./commands/knowledge.js";
+import { registerModelsCommands } from "./commands/models.js";
 import { registerToolingCommands } from "./commands/tooling.js";
 import { registerSessionCommands } from "./commands/session-cmds.js";
 import { registerReactiveCommands } from "./commands/reactive.js";
@@ -427,10 +428,18 @@ registerKnowledgeCommands(program, {
 	pretty,
 	EXIT,
 	isJson: () => JSON_MODE,
-	readIfExists,
-	writeFile,
 	readFile,
 	preSnapshot,
+});
+registerModelsCommands(program, {
+	emit,
+	fail,
+	log,
+	c,
+	pretty,
+	isJson: () => JSON_MODE,
+	readIfExists,
+	writeFile,
 	loadConfig,
 	findUnresolvedModels,
 	listAgents,

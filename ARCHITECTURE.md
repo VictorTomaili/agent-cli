@@ -74,14 +74,14 @@ first when touching one.
 ## Command groups → files
 
 | Group | File | Registers |
-|---|---|---|
+| --- | --- | --- |
 | target/status/link | `commands/target.js`, `commands/link.js` | target enable/disable, link, unlink, status |
 | info/inspect/protocol | `commands/info.js`, `commands/inspect.js`, `commands/protocol.js`, `commands/where.js` | config, version, targets, whoami, files, manifest, schema, where |
 | edit/pull/onboard | `commands/edit.js` | edit, pull, onboard |
 | identity/soul/user | `commands/identity-cmds.js` | identity, soul, user |
 | archetype/template | `commands/archetype.js` | archetype, template |
 | delegation | `commands/delegation.js` | handoff, agents |
-| knowledge | `commands/knowledge.js` | models, lessons, consolidate |
+| knowledge | `commands/knowledge.js`, `commands/models.js` | lessons, consolidate; models (split in 2026-08 — the models command moved to its own module to keep both under the ~500-line rule) |
 | memory | `commands/memory-ops.js`, `commands/memory-stack.js` | snapshot, restore, backups, memory, session, secret, env |
 | tooling | `commands/tooling.js` | spect, search, sync |
 | session lifecycle | `commands/session-cmds.js`, `commands/session-core.js`, `commands/bootstrap.js` | run, action, setup, day-start, session-start, doctor, brief, init, brief-hooks |
@@ -92,7 +92,7 @@ first when touching one.
 ## Lib layer (`src/*.js`)
 
 | File | Owns |
-|---|---|
+| --- | --- |
 | `util.js` | path helpers, picocolors logger, atomic fs primitives (`writeFile`/`writeFileSync`: exclusive-create → fsync → rename), path containment (`resolveContained`) |
 | `envelope.js` | the one JSON envelope shape (`apiVersion`, `ok`, `command`, `data`) + exit codes |
 | `config.js` | `~/.agents/config.json` — locked read-merge-write (cross-process CAS), corruption detection, closed key-set validation |

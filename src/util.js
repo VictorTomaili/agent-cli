@@ -219,4 +219,92 @@ export async function homeExists(rel) {
 	return exists(path.join(HOME, rel));
 }
 
+// --- L1: shell-free $EDITOR spawning -----------------------------------------
+// `agent edit` used to spawn the raw $VISUAL/$EDITOR string with shell:true —
+// a poisoned env var meant arbitrary command execution. These helpers keep the
+// convenience ("code -w", quoted exe paths) without any shell interpretation.
+
+/**
+ * Quote-aware split of an $EDITOR-style value into an argv array.
+ * Handles double quotes (with \" escapes) and single quotes; unquoted tokens
+ * split on whitespace. Returns null when the value is empty or contains an
+ * unterminated quote — the caller must fail closed, never fall back to a shell.
+ */
+export function parseEditorCommand(editor) {
+	const s = String(editor ?? "").trim();
+	if (!s) return null;
+	const args = [];
+	let cur = "";
+	let quoted = false; // current token included a quoted segment ("" is a real arg)
+	let i = 0;
+	while (i < s.length) {
+		const ch = s[i];
+		if (ch === '"') {
+			quoted = true;
+			i++;
+			while (i < s.length && s[i] !== '"') {
+				if (s[i] === "\\" && s[i + 1] === '"') {
+					cur += '"';
+					i += 2;
+					continue;
+				}
+				cur += s[i];
+				i++;
+			}
+			if (i >= s.length) return null; // unterminated quote
+			i++;
+			continue;
+		}
+		if (ch === "'") {
+			quoted = true;
+			i++;
+			while (i < s.length && s[i] !== "'") {
+				cur += s[i];
+				i++;
+			}
+			if (i >= s.length) return null; // unterminated quote
+			i++;
+			continue;
+		}
+		if (/\s/.test(ch)) {
+				if (cur || quoted) {
+					args.push(cur);
+					cur = "";
+					quoted = false;
+				}
+				i++;
+			continue;
+		}
+		cur += ch;
+		i++;
+	}
+	if (cur || quoted) args.push(cur);
+	if (args.length === 0 || !args[0]) return null;
+	return args;
+}
+
+/** cmd.exe syntax characters — rejected outright for the Windows shim fallback. */
+const CMD_METACHARS = /[&|<>^%"]/;
+
+/** Quote one cmd.exe argument when it contains whitespace. */
+function quoteCmdArg(a) {
+	return /\s/.test(a) ? `"${a}"` : a;
+}
+
+/**
+ * Windows-only fallback for editors shipped as .cmd/.bat shims ("code",
+ * "nano" via scoop, …): Node cannot CreateProcess a batch file directly, so
+ * the shim must run through cmd.exe. Security: the EDITOR portion must be free
+ * of cmd metacharacters (fail closed → null), the target is our own file path,
+ * and every argument is re-quoted — no raw string ever reaches a shell verbatim.
+ */
+export function cmdShimSpawnSync(spawnSync, editorArgs, target) {
+	const all = [...editorArgs.slice(1), target];
+	if (all.some((a) => CMD_METACHARS.test(a)) || CMD_METACHARS.test(editorArgs[0]))
+		return null;
+	const cmdline = [editorArgs[0], ...all].map(quoteCmdArg).join(" ");
+	const comspec = process.env.ComSpec || "cmd.exe";
+	return spawnSync(comspec, ["/d", "/s", "/c", cmdline], { stdio: "inherit" });
+}
+
 export { fs, fsp, path };

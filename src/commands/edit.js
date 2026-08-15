@@ -1,7 +1,7 @@
 // src/commands/edit.js — edit + pull + onboard, extracted from cli.js (HIGH-3).
 // Injected deps: { emit, fail, log, c, pretty, path, exists, writeFile, spawnSync,
 //   MASTER_FILE, projectMasterPath, identityFilePath, POINTER_MARK, getTarget,
-//   targetPath, masterPaths, isJson }.
+//   targetPath, masterPaths, isJson, parseEditorCommand, cmdShimSpawnSync }.
 
 /** Register the edit / pull / onboard commands. */
 export function registerEditCommands(
@@ -24,6 +24,8 @@ export function registerEditCommands(
 		targetPath,
 		masterPaths,
 		isJson,
+		parseEditorCommand,
+		cmdShimSpawnSync,
 	},
 ) {
 	program
@@ -73,14 +75,34 @@ export function registerEditCommands(
 				return;
 			}
 			emit({ command: "edit", kind: kind || "agents", path: target });
-			const editor =
+			// L1: never hand the raw $VISUAL/$EDITOR string to a shell. Parse it into
+			// argv (quote-aware) and spawn directly; only a metachar-free .cmd/.bat
+			// shim falls back to cmd.exe with re-quoted arguments.
+			const rawEditor =
 				process.env.VISUAL ||
 				process.env.EDITOR ||
 				(process.platform === "win32" ? "notepad" : "vi");
-			const r = spawnSync(editor, [target], { stdio: "inherit", shell: true });
+			const editorArgs = parseEditorCommand(rawEditor);
+			if (!editorArgs) {
+				fail(
+					`Cannot parse $VISUAL/$EDITOR (${JSON.stringify(rawEditor)}) — fix the variable (balanced quotes) or unset it.`,
+				);
+			}
+			const editorArgv = [...editorArgs.slice(1), target];
+			let r = spawnSync(editorArgs[0], editorArgv, { stdio: "inherit" });
+			if (
+				process.platform === "win32" &&
+				r.error &&
+				(r.error.code === "ENOENT" || r.error.code === "EINVAL")
+			) {
+				// Windows .cmd/.bat shims can't be CreateProcess'd directly — try the
+				// guarded cmd.exe fallback (returns null when args carry metacharacters).
+				const viaCmd = cmdShimSpawnSync(spawnSync, editorArgs, target);
+				if (viaCmd) r = viaCmd;
+			}
 			// Editor failures must surface as a non-zero exit.
 			if (r.error || r.status !== 0)
-				process.exit(r.status != null ? r.status : 1);
+				process.exit(r.status == null ? 1 : r.status);
 		});
 
 	program

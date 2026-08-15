@@ -7,20 +7,20 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { Command } from "commander";
 import path from "node:path";
-import os from "node:os";
 import {
 	c,
 	log,
 	pretty,
 	MASTER_FILE,
 	POINTER_MASTER_FILE,
-	CONFIG_FILE,
 	AGENTS_DIR,
 	exists,
 	readFile,
 	readIfExists,
 	writeFile,
 	resolveContained,
+	parseEditorCommand,
+	cmdShimSpawnSync,
 } from "./util.js";
 import { envelope, serializeEnvelope, EXIT } from "./envelope.js";
 import { TARGETS, getTarget, targetsWithScope, pathFor } from "./targets.js";
@@ -56,7 +56,6 @@ import {
 	showAgent,
 	scaffoldAgent,
 	identityInventory,
-	computeOnboarding,
 	findUnresolvedModels,
 	identityFilePath,
 	GLOBAL_AGENTS_DIR,
@@ -215,8 +214,9 @@ async function stripSkillBlockFromMaster() {
 	return true;
 }
 
-/** Pre-mutation safety snapshot (best-effort). Returns the snapshot name. */
-async function preSnapshot(label) {
+/** Pre-mutation safety snapshot (best-effort). Returns the snapshot name.
+ *  Callers pass a label for provenance; the label is informational only. */
+async function preSnapshot(_label = "pre-mutation") {
 	try {
 		const { snapshot } = await import("./snapshot.js");
 		const r = snapshot();
@@ -327,6 +327,8 @@ registerEditCommands(program, {
 	targetPath,
 	masterPaths,
 	isJson: () => JSON_MODE,
+	parseEditorCommand,
+	cmdShimSpawnSync,
 });
 registerLinkCommands(program, {
 	emit,

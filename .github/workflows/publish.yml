@@ -48,7 +48,8 @@ jobs:
           fi
       - name: Notice when NPM_TOKEN is not configured
         if: steps.v.outputs.publish == 'true' && env.HAS_NPM_TOKEN != 'true'
-        run: echo "::warning::version ${{ steps.v.outputs.local }} is unpublished but the NPM_TOKEN secret is not set — run: gh secret set NPM_TOKEN -R VictorTomaili/agent-cli"
+        run: |
+          echo "::warning::version ${{ steps.v.outputs.local }} is unpublished but the NPM_TOKEN secret is not set — run 'gh secret set NPM_TOKEN -R VictorTomaili/agent-cli'"
       - name: Publish ${{ steps.v.outputs.local }}
         if: steps.v.outputs.publish == 'true' && env.HAS_NPM_TOKEN == 'true'
         run: npm publish --access public

@@ -3,8 +3,20 @@ name: Publish to npm
 # Fully automatic: every push to main publishes @victortomaili/agent-cli
 # when package.json's version is not on npm yet, then pushes the vX.Y.Z tag.
 # Releasing = bumping "version" in package.json and pushing to main.
-# Requires the repository secret NPM_TOKEN (npm automation token):
-#   gh secret set NPM_TOKEN -R VictorTomaili/agent-cli
+#
+# Auth = npm trusted publishing (OIDC): no NPM_TOKEN secret and no
+# long-lived token (2FA-bypass tokens lose direct publish ~Jan 2027).
+# ONE-TIME SETUP before this workflow can publish (else ENEEDAUTH):
+#   npmjs.com → @victortomaili/agent-cli → Settings → Trusted Publisher →
+#   GitHub Actions: org/user "VictorTomaili", repo "agent-cli",
+#   workflow filename "publish.yml" (environment left blank).
+# Requires npm >= 11.5.1 for OIDC, hence node-version 24
+# (node 22 bundles npm 10). Keep the version-guard step below in sync.
+# After the first OIDC publish verifies, harden (recommended):
+#   npmjs.com → package Settings → Publishing access →
+#   "Require two-factor authentication and disallow tokens", then revoke the
+#   old automation token and remove the NPM_TOKEN repo secret:
+#     gh secret remove NPM_TOKEN -R VictorTomaili/agent-cli
 on:
   push:
     branches: [main]
@@ -19,16 +31,24 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # pushes the release tag back to the repo
-    env:
-      # secrets.* is not usable in step-level `if:` — surface presence via env.
-      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+      id-token: write # OIDC token for npm's short-lived publish token
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24 # trusted publishing needs npm >= 11.5.1
           registry-url: https://registry.npmjs.org
           cache: npm
+      - name: Fail fast if npm is too old for trusted publishing
+        run: |
+          NPMV=$(npm -v)
+          LOWEST=$(printf '11.5.1\n%s\n' "$NPMV" | sort -V | head -n1)
+          if [ "$LOWEST" = "11.5.1" ]; then
+            echo "npm $NPMV - OIDC publish supported"
+          else
+            echo "::error::npm $NPMV < 11.5.1, trusted publishing unsupported"
+            exit 1
+          fi
       - run: npm ci
       - run: npm run check
       - run: npm test
@@ -46,17 +66,11 @@ jobs:
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
           fi
-      - name: Notice when NPM_TOKEN is not configured
-        if: steps.v.outputs.publish == 'true' && env.HAS_NPM_TOKEN != 'true'
-        run: |
-          echo "::warning::version ${{ steps.v.outputs.local }} is unpublished but the NPM_TOKEN secret is not set — run 'gh secret set NPM_TOKEN -R VictorTomaili/agent-cli'"
       - name: Publish ${{ steps.v.outputs.local }}
-        if: steps.v.outputs.publish == 'true' && env.HAS_NPM_TOKEN == 'true'
+        if: steps.v.outputs.publish == 'true'
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Tag the release
-        if: steps.v.outputs.publish == 'true' && env.HAS_NPM_TOKEN == 'true'
+        if: steps.v.outputs.publish == 'true'
         run: |
           TAG="v${{ steps.v.outputs.local }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then

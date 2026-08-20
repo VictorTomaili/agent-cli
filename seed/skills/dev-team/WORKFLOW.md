@@ -1,6 +1,6 @@
 # dev-team — Work Cycle (Agile Delivery Process)
 
-Referenced from `SKILL.md`. This defines **how** a request moves from "Victor asked
+Referenced from `SKILL.md`. This defines **how** a request moves from "the user asked
 for it" to "done and validated" — which stage it passes through, who owns each stage,
 and what "done" means before it moves on. Role capabilities live in `ROLES.md`;
 routing lives in `SKILL.md`; this file is the process that connects them.
@@ -28,7 +28,7 @@ flowchart LR
     D --> E["5. Review"]
     E --> F["6. Security & Risk Gate"]
     F --> G{"Escalation\ntriggered?"}
-    G -- yes --> H["Meeting with Victor"]
+    G -- yes --> H["Meeting with the user"]
     H --> D
     G -- no --> I["7. Delivery"]
     I --> J["8. Validation"]
@@ -37,18 +37,18 @@ flowchart LR
 
 ### 1. Intake & Triage
 - **Owner:** `orchestrator-agent`
-- **Does:** Reads Victor's request, matches it to role(s) in `ROLES.md`, picks the lane, splits cross-cutting work. A request outside software development doesn't get forced onto the closest role — it goes back to Victor (see `SKILL.md` routing table).
+- **Does:** Reads the user's request, matches it to role(s) in `ROLES.md`, picks the lane, splits cross-cutting work. A request outside software development doesn't get forced onto the closest role — it goes back to the user (see `SKILL.md` routing table).
 - **Exit criteria:** Every subtask has exactly one owning role and a lane assigned.
 
 ### 2. Refinement
 - **Owner:** `orchestrator-agent`
 - **Consulted:** `cto-agent` for anything architecturally loaded.
 - **Does:** Turns the raw request into a concrete spec — acceptance criteria, scope boundaries, what "done" looks like. These acceptance criteria are also what stage 8's validation will check against, so write them measurably. Skipped in Fast Lane (the request IS the spec).
-- **Exit criteria:** A one-paragraph spec the executing agent(s) can work from without re-asking Victor.
+- **Exit criteria:** A one-paragraph spec the executing agent(s) can work from without re-asking the user.
 
 ### 3. Planning
 - **Owner:** `cto-agent`
-- **Does:** Breaks the spec into an ordered task list: which `dev-agent` slot(s), what runs in parallel vs. sequentially, whether `devops-agent`/`security-agent` involvement is needed, and which execution mechanism and tool each block uses — Agent tool, workflow script, or an accepted external agent CLI (pi/codex/…), chosen by the orchestrator per `SKILL.md`'s mandate.
+- **Does:** Breaks the spec into an ordered task list: which `dev-agent` slot(s), what runs in parallel vs. sequentially, whether `devops-agent`/`security-agent` involvement is needed, and which execution mechanism and tool each block uses — sub-agent dispatch, workflow script, or an accepted external agent CLI — chosen by the orchestrator per `SKILL.md`'s mandate.
 - **Exit criteria:** Every task has an assigned slot, a declared position in the sequence, and a named execution mechanism + tool.
 
 ### 4. Execution
@@ -69,7 +69,7 @@ flowchart LR
 
 ### Escalation checkpoint (not a numbered stage — can fire from any stage above)
 - **Owner:** `orchestrator-agent`
-- **Does:** The moment any role's "Escalate to human" condition (per `ROLES.md`) is hit at any stage, work pauses right there and the orchestrator opens a short meeting with Victor via **AskUserQuestion** — situation, options, recommendation. On resolution, work resumes at the stage it paused in, not from the top. This also covers the orchestrator's own triggers: first use of a not-yet-accepted agent tool, and tool switches with cost implications.
+- **Does:** The moment any role's "Escalate to human" condition (per `ROLES.md`) is hit at any stage, work pauses right there and the orchestrator opens a short meeting with the user via the **session's ask-user mechanism** — situation, options, recommendation. On resolution, work resumes at the stage it paused in, not from the top. This also covers the orchestrator's own triggers: first use of a not-yet-accepted agent tool, and tool switches with cost implications.
 
 ### 7. Delivery
 - **Owner:** `devops-agent` for deploys; otherwise the owning executor ships its own deliverable.
@@ -78,13 +78,13 @@ flowchart LR
 ### 8. Validation
 - **Owner:** split in two, both mandatory:
   - `qa-agent` — engineering verification: tests pass, the change works in the real environment (UI/frontend changes verified in a real browser, not just a green build).
-  - `orchestrator-agent` — **final validation, the mandate's step**: checks the delivered result against the Refinement acceptance criteria, reads the actual diff, confirms the executor's claims match reality. This applies in **both lanes** and is never delegated away — it's the quality gate Victor holds the orchestrator accountable for.
+  - `orchestrator-agent` — **final validation, the mandate's step**: checks the delivered result against the Refinement acceptance criteria, reads the actual diff, confirms the executor's claims match reality. This applies in **both lanes** and is never delegated away — it's the quality gate the user holds the orchestrator accountable for.
 - **Exit criteria:** Confirmed working / confirmed matches spec — not assumed. Failed validation sends the work back to stage 4 with the orchestrator's concrete findings.
 
 ### 9. Report & Retro
 - **Owner:** `orchestrator-agent`
-- **Does:** One consolidated report to Victor: what was done, by which agent/tool (including any usage-limit switches made mid-task), how it was validated, what needs Victor's decision. For Full Cycle work, also a one-line retro note appended to the running in-session retro log — raw material for the Self-Improvement Loop.
-- **Exit criteria:** Victor has a clear, single answer to "is it done and what happened."
+- **Does:** One consolidated report to the user: what was done, by which agent/tool (including any usage-limit switches made mid-task), how it was validated, what needs the user's decision. For Full Cycle work, also a one-line retro note appended to the running in-session retro log — raw material for the Self-Improvement Loop.
+- **Exit criteria:** The user has a clear, single answer to "is it done and what happened."
 
 ## Self-Improvement Loop
 
@@ -97,14 +97,14 @@ flowchart LR
     T --> S["orchestrator-agent: tooling & strategy review"]
     P --> D["orchestrator-agent: drafts smallest concrete change"]
     S --> D
-    D --> M["Meeting with Victor"]
+    D --> M["Meeting with the user"]
     M -- approved --> C["orchestrator commits to\nROLES.md / WORKFLOW.md / SKILL.md\n(or builds the hook/tool/extension)"]
     M -- rejected --> X["Discarded, logged as 'considered, declined'"]
 ```
 
 **Trigger** — the orchestrator starts this loop when either holds:
 - The in-session retro log has accumulated **5 or more entries** since the last loop ran, or
-- Victor explicitly asks ("how's the team doing", "review the org", "can we improve this process").
+- The user explicitly asks ("how's the team doing", "review the org", "can we improve this process").
 
 It never runs mid-task, and one bad retro is noise — a pattern across several is signal.
 
@@ -116,30 +116,30 @@ It never runs mid-task, and one bad retro is noise — a pattern across several 
 findings: a workflow adjustment, a slot-count change, a new hook/tool/extension, a
 changed escalation threshold. Prefers extending what exists over adding new moving parts.
 
-**Approve** — presented to Victor as a short before/after diff via **AskUserQuestion**.
-Nothing is written until Victor approves. If declined, logged as "considered,
+**Approve** — presented to the user as a short before/after diff via the **session's ask-user mechanism**.
+Nothing is written until the user approves. If declined, logged as "considered,
 declined" so the same idea isn't re-proposed without new evidence.
 
 **Commit** — only on approval, the orchestrator makes the edit (or builds the tool)
-and confirms back to Victor in one line what changed.
+and confirms back to the user in one line what changed.
 
 ## RACI at a glance
 
 | Stage | Responsible | Consulted | Informed |
 |---|---|---|---|
-| Intake & Triage | orchestrator-agent | — | Victor |
+| Intake & Triage | orchestrator-agent | — | user |
 | Refinement | orchestrator-agent | cto-agent | executor slots |
 | Planning | cto-agent | orchestrator-agent | executor slots |
 | Execution | assigned slot(s) | — | orchestrator-agent |
 | Review | peer slot / cto-agent / qa-agent | — | executor |
 | Security & Risk Gate | security-agent | qa-agent (refute pass) | cto-agent |
-| Escalation checkpoint | orchestrator-agent | role that triggered it | Victor (decision-maker) |
+| Escalation checkpoint | orchestrator-agent | role that triggered it | user (decision-maker) |
 | Delivery | devops-agent / owning executor | — | orchestrator-agent |
-| Validation | qa-agent + orchestrator-agent | — | Victor |
-| Report & Retro | orchestrator-agent | — | Victor |
+| Validation | qa-agent + orchestrator-agent | — | user |
+| Report & Retro | orchestrator-agent | — | user |
 
 ## Status visibility
 
-For any Full Cycle item, the orchestrator keeps a live TaskCreate/TaskUpdate entry per
-stage so Victor can ask "where are we" mid-cycle and get the current stage, owner, and
+For any Full Cycle item, the orchestrator keeps a live task-tracker entry per
+stage so the user can ask "where are we" mid-cycle and get the current stage, owner, and
 blocker (if any) instantly.

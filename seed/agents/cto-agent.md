@@ -38,7 +38,7 @@ Major architectural migration, critical technology vendor change.
 
 ## Constraints
 - No sub-agent accesses a tool/action outside its own scope.
-- Any irreversible, financial, legal, or high-risk action requires Victor's approval.
+- Any irreversible, financial, legal, or high-risk action requires the user's approval.
 - Do not redefine scope beyond what the orchestrator delegated.
 - Never hardcode secrets, credentials, project paths, or project names.
 

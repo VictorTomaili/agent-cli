@@ -11,7 +11,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [18, 20, 22]
+        # engines is >=20.19.0: skill tool modules are ESM-in-.js and rely on
+        # Node's module syntax detection (default from 20.19); 18 is EOL.
+        node: [20, 22]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

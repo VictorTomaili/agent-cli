@@ -55,7 +55,13 @@ export function listSnapshots() {
 
 export function snapshot() {
 	ensureDir(SNAP_DIR);
-	const name = ts();
+	// Millisecond timestamps can collide (two snapshots in the same ms) — a
+	// collision would silently merge the new copy into the existing snapshot
+	// dir, mutating it. Suffix until the name is free.
+	const base = ts();
+	let name = base;
+	for (let n = 2; fs.existsSync(path.join(SNAP_DIR, name)); n++)
+		name = `${base}-${n}`;
 	const dst = path.join(SNAP_DIR, name);
 	copyDir(BRAIN, dst, new Set(["backups"]));
 	const files = countFiles(dst);

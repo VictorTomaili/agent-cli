@@ -63,6 +63,9 @@ export async function syncInit({ remote = null } = {}) {
 		const init = git(["init", "-q"], { cwd: dir });
 		if (!init.ok) return { ok: false, reason: init.stderr || "git init failed" };
 	}
+	// Brain files must roundtrip byte-stable: with git's Windows default
+	// core.autocrlf=true, a rollback would rewrite LF working files to CRLF.
+	git(["config", "core.autocrlf", "false"], { cwd: dir });
 	const giPath = path.join(dir, ".gitignore");
 	const existing = fs.existsSync(giPath) ? fs.readFileSync(giPath, "utf8") : "";
 	const lines = existing ? existing.split(/\r?\n/) : [];
@@ -116,7 +119,7 @@ export async function syncPull({ take = null } = {}) {
 	if (merge.ok) return { ok: true, pulled: true, conflict: false, branch, relink: true };
 	if (take === "remote" || take === "local") {
 		const side = take === "remote" ? "--theirs" : "--ours";
-		git(["checkout", side, "."], { cwd: dir });
+		git(["-c", "core.autocrlf=false", "checkout", side, "."], { cwd: dir });
 		git(["add", "-A"], { cwd: dir });
 		const c = git([...GIT_AUTHOR, "commit", "-q", "-m", `agent-cli sync: take ${take}`], { cwd: dir });
 		return {
@@ -205,7 +208,10 @@ export async function syncRollback({ commit = null } = {}) {
 	// (A plain `checkout <commit> -- .` restores tracked files but leaves
 	// post-commit additions in the tree, so a rollback would not actually
 	// remove them.) This is a full-brain restore by definition.
-	const co = git(["reset", "--hard", commit], { cwd: dir });
+	// -c core.autocrlf=false also covers repos initialized before syncInit
+	// started pinning it (otherwise the reset smudges LF files to CRLF on
+	// Windows configs with autocrlf=true).
+	const co = git(["-c", "core.autocrlf=false", "reset", "--hard", commit], { cwd: dir });
 	if (!co.ok) return { ok: false, reason: co.stderr || "reset failed" };
 	return { ok: true, commit, previousHead, relink: true };
 }

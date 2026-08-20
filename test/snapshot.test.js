@@ -97,6 +97,15 @@ test("snapshotDiff lists added/changed/removed against the current brain", () =>
 	assert.ok(d.changed.includes("AGENTS.md"));
 });
 
+test("rapid snapshots never collide into one directory", () => {
+	// Millisecond timestamps can repeat on fast machines; a collision must
+	// produce a suffixed sibling, never merge into (and mutate) the first.
+	const names = Array.from({ length: 5 }, () => snap.snapshot().name);
+	assert.equal(new Set(names).size, names.length, `duplicate names: ${names}`);
+	const listed = snap.listSnapshots();
+	for (const n of names) assert.ok(listed.includes(n), `missing snapshot ${n}`);
+});
+
 test("diffSnapshots compares two snapshots at the file level", () => {
 	const a = snap.snapshot();
 	writeFileSync(path.join(brain(), "AGENTS.md"), "# master v3\n");

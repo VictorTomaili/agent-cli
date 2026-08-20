@@ -47,7 +47,11 @@ export function registerMemoryStackCommands(
 		.description(
 			"Session lifecycle: start [task] | end | report (lesson candidate).",
 		)
-		.action(async (action, task) => {
+		.option(
+			"--if-active",
+			"(end) exit 0 with a no-op result when no session is active — for SessionEnd hooks",
+		)
+		.action(async (action, task, opts) => {
 			const sess = await import("../session.js");
 			if (action === "start") {
 				const r = await sess.sessionStart({ task: task ? task.join(" ") : null, cwd: process.cwd() });
@@ -64,6 +68,14 @@ export function registerMemoryStackCommands(
 			}
 			if (action === "end") {
 				const r = await sess.sessionEnd();
+				if (!r.ok && opts && opts.ifActive) {
+					// Hook mode: a host SessionEnd hook fires even when no session
+					// was ever started (headless runs, sessions that only ran
+					// `brief`). No active session is a normal no-op there, not an error.
+					emit({ command: "session", action, ok: true, noop: true, noActiveSession: true });
+					if (!isJson()) log.dim("No active session — nothing to end.");
+					return;
+				}
 				emit({ command: "session", action, ...r });
 				if (!isJson()) {
 					if (!r.ok) {

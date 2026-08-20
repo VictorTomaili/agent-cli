@@ -67,6 +67,23 @@ test("ensureMaster injects the agent-cli managed block", () => {
 	);
 });
 
+test("fresh master contains the communication managed block", () => {
+	assert.ok(master.includes("<!-- BEGIN communication -->"));
+	assert.ok(master.includes("<!-- END communication -->"));
+	assert.ok(master.includes("## Communication Contract"));
+	// the communication block must sit after the agent-cli block
+	assert.ok(
+		master.indexOf("<!-- BEGIN communication -->") >
+			master.indexOf(AGENT_CLI_BLOCK_END),
+	);
+});
+
+test("fresh master teaches the agent run dispatch", () => {
+	assert.ok(master.includes("agent run"), "missing `agent run` guidance");
+	assert.ok(master.includes("agent configure run"));
+	assert.ok(master.includes("@tomaili/agent"));
+});
+
 test("agent-cli block contains the 'Session start read order' section", () => {
 	const block = readAgentCliBlock(master);
 	assert.ok(block !== null, "agent-cli block missing");
@@ -208,4 +225,41 @@ test("user-content outside the managed blocks survives refreshBlocks", async () 
 		block !== null && block.includes("## Session start read order"),
 		"rule lost when user-content was added",
 	);
+});
+
+test("refreshBlocks adds the communication block to an existing master that lacks it", async () => {
+	// Simulate a pre-communication master: strip the communication block region,
+	// keep everything else, and add unmanaged user content that must survive.
+	const before = readFileSync(masterPath, "utf8");
+	const stripped = before.replace(
+		/<!-- BEGIN communication -->[\s\S]*?<!-- END communication -->\n?/g,
+		"",
+	);
+	assert.ok(!stripped.includes("Communication Contract"));
+	const userNote = `\n## Legacy notes\n\nWritten by the user before the block existed.\n`;
+	writeFileSync(masterPath, stripped + userNote);
+
+	const r = await store.refreshBlocks();
+	assert.equal(r.changed, true, "refreshBlocks should have added the block");
+	const after = readFileSync(masterPath, "utf8");
+	assert.ok(
+		after.includes("## Communication Contract"),
+		"communication block missing after refreshBlocks",
+	);
+	assert.ok(
+		after.indexOf("<!-- BEGIN communication -->") >
+			after.indexOf(AGENT_CLI_BLOCK_END),
+		"communication block must land after the agent-cli block",
+	);
+	assert.ok(
+		after.includes("## Legacy notes"),
+		"unmanaged user content was wiped by refreshBlocks (regression)",
+	);
+	assert.ok(
+		after.includes("## Session start read order"),
+		"agent-cli block lost during communication-block insertion",
+	);
+	// and it is a one-time change — a second refresh is a no-op
+	const again = await store.refreshBlocks();
+	assert.equal(again.changed, false);
 });

@@ -24,6 +24,32 @@ Rules for any agent reading this:
 
 Priority order: correctness > quality > cost > speed.
 
+## Install & update
+
+- The CLI ships as the npm package \`@tomaili/agent\`. Install or update it
+  globally: \`npm i -g @tomaili/agent\`.
+- \`agent brief\` (already mandated at session start) surfaces a cached npm
+  update check. When it reports a newer version, run the suggested update
+  action before continuing.
+- If the \`agent\` command is missing entirely, tell the user and offer to
+  install it. Never reimplement its functions by hand.
+
+## Sub-agent dispatch (agent run)
+
+- Delegate bounded sub-tasks to external coding-agent CLIs via
+  \`agent run "<task>"\` (options: \`--tool <pi|codex>\`, \`--read-only\`,
+  \`--timeout <seconds>\`). The configured fallback chain is applied
+  automatically; failures report per-attempt tool/model/kind.
+- Configure runners once per machine: \`agent configure run pi --provider zai
+  --model glm-5.3 --thinking high --fallback codex:gpt-5.6-luna\` (spec
+  format \`tool:provider/model[:thinking]\`); bare \`agent configure run\`
+  prints the current chain.
+- A coding agent (Claude Code, Codex, Gemini, ...) arriving on a machine
+  where runners are NOT configured should propose a configuration to the
+  user and apply it only after the user confirms — never silently.
+- When a provider is capped or degraded, prefer switching tools (the
+  fallback chain or \`--tool\`) over retrying the capped provider.
+
 ## Session start read order (MANDATORY)
 
 \`agent brief\` emits a "Session start — read in this exact order" list. Read EVERY
@@ -171,30 +197,114 @@ export const AGENT_CLI_BLOCK = `${BEGIN_AGENT_CLI}\n${AGENT_CLI_BODY}\n${END_AGE
 
 /** Idempotently inject/refresh the agent-cli block (replace region, else append). */
 export function injectAgentCliBlock(content) {
-	if (content.includes(BEGIN_AGENT_CLI)) {
-		return content.replace(
-			new RegExp(`${BEGIN_AGENT_CLI}[\\s\\S]*?${END_AGENT_CLI}`),
-			AGENT_CLI_BLOCK,
-		);
-	}
-	return (
-		(content ? content.replace(/\n*$/, "") + "\n\n" : "") +
-		AGENT_CLI_BLOCK +
-		"\n"
-	);
+ if (content.includes(BEGIN_AGENT_CLI)) {
+  return content.replace(
+   new RegExp(`${BEGIN_AGENT_CLI}[\\s\\S]*?${END_AGENT_CLI}`),
+   AGENT_CLI_BLOCK,
+  );
+ }
+ return (
+  (content ? content.replace(/\n*$/, "") + "\n\n" : "") + AGENT_CLI_BLOCK + "\n"
+ );
+}
+
+export const BEGIN_COMMUNICATION = "<!-- BEGIN communication -->";
+export const END_COMMUNICATION = "<!-- END communication -->";
+
+// Token-efficient communication contract — injected into every master right
+// after the agent-cli block. Kept verbatim (only the top heading depth is
+// adjusted to the block convention: `##`).
+const COMMUNICATION_BODY = `## Communication Contract
+
+No-BS, clear, concise, actionable. We are here to solve problems and create value; every reply reflects that.
+
+## Style
+
+- The last line is read first: end with the most important information.
+- Plain, specific language. Use the simplest domain term that compresses the idea; avoid overloaded terms.
+- State each fact once. Repeat only when a later query needs it.
+- Match the level of detail to the size of the request.
+- Challenge incorrect assumptions directly and say why.
+- Prefer one sentence over two, one paragraph over two, when nothing of value is lost.
+- No analogies. Discuss what is in front of us.
+- No flattery, praise, validation, or agreement without reason.
+- No decorative headings, emoji, or motivational language.
+- No em-dash chains, semicolons, fragments, or non-standard punctuation.
+- Never use: "load-bearing", "worth stating plainly", "here's the honest truth", "the real tension", "carry the argument".
+
+## Reference codes
+
+When presenting three or more items of one kind, give every item a short stable code and keep it for the whole conversation: \`D1..\` decisions, \`O1..\` options, \`F1..\` findings, \`R1..\` risks, \`Q1..\` questions, \`A1..\` actions. Invent codes for kinds not listed. Skip codes for short simple answers. Use numbered lists and headings only when they improve navigation.
+
+## Boundaries
+
+- Deliver exactly what was requested at the requested scope. No adjacent cleanup, refactoring, documentation, or features.
+- No speculative abstractions for future requirements.
+- No completion claims without evidence.
+- Never add a co-author to a commit message.
+- Restate completed work concisely; do not pad the report.
+
+## Aliases
+
+These exact standalone tokens expand to instructions. Inside a longer string they are not aliases.
+
+- \`xsimple\` = Simplify, compress, and repeat your response.
+- \`xexplain\` = Explain this like I'm 18. Simpler language, shorter response.
+- \`xfocus\` = Reduce your response to the single most important thing here.
+- \`xref\` = Rewrite your response using reference codes.
+
+## Example
+
+Q: "Is legacy-config.json still referenced?"
+Right: "No. The only match is the file itself."
+Wrong: preamble, offers of adjacent work, restating the question, closing summary.`;
+
+export const COMMUNICATION_BLOCK = `${BEGIN_COMMUNICATION}\n${COMMUNICATION_BODY}\n${END_COMMUNICATION}`;
+
+/**
+ * Idempotently inject/refresh the communication block. When the agent-cli
+ * block is present the communication block is placed directly AFTER it
+ * (before anything that follows, e.g. the skill-cli block); otherwise it is
+ * appended at the end.
+ */
+export function injectCommunicationBlock(content) {
+ if (content.includes(BEGIN_COMMUNICATION)) {
+  return content.replace(
+   new RegExp(`${BEGIN_COMMUNICATION}[\\s\\S]*?${END_COMMUNICATION}`),
+   COMMUNICATION_BLOCK,
+  );
+ }
+ if (content.includes(END_AGENT_CLI)) {
+  const end = content.indexOf(END_AGENT_CLI) + END_AGENT_CLI.length;
+  const head = content.slice(0, end);
+  const tail = content.slice(end).replace(/^\r?\n+/, "");
+  return head + "\n\n" + COMMUNICATION_BLOCK + (tail ? "\n\n" + tail : "\n");
+ }
+ return (
+  (content ? content.replace(/\n*$/, "") + "\n\n" : "") +
+  COMMUNICATION_BLOCK +
+  "\n"
+ );
+}
+
+/** True if content has the communication managed block. */
+export function hasCommunicationBlock(content) {
+ return !!content && content.includes(BEGIN_COMMUNICATION);
 }
 
 /**
- * Ensure BOTH managed blocks (agent-cli + integrated skill) are present and fresh in the
- * master content. The integrated skill implementation owns its block text.
+ * Ensure ALL managed blocks (agent-cli + communication + integrated skill) are
+ * present and fresh in the master content, in that order. The integrated skill
+ * implementation owns its block text.
  */
 export function ensureBlocks(masterContent) {
-	let c = injectAgentCliBlock(masterContent ?? "");
-	c = skillInjectBlock(c);
-	return c;
+ let c = injectAgentCliBlock(masterContent ?? "");
+ c = injectCommunicationBlock(c);
+ c = skillInjectBlock(c);
+ return c;
 }
 
 /** True if content has the agent-cli managed block. */
 export function hasAgentCliBlock(content) {
-	return !!content && content.includes(BEGIN_AGENT_CLI);
+ return !!content && content.includes(BEGIN_AGENT_CLI);
 }

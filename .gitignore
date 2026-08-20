@@ -12,3 +12,7 @@ coverage/
 docs/
 review/
 AGENT-EXPERIENCE-REVIEW.md
+
+# Internal planning notes — not shipped, not public repo history.
+# (Distinct from .spect/, the tracked spec-driven-dev workflow folder.)
+.spec/

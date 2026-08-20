@@ -9,7 +9,7 @@
 //                       adapter) and src/blocks.js (injects the skill-cli managed
 //                       block into the master). Nothing else may import src/skills/**.
 // A violation here is an architecture regression, not a style nit — it re-tangles
-// layers the HIGH-3 cli.js extraction (see PROJECT-ANALYSIS.md) deliberately split apart.
+// layers the HIGH-3 cli.js extraction (see .spec/PROJECT-ANALYSIS.md) deliberately split apart.
 
 import { test } from "node:test";
 import assert from "node:assert";

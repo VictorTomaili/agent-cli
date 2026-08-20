@@ -4,7 +4,10 @@ This document maps how `agent-cli` (`@victortomaili/agent-cli`) is put together:
 data it owns on disk, and the conventions every new command should follow. Written to be
 read by an agent or a human in one pass.
 
-See [ROADMAP.md](ROADMAP.md) for where this is headed; this file describes what exists now.
+See [`.spec/ROADMAP.md`](.spec/ROADMAP.md) for where this is headed; this file describes what
+exists now. (`.spec/` holds internal planning notes — gitignored, local-only, not part of the
+published package or the public repo history; see `.spect/` instead for the tracked
+spec-driven-dev workflow.)
 
 ## Mental model
 
@@ -55,7 +58,7 @@ Every command module exports one `registerXCommands(program, deps)` function.
 `src/cli.js` imports it, builds the `deps` object (loggers, lib functions, constants) once,
 and calls it. This keeps command modules testable without spinning up the real CLI, and
 keeps `cli.js` itself small (721 lines — it used to be 4,796 before the split documented in
-`PROJECT-ANALYSIS.md` HIGH-3).
+`.spec/PROJECT-ANALYSIS.md` HIGH-3).
 
 ```js
 // src/commands/link.js
@@ -153,7 +156,7 @@ A self-contained skill manager (~2,600 lines) with its own `cli.js`, `commands/*
 store at `~/.skill-cli/store`. Integrated through the single adapter `src/skill.js`
 (`ensureSkillStore`, `isSkillAvailable`, `runSkill`) — nothing outside `src/skills/` reaches
 into its internals directly, and nothing inside it reaches back into the rest of `src/`.
-Security-hardened per `PROJECT-ANALYSIS.md` (frontmatter-name traversal, symlink/junction
+Security-hardened per `.spec/PROJECT-ANALYSIS.md` (frontmatter-name traversal, symlink/junction
 guards on install and read, bounded reads, pinned npx fetch).
 
 ## MCP server (`src/serve.js`)
@@ -185,5 +188,5 @@ out to it.
 - **Secrets never sync**: `secrets.js` output is excluded from snapshots, `sync`, `search`,
   and `brief`.
 
-These invariants came out of the audit in `PROJECT-ANALYSIS.md`; any new write path needs
-the same guarantees before it ships (see ROADMAP Phase 5).
+These invariants came out of the audit in `.spec/PROJECT-ANALYSIS.md`; any new write path needs
+the same guarantees before it ships (see `.spec/ROADMAP.md` Phase 5).

@@ -1,4 +1,6 @@
-# agent
+# agent-cli
+
+[![npm version](https://img.shields.io/npm/v/@victortomaili/agent-cli.svg)](https://www.npmjs.com/package/@victortomaili/agent-cli)
 
 > Manage `AGENTS.md` and sync it across all your AI coding agents — Claude Code, Codex, Gemini,
 > Cursor, Windsurf, Cline, Copilot, and more. One canonical source in `~/.agents/`, mirrored
@@ -17,29 +19,56 @@ that tool where the real master file lives, so you never edit the same content t
 
 It also bundles a broader toolkit for that master file: identity/soul/user profiles, model
 alias resolution, lessons learned, delegation handoffs, brain snapshots, and an integrated
-skill manager (`agent-cli skill ...`). Run `agent --help` for the full command surface.
+skill manager (`agent-cli skill ...`). Run `agent-cli --help` for the full command surface.
 
 ## Install
 
-Not yet published to npm. From this repo:
+```bash
+npm install -g @victortomaili/agent-cli
+```
+
+Requires Node.js >= 22 (ESM). This installs the global `agent-cli` command.
+
+### Update
 
 ```bash
+npm update -g @victortomaili/agent-cli
+# or, to force the latest published version:
+npm install -g @victortomaili/agent-cli@latest
+```
+
+`agent-cli doctor` (and the session-start brief) already tell you when a newer version is on
+npm, so you don't need to check by hand. That's a **different** update from `agent-cli update` /
+`agent-cli upgrade`: those apply *shipped-default content* changes (seed files, managed
+instruction blocks) to your existing `~/.agents/` brain, independent of the package version.
+Typical flow after a release: bump the npm package (above), then run `agent-cli upgrade` to
+pull in any new default content it shipped with.
+
+### From source (contributing)
+
+```bash
+git clone https://github.com/VictorTomaili/agent-cli.git
+cd agent-cli
+npm install
 npm link
 ```
 
-This creates a global `agent` command backed by `src/cli.js` (Node.js >= 18, ESM).
+`npm link` creates a global `agent-cli` command backed by this checkout's `src/cli.js`, so local
+edits take effect immediately without republishing.
 
 ## Quick start
 
 ```bash
-agent-cli init             # bootstrap ~/AGENTS.md, detect + link installed tools, install SessionStart hooks
-agent-cli status            # master state + per-target pointer health
-agent-cli doctor            # full diagnostic (config, pointers, skill-cli, staged updates)
-agent-cli edit               # open the master file in $EDITOR
+agent-cli init              # bootstrap ~/AGENTS.md, detect + link installed tools, install SessionStart hooks
+agent-cli status             # master state + per-target pointer health
+agent-cli doctor             # full diagnostic (config, pointers, skill-cli, staged updates, npm freshness)
+agent-cli edit                # open the master file in $EDITOR
 ```
 
 `agent-cli init` is idempotent — re-running it repairs anything missing without touching your
-edited content.
+edited content. It's also the one command that turns a bare npm install into a working setup:
+it seeds the master, writes pointer stubs for every detected tool, deploys the home pointer at
+`~/AGENTS.md`, installs SessionStart brief hooks, and sets up the bundled skill manager.
 
 ## Core concepts
 
@@ -68,8 +97,9 @@ edited content.
 | Diagnostics | `doctor`, `config`, `stats`, `whoami`, `files`, `manifest`, `schema` |
 | Automation | `hooks install` (git hooks), `automation add\|list\|run`, `watch`, `serve` (MCP over stdio) |
 
-Run `agent-cli help <command>` for details on any of these, or `agent-cli manifest` for the full
-machine-readable command/exit-code contract.
+Run `agent-cli help <command>` for details on any of these, or `agent-cli --json manifest` for
+the full machine-readable command/exit-code contract (plain `manifest` with no `--json` prints
+nothing — it's a JSON-only command).
 
 ## Project-driven documentation
 

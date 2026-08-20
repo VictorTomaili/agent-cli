@@ -83,20 +83,20 @@ test("ensureBlocks handles null/empty content (still injects all blocks)", () =>
 	assert.ok(out.includes("<!-- BEGIN skill-cli -->"));
 });
 
-test("agent-cli block teaches install/update via @tomaili/agent", () => {
+test("agent-cli block teaches install/update via @victortomaili/agent-cli", () => {
 	assert.ok(AGENT_CLI_BLOCK.includes("## Install & update"));
-	assert.ok(AGENT_CLI_BLOCK.includes("`npm i -g @tomaili/agent`"));
+	assert.ok(AGENT_CLI_BLOCK.includes("`npm i -g @victortomaili/agent-cli`"));
 	assert.ok(AGENT_CLI_BLOCK.includes("update check"));
 	assert.ok(AGENT_CLI_BLOCK.includes("Never reimplement its functions by hand"));
 });
 
-test("agent-cli block teaches the agent run sub-agent dispatch", () => {
-	assert.ok(AGENT_CLI_BLOCK.includes("## Sub-agent dispatch (agent run)"));
-	assert.ok(AGENT_CLI_BLOCK.includes('`agent run "<task>"`'));
+test("agent-cli block teaches the agent-cli run sub-agent dispatch", () => {
+	assert.ok(AGENT_CLI_BLOCK.includes("## Sub-agent dispatch (agent-cli run)"));
+	assert.ok(AGENT_CLI_BLOCK.includes('`agent-cli run "<task>"`'));
 	assert.ok(AGENT_CLI_BLOCK.includes("--tool <pi|codex>"));
 	assert.ok(AGENT_CLI_BLOCK.includes("--read-only"));
 	assert.ok(AGENT_CLI_BLOCK.includes("--timeout <seconds>"));
-	assert.ok(AGENT_CLI_BLOCK.includes("agent configure run pi --provider zai"));
+	assert.ok(AGENT_CLI_BLOCK.includes("agent-cli configure run pi --provider zai"));
 	assert.ok(AGENT_CLI_BLOCK.includes("tool:provider/model[:thinking]"));
 	assert.ok(AGENT_CLI_BLOCK.includes("never silently"));
 });

@@ -34,7 +34,7 @@ export function registerMemoryOpsCommands(
 			} = await import("../snapshot.js");
 			if (action === "diff") {
 				const [a, b] = args || [];
-				if (!a || !b) fail("Usage: agent snapshot diff <a> <b>");
+				if (!a || !b) fail("Usage: agent-cli snapshot diff <a> <b>");
 				const r = diffSnapshots(a, b);
 				emit({ command: "snapshot", action: "diff", ...r });
 				if (!isJson()) {
@@ -153,7 +153,7 @@ export function registerMemoryOpsCommands(
 				return;
 			}
 			if (action === "diff") {
-				if (!name) fail("Usage: agent backups diff <name>");
+				if (!name) fail("Usage: agent-cli backups diff <name>");
 				const r = memMod.backupsDiff(name, { scope });
 				emit({ command: "backups", action: "diff", ...r });
 				if (!isJson()) {

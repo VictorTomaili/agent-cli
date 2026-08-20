@@ -108,7 +108,7 @@ function replaceOrAppendSection(content, heading, newSection) {
  * `includeCatalog` only controls whether a MISSING catalog section gets
  * seeded with the bundled baseline (first write, or a file that never had
  * one) — it does not replace an existing catalog. Pass `refreshCatalog:
- * true` (used by `agent models research --refresh`) to explicitly replace
+ * true` (used by `agent-cli models research --refresh`) to explicitly replace
  * an already-present catalog section with the bundled baseline; that is
  * the one call site where blowing away hand-curated catalog content is the
  * intended, user-requested action.
@@ -127,7 +127,7 @@ export function writeModelsMd({ includeCatalog = true, refreshCatalog = false } 
 	const aliasLines = ["## Aliases", ""];
 	if (Object.keys(a).length === 0) {
 		aliasLines.push(
-			"_No aliases configured yet. Run `agent models suggest` to auto-pick, or `agent models set <alias> <provider/model>` to assign manually._",
+			"_No aliases configured yet. Run `agent-cli models suggest` to auto-pick, or `agent-cli models set <alias> <provider/model>` to assign manually._",
 			"",
 		);
 	}
@@ -150,8 +150,8 @@ export function writeModelsMd({ includeCatalog = true, refreshCatalog = false } 
 			"# MODELS.md — model aliases",
 			"",
 			"> When a configured model is unavailable, research the current host/provider model stack, select the best compatible equivalent, and test it with a minimal echo request before assigning it. Preserve the alias category, capability, and fallback intent. agent-cli only stores configuration; it does not perform research, model calls, or capability tests.",
-			"> Edit with `agent models set <alias> <provider/model> --fallback <provider/model>...`.",
-			"> Run `agent models research` to refresh the curated catalog below; run `agent models suggest` to auto-pick a model for each unresolved alias.",
+			"> Edit with `agent-cli models set <alias> <provider/model> --fallback <provider/model>...`.",
+			"> Run `agent-cli models research` to refresh the curated catalog below; run `agent-cli models suggest` to auto-pick a model for each unresolved alias.",
 			"",
 			aliasSection,
 			categoriesSection,
@@ -175,14 +175,14 @@ export function writeModelsMd({ includeCatalog = true, refreshCatalog = false } 
 
 // --- Curated model catalog ---------------------------------------------------
 // A bundled snapshot of well-known model families as of 2026. Used by:
-//   1. `agent models research` to seed MODELS.md with real candidates (not just
+//   1. `agent-cli models research` to seed MODELS.md with real candidates (not just
 //      categories) so the agent has data to assign to aliases.
-//   2. `agent models suggest --auto` to pick a concrete provider/model per
+//   2. `agent-cli models suggest --auto` to pick a concrete provider/model per
 //      alias based on the persona's role.
 //   3. The brief's "unresolved alias" hint to recommend specific models.
 //
 // This is NOT a live registry. It is a curated baseline that the agent keeps
-// current by running `agent models research` and updating entries. The intent
+// current by running `agent-cli models research` and updating entries. The intent
 // is "agent-cli ships a useful starting catalog so the agent isn't staring at
 // an empty file."
 
@@ -281,7 +281,7 @@ function categoryFromId(id) {
  * Merge a freshly fetched "Live model catalog" Markdown section into the
  * existing MODELS.md content: replaces the section in place when one is
  * already present, else appends it. Pure string transform — the caller does
- * the actual file write. Used by `agent models research --fetch`.
+ * the actual file write. Used by `agent-cli models research --fetch`.
  */
 export function mergeLiveCatalogSection(existing, liveSection) {
 	if (/##\s+Live model catalog/.test(existing)) {
@@ -374,8 +374,8 @@ export function buildModelSuggestions(
 				? finalPick.id
 				: finalPick && `${finalPick.provider}/${finalPick.id}`;
 		row.guidance = finalPick
-			? `agent models set ${alias} ${fullId}${finalPick.thinking ? " --thinking on" : ""}  (applies to ${personas.length} persona${personas.length === 1 ? "" : "s"})`
-			: `agent models set ${alias} <provider/model>  (${personas.length} persona${personas.length === 1 ? "" : "s"} share this alias)`;
+			? `agent-cli models set ${alias} ${fullId}${finalPick.thinking ? " --thinking on" : ""}  (applies to ${personas.length} persona${personas.length === 1 ? "" : "s"})`
+			: `agent-cli models set ${alias} <provider/model>  (${personas.length} persona${personas.length === 1 ? "" : "s"} share this alias)`;
 		rows.push(row);
 		if (personas.length > 1) shared.push(alias);
 	}
@@ -457,7 +457,7 @@ export function saveLiveCatalog(result) {
 /**
  * Staleness of the persisted live catalog, in days. Returns null when it has
  * never been fetched, else a non-negative number. Used by the brief to
- * suggest `agent models research --fetch` when the data is old.
+ * suggest `agent-cli models research --fetch` when the data is old.
  */
 export function liveCatalogAgeDays() {
 	let cfg;
@@ -477,7 +477,7 @@ export function catalogMarkdown() {
 	const lines = [
 		"## Curated model catalog",
 		"",
-		"> Bundled 2026-Q2 baseline. Run `agent models research --refresh` after",
+		"> Bundled 2026-Q2 baseline. Run `agent-cli models research --refresh` after",
 		"> investigating provider docs / changelogs to update this section.",
 		"",
 		"| id | provider | family | category | thinking | notes |",
@@ -494,7 +494,7 @@ export function catalogMarkdown() {
 }
 
 // --- Live catalog fetch -----------------------------------------------------
-// `agent models research --fetch` pulls a real, no-auth model list from a
+// `agent-cli models research --fetch` pulls a real, no-auth model list from a
 // public endpoint and writes it into MODELS.md so the agent has current
 // provider/model data instead of only the bundled baseline. Falls back
 // gracefully to the baseline when offline.
@@ -575,7 +575,7 @@ export function liveCatalogMarkdown(result) {
 		"## Live model catalog",
 		"",
 		`> Fetched from ${result.source} at ${result.fetchedAt} (${result.count} models).`,
-		"> Auto-refresh: `agent models research --fetch`. Pricing is USD per 1M tokens.",
+		"> Auto-refresh: `agent-cli models research --fetch`. Pricing is USD per 1M tokens.",
 		"",
 		"| id | provider | context | input $/1M | output $/1M | modalities |",
 		"|---|---|---|---|---|---|",

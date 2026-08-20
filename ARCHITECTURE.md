@@ -1,6 +1,6 @@
 # Architecture
 
-This document maps how `agent-cli` (`@tomaili/agent`) is put together: the layers, the
+This document maps how `agent-cli` (`@victortomaili/agent-cli`) is put together: the layers, the
 data it owns on disk, and the conventions every new command should follow. Written to be
 read by an agent or a human in one pass.
 
@@ -149,7 +149,7 @@ first when touching one.
 ## Skills subsystem (`src/skills/`)
 
 A self-contained skill manager (~2,600 lines) with its own `cli.js`, `commands/*.js`, and
-`lib/*.js`, bundled into `agent` and reachable via `agent skill ...`. Backed by a global
+`lib/*.js`, bundled into `agent` and reachable via `agent-cli skill ...`. Backed by a global
 store at `~/.skill-cli/store`. Integrated through the single adapter `src/skill.js`
 (`ensureSkillStore`, `isSkillAvailable`, `runSkill`) — nothing outside `src/skills/` reaches
 into its internals directly, and nothing inside it reaches back into the rest of `src/`.
@@ -158,7 +158,7 @@ guards on install and read, bounded reads, pinned npx fetch).
 
 ## MCP server (`src/serve.js`)
 
-Zero-dependency JSON-RPC 2.0 stdio server (`agent serve`). Wraps the read-only
+Zero-dependency JSON-RPC 2.0 stdio server (`agent-cli serve`). Wraps the read-only
 `src/api/index.js` SDK as MCP tools (`brief`, `doctor`, `search`, `snapshot`, `status`,
 `spect_status`) for any MCP host (Claude Desktop, Cursor, VS Code, …) to call directly
 instead of shelling out. See ROADMAP Phase 6 for planned expansion (write-capable tools,

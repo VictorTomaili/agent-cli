@@ -32,7 +32,7 @@ const UPDATE_RE = /^update-(\d+\.\d+\.\d+(?:[-+].*)?)$/;
 /**
  * Walk a directory tree, returning relative paths (posix-style) of all files.
  * M5: bounded — the shipped seed tree is repo-owned, but a packaging accident
- * (deep nesting or a huge tree) must not turn `agent init` into a DoS.
+ * (deep nesting or a huge tree) must not turn `agent-cli init` into a DoS.
  */
 const SEED_MAX_DEPTH = 8;
 const SEED_MAX_ENTRIES = 5000;

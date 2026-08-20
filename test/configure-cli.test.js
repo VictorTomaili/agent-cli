@@ -1,5 +1,5 @@
-// Integration tests for the runner CLI surface: `agent configure run` +
-// `agent run` end-to-end through REAL child processes (fixture CLIs written
+// Integration tests for the runner CLI surface: `agent-cli configure run` +
+// `agent-cli run` end-to-end through REAL child processes (fixture CLIs written
 // into a temp dir and pointed at via AGENT_RUN_BIN_PI/AGENT_RUN_BIN_CODEX —
 // resolveSpawn runs .cjs targets through node, so the fixtures spawn
 // cross-platform without any shell). Isolated AGENT_CLI_HOME per invocation,
@@ -114,7 +114,7 @@ test("configure run pi persists the runners entry and makes it the default", () 
 		thinking: "high",
 		fallbacks: ["codex:gpt-5.6-luna"],
 	});
-	// `agent config` exposes the same entry.
+	// `agent-cli config` exposes the same entry.
 	const c = run(["config", "--json"], { envHome: home });
 	ok(c);
 	assert.equal(parseJson(c.stdout).data.config.runners.default, "pi");
@@ -132,7 +132,7 @@ test("bare `configure run` exits 0 and lists the configured tool", () => {
 	assert.match(r.stdout, /glm-5\.3/);
 });
 
-test("`agent run` dispatches to the real fixture CLI (prompt-file path)", () => {
+test("`agent-cli run` dispatches to the real fixture CLI (prompt-file path)", () => {
 	const home = configuredHome();
 	const r = run(["run", "hello world"], {
 		envHome: home,
@@ -163,11 +163,11 @@ test("quota failure on pi falls through to the codex fixture, exit 0, attempts[0
 	assert.equal(j.data.attempts[0].kind, "quota");
 });
 
-test("`agent run` with no task / no runners configured exits non-zero with guidance", () => {
+test("`agent-cli run` with no task / no runners configured exits non-zero with guidance", () => {
 	// No task text → usage guidance (new runner mode via --tool).
 	const usage = run(["run", "--tool", "pi"]);
 	bad(usage);
-	assert.match(usage.stderr + usage.stdout, /Usage: agent run/);
+	assert.match(usage.stderr + usage.stdout, /Usage: agent-cli run/);
 	// Task text but nothing configured → config guidance.
 	const home = mkdtempSync(path.join(tmpdir(), "agent-cfgcli-"));
 	const uncfg = run(["run", "do the thing"], { envHome: home });

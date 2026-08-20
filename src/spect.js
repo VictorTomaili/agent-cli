@@ -22,7 +22,7 @@ This project uses SPECT as a living specification workflow.
 ## Task-start guidance
 
 SPECT is optional. If the user explicitly requests specification-driven development,
-run agent spect init in the project directory when it is absent. If the project already
+run agent-cli spect init in the project directory when it is absent. If the project already
 has .spect, read this README, constitution.md, and the relevant specs, plans, and tasks,
 then follow the SPECT loop below.
 
@@ -517,9 +517,9 @@ export async function closeTask(cwd, id) {
 		file: r.file,
 		lesson: {
 			topic: `spect/${id.toLowerCase()}`,
-			suggestion: `agent lessons add spect/${id.toLowerCase()} --body '<what was learned>'`,
+			suggestion: `agent-cli lessons add spect/${id.toLowerCase()} --body '<what was learned>'`,
 		},
-		snapshotSuggestion: "agent snapshot",
+		snapshotSuggestion: "agent-cli snapshot",
 	};
 }
 

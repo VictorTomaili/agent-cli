@@ -31,7 +31,7 @@ export function registerArchetypeCommands(
 				return;
 			}
 			if (action === "export") {
-				if (!arg) fail("Usage: agent archetype export <identity|soul-id>");
+				if (!arg) fail("Usage: agent-cli archetype export <identity|soul-id>");
 				const isSoul = idMod.listSouls().some((s) => s.key === arg);
 				const content = isSoul ? arc.soulContent(arg) : arc.identityContent(arg);
 				emit({ command: "archetype", action, kind: isSoul ? "soul" : "identity", id: arg, content });
@@ -39,7 +39,7 @@ export function registerArchetypeCommands(
 				return;
 			}
 			if (action === "import") {
-				if (!arg) fail("Usage: agent archetype import <file>");
+				if (!arg) fail("Usage: agent-cli archetype import <file>");
 				const fsp = await import("node:fs/promises");
 				let content;
 				try {

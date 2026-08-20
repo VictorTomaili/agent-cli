@@ -21,7 +21,7 @@ test("fetchLatestVersion returns version from registry (mocked)", async () => {
 		ok: true,
 		json: async () => ({ version: "1.2.3" }),
 	});
-	const v = await npm.fetchLatestVersion("@tomaili/agent", { fetchImpl });
+	const v = await npm.fetchLatestVersion("@victortomaili/agent-cli", { fetchImpl });
 	assert.equal(v, "1.2.3");
 });
 
@@ -31,7 +31,7 @@ test("fetchLatestVersion returns null on http error", async () => {
 		status: 404,
 		json: async () => ({}),
 	});
-	const v = await npm.fetchLatestVersion("@tomaili/agent", { fetchImpl });
+	const v = await npm.fetchLatestVersion("@victortomaili/agent-cli", { fetchImpl });
 	assert.equal(v, null);
 });
 
@@ -39,7 +39,7 @@ test("fetchLatestVersion returns null on throw", async () => {
 	const fetchImpl = async () => {
 		throw new Error("network down");
 	};
-	const v = await npm.fetchLatestVersion("@tomaili/agent", {
+	const v = await npm.fetchLatestVersion("@victortomaili/agent-cli", {
 		fetchImpl,
 		timeoutMs: 50,
 	});
@@ -54,7 +54,7 @@ test("ensureUpdateCheck fetches fresh then caches for a day", async () => {
 	};
 	const cfg = {};
 	const now = Date.now();
-	const a = await npm.ensureUpdateCheck(cfg, "@tomaili/agent", "0.2.0", {
+	const a = await npm.ensureUpdateCheck(cfg, "@victortomaili/agent-cli", "0.2.0", {
 		fetchImpl,
 		now,
 	});
@@ -65,7 +65,7 @@ test("ensureUpdateCheck fetches fresh then caches for a day", async () => {
 	assert.equal(cfg.updateCheck.latestVersion, "0.3.0");
 
 	// within a day → cached, no new call
-	const b = await npm.ensureUpdateCheck(cfg, "@tomaili/agent", "0.2.0", {
+	const b = await npm.ensureUpdateCheck(cfg, "@victortomaili/agent-cli", "0.2.0", {
 		fetchImpl,
 		now: now + 1000,
 	});
@@ -74,7 +74,7 @@ test("ensureUpdateCheck fetches fresh then caches for a day", async () => {
 	assert.equal(calls, 1);
 
 	// after a day → refresh
-	const c = await npm.ensureUpdateCheck(cfg, "@tomaili/agent", "0.2.0", {
+	const c = await npm.ensureUpdateCheck(cfg, "@victortomaili/agent-cli", "0.2.0", {
 		fetchImpl,
 		now: now + 26 * 60 * 60 * 1000,
 	});
@@ -89,8 +89,8 @@ test("ensureUpdateCheck force=true bypasses cache", async () => {
 		return { ok: true, json: async () => ({ version: "0.4.0" }) };
 	};
 	const cfg = {};
-	await npm.ensureUpdateCheck(cfg, "@tomaili/agent", "0.2.0", { fetchImpl });
-	await npm.ensureUpdateCheck(cfg, "@tomaili/agent", "0.2.0", {
+	await npm.ensureUpdateCheck(cfg, "@victortomaili/agent-cli", "0.2.0", { fetchImpl });
+	await npm.ensureUpdateCheck(cfg, "@victortomaili/agent-cli", "0.2.0", {
 		fetchImpl,
 		force: true,
 	});
@@ -106,10 +106,10 @@ test("ensureUpdateCheck falls back to stale cache when fetch fails", async () =>
 		throw new Error("down");
 	};
 	const cfg = {};
-	await npm.ensureUpdateCheck(cfg, "@tomaili/agent", "0.2.0", {
+	await npm.ensureUpdateCheck(cfg, "@victortomaili/agent-cli", "0.2.0", {
 		fetchImpl: good,
 	});
-	const r = await npm.ensureUpdateCheck(cfg, "@tomaili/agent", "0.2.0", {
+	const r = await npm.ensureUpdateCheck(cfg, "@victortomaili/agent-cli", "0.2.0", {
 		fetchImpl: bad,
 		force: true,
 	});
@@ -121,7 +121,7 @@ test("ensureUpdateCheck unknown when no cache and fetch fails", async () => {
 	const bad = async () => {
 		throw new Error("down");
 	};
-	const r = await npm.ensureUpdateCheck({}, "@tomaili/agent", "0.2.0", {
+	const r = await npm.ensureUpdateCheck({}, "@victortomaili/agent-cli", "0.2.0", {
 		fetchImpl: bad,
 	});
 	assert.equal(r.latest, null);

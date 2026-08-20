@@ -1,8 +1,8 @@
-// src/brief-report.js — pure payload assembly for `agent brief`.
+// src/brief-report.js — pure payload assembly for `agent-cli brief`.
 // Takes the already-collected session state from src/actions.js#collectState
-// (the single source of truth for the session contract, shared with `agent
-// run`/`agent action verify`/the SDK) plus a couple of CLI-only extras, and
-// returns the exact JSON envelope `agent brief` emits. No emit/log/
+// (the single source of truth for the session contract, shared with `agent-cli
+// run`/`agent-cli action verify`/the SDK) plus a couple of CLI-only extras, and
+// returns the exact JSON envelope `agent-cli brief` emits. No emit/log/
 // process.exit/network/writes — the caller owns all of that.
 
 import { pretty, MASTER_FILE } from "./util.js";
@@ -24,7 +24,7 @@ export function buildBriefPayload(s, { forTask = null, version } = {}) {
 
 	const blockers = [];
 	if (s.masterContent == null)
-		blockers.push("master missing — run `agent init`");
+		blockers.push("master missing — run `agent-cli init`");
 	const warnings = [];
 	if (s.archetypeNeeded) warnings.push("identity onboarding incomplete");
 	if (s.unresolvedModels.length)
@@ -35,7 +35,7 @@ export function buildBriefPayload(s, { forTask = null, version } = {}) {
 		warnings.push(`agent-cli ${s.upd.latest} available`);
 	if (s.session)
 		warnings.push(
-			`session open since ${s.session.startedAt} — run \`agent session end\` to close it out and capture lesson candidates`,
+			`session open since ${s.session.startedAt} — run \`agent-cli session end\` to close it out and capture lesson candidates`,
 		);
 
 	return {

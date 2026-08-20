@@ -26,7 +26,7 @@ export function projectAgentsDir(cwd = process.cwd()) {
 
 /** The unified identity/memory file set (kind → filename).
  *  `globalOnly: true` means the kind has NO project-scope override — only the
- *  global file is loaded by `agent brief`, regardless of whether a project-scope
+ *  global file is loaded by `agent-cli brief`, regardless of whether a project-scope
  *  file exists. These are characteristics of the agent/machine/operator that
  *  don't vary per project: who the agent IS (identity), who the operator IS
  *  (user), and what models the machine can reach (models). */
@@ -368,7 +368,7 @@ export async function validateAgent(filePath) {
 		const concrete = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(frontmatter.model);
 		if (!aliasOk && !concrete)
 			warnings.push(
-				`model: '${frontmatter.model}' is unresolved; configure it with agent models set`,
+				`model: '${frontmatter.model}' is unresolved; configure it with agent-cli models set`,
 			);
 	}
 	for (const sec of REQUIRED_SECTIONS)
@@ -403,7 +403,7 @@ export async function findUnresolvedModels(cwd = process.cwd()) {
 				name: a.name,
 				model: a.model,
 				scope: a.scope || "global",
-				guidance: `agent models set ${a.name} <provider/model>`,
+				guidance: `agent-cli models set ${a.name} <provider/model>`,
 			});
 	}
 	return unresolved;

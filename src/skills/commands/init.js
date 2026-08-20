@@ -27,11 +27,11 @@ function initGlobal() {
 	console.log(
 		c.gray("  canonical master: ~/.agents/AGENTS.md (managed by agent-cli)"),
 	);
-	console.log(c.gray("  refresh:          agent skill refresh"));
+	console.log(c.gray("  refresh:          agent-cli skill refresh"));
 	console.log();
 	console.log(
 		c.cyan("Next: ") +
-			"agent skill install <source>  " +
+			"agent-cli skill install <source>  " +
 			c.gray("# e.g. vercel-labs/agent-skills"),
 	);
 }

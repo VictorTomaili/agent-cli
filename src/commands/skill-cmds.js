@@ -131,7 +131,7 @@ export function registerSkillCommands(
 				const task = op === "--task" ? args[2] : null;
 				if (!task)
 					fail(
-						"Usage: agent skill gate --task <text> | gate ack --enable a --disable b [--session|--remember] | gate status",
+						"Usage: agent-cli skill gate --task <text> | gate ack --enable a --disable b [--session|--remember] | gate status",
 					);
 				const r = sg.gateForTask(task, process.cwd());
 				emit({ command: "skill", sub: "gate", ...r });

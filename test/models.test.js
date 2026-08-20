@@ -94,7 +94,7 @@ test("writeModelsMd writes a tagged XML alias document", () => {
 	assert.ok(md.includes("## Categories"));
 });
 
-// Regression: agent models set/write must never destroy hand-curated content
+// Regression: agent-cli models set/write must never destroy hand-curated content
 // (a custom catalog, or trailing sections like "Pi Agent Bridge") — only the
 // "## Aliases" block is config-truth and safe to regenerate unconditionally.
 test("writeModelsMd preserves an existing custom catalog and trailing sections by default", () => {
@@ -108,7 +108,7 @@ test("writeModelsMd preserves an existing custom catalog and trailing sections b
 	writeFileSync(f, customized);
 
 	models.setAlias("smart-model", { model: "zai/glm-5.2", category: "smart" });
-	models.writeModelsMd(); // default call, as used by `agent models set`
+	models.writeModelsMd(); // default call, as used by `agent-cli models set`
 
 	const after = readFileSync(f, "utf8");
 	assert.ok(after.includes("hand-written-entry"), "custom catalog row survived");
@@ -120,7 +120,7 @@ test("writeModelsMd preserves an existing custom catalog and trailing sections b
 	assert.match(after, /smart-model[\s\S]*?zai\/glm-5\.2|zai\/glm-5\.2<\/ALIAS>/);
 });
 
-test("writeModelsMd({ refreshCatalog: true }) explicitly replaces an existing catalog (agent models research --refresh)", () => {
+test("writeModelsMd({ refreshCatalog: true }) explicitly replaces an existing catalog (agent-cli models research --refresh)", () => {
 	const f = models.writeModelsMd();
 	const before = readFileSync(f, "utf8");
 	const customized = before.replace(

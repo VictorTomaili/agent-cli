@@ -169,7 +169,7 @@ export function computeEffective(installed, globalCfg, projCfg) {
 		.sort()
 }
 
-// Effective DEFAULT skills (auto-loaded on agent session start), as CANONICAL
+// Effective DEFAULT skills (auto-loaded on agent-cli session start), as CANONICAL
 // names. In the unified model the default list IS the globally-active-by-default
 // set (one `defaults` key in config.yaml): a default skill is active in every
 // project AND auto-loaded on start. So this just returns that list filtered to

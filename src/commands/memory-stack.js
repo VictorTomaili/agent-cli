@@ -103,14 +103,14 @@ export function registerMemoryStackCommands(
 			const sec = await import("../secrets.js");
 			const scope = opts.project ? "project" : "global";
 			if (action === "set") {
-				if (!name || !value.length) fail("Usage: agent secret set <name> <value>");
+				if (!name || !value.length) fail("Usage: agent-cli secret set <name> <value>");
 				const r = sec.setSecret(name, value.join(" "), { scope });
 				emit({ command: "secret", action, ...r });
 				if (!isJson()) log.success(`Secret '${name}' stored (${scope}).`);
 				return;
 			}
 			if (action === "get") {
-				if (!name) fail("Usage: agent secret get <name>");
+				if (!name) fail("Usage: agent-cli secret get <name>");
 				try {
 					const v = sec.getSecret(name, { scope });
 					emit({ command: "secret", action, name, value: v });
@@ -130,7 +130,7 @@ export function registerMemoryStackCommands(
 				return;
 			}
 			if (action === "rm") {
-				if (!name) fail("Usage: agent secret rm <name>");
+				if (!name) fail("Usage: agent-cli secret rm <name>");
 				const r = sec.rmSecret(name, { scope });
 				emit({ command: "secret", action, ...r });
 				if (!isJson())
@@ -157,7 +157,7 @@ export function registerMemoryStackCommands(
 			if (action === "set") {
 				const field = rest?.[0];
 				const value = (rest?.slice(1) || []).join(" ");
-				if (!field || !value) fail("Usage: agent env set <Field> <value>");
+				if (!field || !value) fail("Usage: agent-cli env set <Field> <value>");
 				const envc = await import("../env-capture.js");
 				const r = await envc.setEnvironmentField(field, value, {
 					scope: opts.project ? "project" : "global",

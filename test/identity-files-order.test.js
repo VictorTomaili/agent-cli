@@ -1,7 +1,7 @@
 // Regression test: locks the canonical session-start read order.
 //
 // `IDENTITY_FILES` in src/agents-lib.js is the single source of truth for the
-// order in which `agent brief` emits files. That order is also the contract
+// order in which `agent-cli brief` emits files. That order is also the contract
 // documented in canonical `~/AGENTS.md` ("Session start read order"). If the
 // order is changed in one place, this test fails — forcing the three layers
 // (AGENTS.md, brief output, IDENTITY_FILES) to stay in sync.
@@ -23,7 +23,7 @@ const { IDENTITY_FILES } = await import("../src/agents-lib.js");
 
 // Canonical session-start read order. MUST match:
 //   - AGENTS.md "Session start read order" (canonical master)
-//   - `agent brief` output numbering
+//   - `agent-cli brief` output numbering
 //   - this test
 // Changing the order is a spec-level change, not a personal preference.
 const EXPECTED_ORDER = [

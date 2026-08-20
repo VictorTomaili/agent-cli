@@ -1,5 +1,5 @@
 // src/commands/configure.js — the `configure` command (sub-agent runner
-// configuration: `agent configure run [tool]`). Injected deps:
+// configuration: `agent-cli configure run [tool]`). Injected deps:
 // { emit, fail, log, c, pretty, isJson }.
 
 /** Register the `configure` command (runner config under `runners` in config.json). */
@@ -23,7 +23,7 @@ export function registerConfigureCommands(
 		.action(async (area, tool, opts) => {
 			if (area !== "run") {
 				fail(
-					`Unknown configure area: '${area}'. Use: agent configure run [tool]`,
+					`Unknown configure area: '${area}'. Use: agent-cli configure run [tool]`,
 					{ command: "configure", area },
 				);
 			}
@@ -51,7 +51,7 @@ export function registerConfigureCommands(
 					const tools = Object.entries(cfg.tools || {});
 					if (!tools.length) {
 						log.dim(
-							"No runners configured — agent configure run <tool> --model <model>",
+							"No runners configured — agent-cli configure run <tool> --model <model>",
 						);
 						return;
 					}

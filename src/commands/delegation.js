@@ -25,7 +25,7 @@ export function registerDelegationCommands(
 		path,
 	},
 ) {
-	// agent handoff / whoami — delegation artifacts + identity summary
+	// agent-cli handoff / whoami — delegation artifacts + identity summary
 	// ---------------------------------------------------------------------------
 	program
 		.command("handoff <action> [id]")
@@ -69,7 +69,7 @@ export function registerDelegationCommands(
 				return;
 			}
 			if (action === "show") {
-				if (!id) fail("Usage: agent handoff show <id>");
+				if (!id) fail("Usage: agent-cli handoff show <id>");
 				const r = await h.showHandoff(id);
 				emit({ command: "handoff", action, ...r });
 				if (!isJson()) {
@@ -83,7 +83,7 @@ export function registerDelegationCommands(
 				return;
 			}
 			if (action === "accept" || action === "close") {
-				if (!id) fail(`Usage: agent handoff ${action} <id>`);
+				if (!id) fail(`Usage: agent-cli handoff ${action} <id>`);
 				const r =
 					action === "accept"
 						? await h.acceptHandoff(id)
@@ -106,7 +106,7 @@ export function registerDelegationCommands(
 			fail(`Unknown handoff action: ${action}. Use create|list|show|accept|close`);
 		});
 
-	// agent edit / pull / where
+	// agent-cli edit / pull / where
 	// ---------------------------------------------------------------------------
 	program
 		.command("agents [action] [name] [rest...]")
@@ -125,7 +125,7 @@ export function registerDelegationCommands(
 				if (!isJson()) {
 					if (!list.length)
 						log.warn(
-							"No personalities yet — create one: agent agents new <name>",
+							"No personalities yet — create one: agent-cli agents new <name>",
 						);
 					for (const a of list)
 						log.raw(
@@ -136,7 +136,7 @@ export function registerDelegationCommands(
 			}
 			if (action === "show") {
 				if (!name) {
-					fail("Usage: agent agents show <name>");
+					fail("Usage: agent-cli agents show <name>");
 				}
 				const a = await showAgent(name, { cwd });
 				if (!a) {
@@ -150,7 +150,7 @@ export function registerDelegationCommands(
 			}
 			if (action === "new") {
 				if (!name) {
-					fail("Usage: agent agents new <name>");
+					fail("Usage: agent-cli agents new <name>");
 				}
 				const r = await scaffoldAgent(name, {
 					scope: opts.project ? "project" : "global",
@@ -239,7 +239,7 @@ export function registerDelegationCommands(
 				return;
 			}
 			if (action === "edit") {
-				if (!name) fail("Usage: agent agents edit <name>");
+				if (!name) fail("Usage: agent-cli agents edit <name>");
 				const a = await showAgent(name, { cwd });
 				if (!a) fail(`No agent named '${name}'`);
 				emit({ command: "agents", action: "edit", name, path: a.path });
@@ -257,7 +257,7 @@ export function registerDelegationCommands(
 			}
 			if (action === "rename") {
 				const [newName] = rest || [];
-				if (!name || !newName) fail("Usage: agent agents rename <old> <new>");
+				if (!name || !newName) fail("Usage: agent-cli agents rename <old> <new>");
 				const a = await showAgent(name, { cwd });
 				if (!a) fail(`No agent named '${name}'`);
 				const content = await readFile(a.path);
@@ -278,7 +278,7 @@ export function registerDelegationCommands(
 				return;
 			}
 			if (action === "remove") {
-				if (!name) fail("Usage: agent agents remove <name>");
+				if (!name) fail("Usage: agent-cli agents remove <name>");
 				const a = await showAgent(name, { cwd });
 				if (!a) fail(`No agent named '${name}'`);
 				const fspMod = await import("node:fs/promises");
@@ -288,7 +288,7 @@ export function registerDelegationCommands(
 				return;
 			}
 			if (action === "export") {
-				if (!name) fail("Usage: agent agents export <name>");
+				if (!name) fail("Usage: agent-cli agents export <name>");
 				const a = await showAgent(name, { cwd });
 				if (!a) fail(`No agent named '${name}'`);
 				const fspMod = await import("node:fs/promises");
@@ -305,7 +305,7 @@ export function registerDelegationCommands(
 				return;
 			}
 			if (action === "import") {
-				if (!name) fail("Usage: agent agents import <path.md> [--name <new>]");
+				if (!name) fail("Usage: agent-cli agents import <path.md> [--name <new>]");
 				const fspMod = await import("node:fs/promises");
 				const content = await fspMod.readFile(name, "utf8");
 				let finalName = opts.name || name;
@@ -327,7 +327,7 @@ export function registerDelegationCommands(
 			}
 			if (action === "delegate") {
 				if (!name)
-					fail("Usage: agent agents delegate prepare <name> --task <text>");
+					fail("Usage: agent-cli agents delegate prepare <name> --task <text>");
 				const a = await showAgent(name, { cwd });
 				if (!a) fail(`No agent named '${name}'`);
 				const fspMod = await import("node:fs/promises");

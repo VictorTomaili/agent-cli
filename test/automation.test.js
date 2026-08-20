@@ -67,7 +67,7 @@ test("installGitHooks writes agent-managed hooks; removeGitHooks cleans them", (
 		const p = path.join(repo, ".git", "hooks", h);
 		assert.ok(existsSync(p));
 		assert.ok(readFileSync(p, "utf8").includes("Managed by agent-cli"));
-		assert.ok(readFileSync(p, "utf8").includes("agent link"));
+		assert.ok(readFileSync(p, "utf8").includes("agent-cli link"));
 	}
 	assert.equal(auto.removeGitHooks({ cwd: repo }), 2);
 	assert.ok(!existsSync(path.join(repo, ".git", "hooks", "post-merge")));

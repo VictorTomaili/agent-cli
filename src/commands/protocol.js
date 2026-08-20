@@ -14,13 +14,13 @@ export function registerProtocolCommands(
 			const words = names.join(" ");
 			let script = null;
 			if (shell === "bash")
-				script = `_agent() { COMPREPLY=( $(compgen -W "${words}" -- "\${COMP_WORDS[1]}") ); }\ncomplete -F _agent agent\n`;
+				script = `_agent_cli() { COMPREPLY=( $(compgen -W "${words}" -- "\${COMP_WORDS[1]}") ); }\ncomplete -F _agent_cli agent-cli\n`;
 			else if (shell === "zsh")
-				script = `#compdef agent\n_arguments '1:command:(${words})'\n`;
+				script = `#compdef agent-cli\n_arguments '1:command:(${words})'\n`;
 			else if (shell === "fish")
-				script = `complete -c agent -f -a "${words}"\n`;
+				script = `complete -c agent-cli -f -a "${words}"\n`;
 			else if (shell === "powershell")
-				script = `Register-ArgumentCompleter -Native -CommandName agent -ScriptBlock { param($w,$c,$p) "${words}".Split(" ") | Where-Object { $_ -like "$c*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) } }\n`;
+				script = `Register-ArgumentCompleter -Native -CommandName agent-cli -ScriptBlock { param($w,$c,$p) "${words}".Split(" ") | Where-Object { $_ -like "$c*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) } }\n`;
 			if (!script)
 				fail(`Unsupported shell: ${shell}. Use bash|zsh|fish|powershell`, {
 					command: "completion",

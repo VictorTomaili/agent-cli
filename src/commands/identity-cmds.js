@@ -55,13 +55,13 @@ export function registerIdentityCommands(
 			if (action === "apply") {
 				const key = rest[0];
 				if (!key) {
-					fail("Usage: agent identity apply <id>");
+					fail("Usage: agent-cli identity apply <id>");
 				}
 				const known = id.listIdentities().some((i) => i.key === key);
 				const resolved = known ? null : "general-purpose";
 				if (!known && !opts.fallback) {
 					fail(
-						`Unknown identity '${key}' (would resolve to default 'general-purpose'). Pass --fallback to apply it. Use: agent identity list`,
+						`Unknown identity '${key}' (would resolve to default 'general-purpose'). Pass --fallback to apply it. Use: agent-cli identity list`,
 						{ command: "identity", action, key },
 					);
 				}
@@ -89,7 +89,7 @@ export function registerIdentityCommands(
 			if (action === "set") {
 				const [section, ...val] = rest;
 				if (!section) {
-					fail("Usage: agent identity set <section> <value...>");
+					fail("Usage: agent-cli identity set <section> <value...>");
 				}
 				const f = await id.setSection(
 					id.idFile(scope, cwd),
@@ -129,13 +129,13 @@ export function registerIdentityCommands(
 			if (action === "apply") {
 				const key = rest[0];
 				if (!key) {
-					fail("Usage: agent soul apply <variant>");
+					fail("Usage: agent-cli soul apply <variant>");
 				}
 				const known = id.listSouls().some((s) => s.key === key);
 				const resolved = known ? null : "pragmatist";
 				if (!known && !opts.fallback) {
 					fail(
-						`Unknown soul '${key}' (would resolve to default 'pragmatist'). Pass --fallback to apply it. Use: agent soul list`,
+						`Unknown soul '${key}' (would resolve to default 'pragmatist'). Pass --fallback to apply it. Use: agent-cli soul list`,
 						{ command: "soul", action, key },
 					);
 				}
@@ -154,7 +154,7 @@ export function registerIdentityCommands(
 			if (action === "set") {
 				const [section, ...val] = rest;
 				if (!section) {
-					fail("Usage: agent soul set <section> <value...>");
+					fail("Usage: agent-cli soul set <section> <value...>");
 				}
 				const f = await id.setSection(
 					id.soulFile(scope, cwd),
@@ -202,7 +202,7 @@ export function registerIdentityCommands(
 			if (action === "set") {
 				const [section, ...val] = rest;
 				if (!section) {
-					fail("Usage: agent user set <field> <value...>");
+					fail("Usage: agent-cli user set <field> <value...>");
 				}
 				const f = await id.setSection(file, section, val.join(" "), { scope, cwd });
 				emit({ command: "user", action, file: f });

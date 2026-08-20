@@ -212,7 +212,7 @@ export async function addLesson(
  * Derive a candidate lesson topic/slug from a raw inbox capture's content.
  * Prefers a `- Capture: <topic>` line; else the first non-empty body line
  * outside the YAML frontmatter block; else `fallbackName`. Pure string
- * transform — used by `agent lessons triage --plan` to map each inbox item
+ * transform — used by `agent-cli lessons triage --plan` to map each inbox item
  * to a suggested filing path without touching the filesystem.
  */
 export function deriveTriageCandidate(content, fallbackName) {

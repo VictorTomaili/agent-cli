@@ -19,18 +19,18 @@ export function registerTargetCommand(
 	program
 		.command("target <action> [id]")
 	.description(
-		"Enable or disable an agent target (writes/removes its pointer stub and updates config.json — unlike link/unlink, which only touch pointer files). Action: enable|disable <id>. -g/--global for home scope (default), -p/--project for project scope. Use 'agent targets' to list known ids.",
+		"Enable or disable an agent-cli target (writes/removes its pointer stub and updates config.json — unlike link/unlink, which only touch pointer files). Action: enable|disable <id>. -g/--global for home scope (default), -p/--project for project scope. Use 'agent-cli targets' to list known ids.",
 	)
 		.option("-g, --global")
 		.option("-p, --project")
 		.action(async (action, id, opts) => {
 			if (!id || !["enable", "disable", "on", "off"].includes(action))
-				fail("Usage: agent target enable|disable <id> [-g|-p]");
+				fail("Usage: agent-cli target enable|disable <id> [-g|-p]");
 			if (opts.global && opts.project)
 				fail("Use either -g or -p, not both", { command: "target", action, id });
 			const t = getTarget(id);
 			if (!t)
-				fail(`Unknown target: ${id}. Run ${c.cyan("agent targets")}.`, {
+				fail(`Unknown target: ${id}. Run ${c.cyan("agent-cli targets")}.`, {
 					command: "target",
 					action,
 					id,

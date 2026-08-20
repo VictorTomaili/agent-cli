@@ -18,7 +18,7 @@ const MAX = MAX_PER_SIGNAL.closed + MAX_PER_SIGNAL.reported + MAX_PER_SIGNAL.les
 /**
  * Score an archived-or-active session object against three signals:
  *   - closed: session.endedAt is set (not abandoned/orphaned)
- *   - reported: session.reported === true (agent session report was run)
+ *   - reported: session.reported === true (agent-cli session report was run)
  *   - lessons: session.lessonsCaptured has at least one entry
  *
  * Returns { score, max, breakdown, feedback }.
@@ -36,7 +36,7 @@ export function scoreSession(session) {
 			? `ended at ${session.endedAt}`
 			: "no endedAt — session is still open or was abandoned",
 	});
-	if (!closed) feedback.push("session was never ended — run `agent session end`");
+	if (!closed) feedback.push("session was never ended — run `agent-cli session end`");
 
 	const reported = session?.reported === true;
 	breakdown.push({
@@ -47,7 +47,7 @@ export function scoreSession(session) {
 	});
 	if (!reported)
 		feedback.push(
-			"session was never reported — run `agent session report` before/at close",
+			"session was never reported — run `agent-cli session report` before/at close",
 		);
 
 	const lessonsCount = Array.isArray(session?.lessonsCaptured)
@@ -64,7 +64,7 @@ export function scoreSession(session) {
 	});
 	if (!lessons)
 		feedback.push(
-			"no lessons captured — if anything surprising or corrected happened, run `agent lessons add <topic>`",
+			"no lessons captured — if anything surprising or corrected happened, run `agent-cli lessons add <topic>`",
 		);
 
 	const score = breakdown.reduce((sum, b) => sum + b.points, 0);

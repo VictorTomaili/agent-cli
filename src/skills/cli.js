@@ -22,7 +22,7 @@ import { cmdCapture } from './commands/capture.js'
 import { isInteractive } from './lib/interactive.js'
 import { VERSION } from './lib/version.js'
 
-const HELP = `${c.bold('skill')} ${c.gray('v' + VERSION)} — cross-agent skill manager
+const HELP = `${c.bold('skill')} ${c.gray('v' + VERSION)} — cross-agent-cli skill manager
 ${c.gray('Single global store + activation (skill.config) + bootstrap (AGENTS.md).')}
 
 ${c.bold('skill')}                  ${c.gray('interactive manager (↑↓ space d enter — TTY only)')}

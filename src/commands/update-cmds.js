@@ -52,7 +52,7 @@ export function registerUpdateCommands(
 					home: AGENTS_DIR,
 					version: VERSION,
 				});
-				// Never mark seeding as done before `agent init` has installed the defaults:
+				// Never mark seeding as done before `agent-cli init` has installed the defaults:
 				// planSeedAction(prev=null) must still return "install" for the first run.
 				if (cfg.seedVersion != null) {
 					cfg.seedVersion = VERSION;
@@ -117,7 +117,7 @@ export function registerUpdateCommands(
 				return;
 			}
 			if (action === "clear") {
-				if (!version) fail("Usage: agent update clear <version>");
+				if (!version) fail("Usage: agent-cli update clear <version>");
 				const r = await seed.clearStaged(version, { home: AGENTS_DIR });
 				emit({ command: "update", action: "clear", ...r });
 				if (!r.ok) {
@@ -128,7 +128,7 @@ export function registerUpdateCommands(
 				return;
 			}
 			if (action === "diff") {
-				if (!version) fail("Usage: agent update diff <version> [--file <rel>]");
+				if (!version) fail("Usage: agent-cli update diff <version> [--file <rel>]");
 				const stagedList = await seed.listStagedUpdates({ home: AGENTS_DIR });
 				const payload = stagedList.find((s) => s.version === version);
 				if (!payload) fail(`No staged update for ${version}`);
@@ -178,7 +178,7 @@ export function registerUpdateCommands(
 				return;
 			}
 			if (action === "apply") {
-				if (!version) fail("Usage: agent update apply <version>");
+				if (!version) fail("Usage: agent-cli update apply <version>");
 				const pre = await preSnapshot("update-apply");
 				const r = await seed.applyStaged(version, { home: AGENTS_DIR });
 				emit({

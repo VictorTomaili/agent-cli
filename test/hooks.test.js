@@ -99,16 +99,16 @@ test("parseAgentCliHookEntry identifies our entries and rejects others", () => {
 		true,
 	);
 	assert.equal(
-		hooks.parseAgentCliHookEntry({ command: "/usr/local/bin/agent brief --oneline" }),
+		hooks.parseAgentCliHookEntry({ command: "/usr/local/bin/agent-cli brief --oneline" }),
 		false,
 	);
 	assert.equal(
-		hooks.parseAgentCliHookEntry({ command: ["agent", "brief", "--oneline"] }),
+		hooks.parseAgentCliHookEntry({ command: ["agent-cli", "brief", "--oneline"] }),
 		false,
 	);
 	assert.equal(
 		hooks.parseAgentCliHookEntry({
-			command: ["/usr/local/bin/agent", "brief", "--oneline"],
+			command: ["/usr/local/bin/agent-cli", "brief", "--oneline"],
 			name: hooks.HOOK_MARKER,
 		}),
 		true,

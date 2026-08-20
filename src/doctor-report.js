@@ -1,4 +1,4 @@
-// src/doctor-report.js — pure payload builder for `agent doctor` (+ api.doctor).
+// src/doctor-report.js — pure payload builder for `agent-cli doctor` (+ api.doctor).
 // Given already-loaded config/master/update-check data, runs every read-only
 // health check and returns { issues, checks }. No emit/log/process.exit, no
 // network access, no writes — the caller (CLI command or SDK) owns all of
@@ -63,7 +63,7 @@ export async function buildDoctorReport(
 		ok: masterOk,
 		detail: pretty(MASTER_FILE),
 	});
-	if (!masterOk) issues.push("Master missing — run `agent init`.");
+	if (!masterOk) issues.push("Master missing — run `agent-cli init`.");
 	checks.push({
 		check: "agent-cli-block",
 		ok: hasAgentCliBlock(masterContent || ""),
@@ -71,7 +71,7 @@ export async function buildDoctorReport(
 	});
 	if (masterOk && !hasAgentCliBlock(masterContent || ""))
 		issues.push(
-			"agent-cli block missing — run `agent skill refresh` or `agent init`.",
+			"agent-cli block missing — run `agent-cli skill refresh` or `agent-cli init`.",
 		);
 
 	for (const id of cfg.global) {
@@ -85,7 +85,7 @@ export async function buildDoctorReport(
 			detail: cls.state + " " + pretty(cls.path),
 		});
 		if (!ok && cls.state !== "missing")
-			issues.push(`${id} pointer ${cls.state} — run \`agent link\`.`);
+			issues.push(`${id} pointer ${cls.state} — run \`agent-cli link\`.`);
 	}
 	const skillOk = isSkillAvailable();
 	checks.push({
@@ -93,7 +93,7 @@ export async function buildDoctorReport(
 		ok: skillOk,
 		detail: skillOk ? "integrated" : "none",
 	});
-	if (!skillOk) issues.push("skill-cli unavailable — run `agent skill setup`.");
+	if (!skillOk) issues.push("skill-cli unavailable — run `agent-cli skill setup`.");
 
 	// project skill.config health (false-green guard — doctor must not report
 	// all-clear when a broken project skill.config would break the skill gate).
@@ -120,7 +120,7 @@ export async function buildDoctorReport(
 				detail: "unfilled template",
 			});
 			issues.push(
-				`${f.kind} is an unfilled template — edit it: agent edit ${f.kind}`,
+				`${f.kind} is an unfilled template — edit it: agent-cli edit ${f.kind}`,
 			);
 		}
 	}
@@ -136,7 +136,7 @@ export async function buildDoctorReport(
 				detail: "missing",
 			});
 			issues.push(
-				`${f.kind} file missing (${pretty(f.path)}) — run \`agent init\` to seed it.`,
+				`${f.kind} file missing (${pretty(f.path)}) — run \`agent-cli init\` to seed it.`,
 			);
 		}
 	}
@@ -147,7 +147,7 @@ export async function buildDoctorReport(
 	});
 	if (!modelsMdExists)
 		issues.push(
-			`MODELS.md missing (${pretty(MODELS_MD)}) — run \`agent init\` to seed it.`,
+			`MODELS.md missing (${pretty(MODELS_MD)}) — run \`agent-cli init\` to seed it.`,
 		);
 	// #2 integration: personalities discoverable + none stranded in old pi path
 	const subList = await listAgents({ includeProject: false });
@@ -218,7 +218,7 @@ export async function buildDoctorReport(
 	});
 	if (staged.length)
 		issues.push(
-			`${staged.length} staged update payload(s) under ~/.agents/update-* — review with the user and migrate (see: agent update list).`,
+			`${staged.length} staged update payload(s) under ~/.agents/update-* — review with the user and migrate (see: agent-cli update list).`,
 		);
 
 	return { issues, checks };

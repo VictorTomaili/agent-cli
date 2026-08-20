@@ -33,7 +33,7 @@ test("buildActions produces structured, ordered actions", async () => {
 		assert.ok(["critical", "high", "medium", "low"].includes(a.severity));
 		assert.equal(typeof a.safeToAutomate, "boolean");
 		assert.equal(typeof a.idempotent, "boolean");
-		assert.ok(a.command === "agent" || a.command === "npm");
+		assert.ok(a.command === "agent-cli" || a.command === "npm");
 		assert.ok(Array.isArray(a.args));
 	}
 	// sorted by severity desc
@@ -91,8 +91,8 @@ test("applySafe runs safe actions and stops at the first unsafe one", async () =
 	assert.equal(claude.global.state, "pointer");
 });
 
-test("runAction executes an agent command", async () => {
-	const r = actions.runAction({ command: "agent", args: ["--version"] });
+test("runAction executes an agent-cli command", async () => {
+	const r = actions.runAction({ command: "agent-cli", args: ["--version"] });
 	assert.equal(r.ok, true);
 	assert.match(r.stdout.trim(), /^\d+\.\d+\.\d+$/);
 });
@@ -102,7 +102,7 @@ test("verifyAction reports missing verification and runs real ones", async () =>
 	assert.equal(none.verified, null);
 	const withV = actions.verifyAction({
 		id: "y",
-		verification: { command: "agent", args: ["--version"] },
+		verification: { command: "agent-cli", args: ["--version"] },
 	});
 	assert.equal(withV.verified, true);
 });

@@ -35,7 +35,7 @@ export function registerSessionCommands(
 	},
 ) {
 	// ---------------------------------------------------------------------------
-	// agent run — dispatch a task to an external coding-agent CLI (with the
+	// agent-cli run — dispatch a task to an external coding-agent CLI (with the
 	// configured fallback chain). Positionals that all look like brief action
 	// ids keep the LEGACY behavior (executing brief actions), deprecated.
 	// ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ export function registerSessionCommands(
 	program
 		.command("run [task...]")
 		.description(
-			'Dispatch a task to a configured coding-agent CLI (agent run --tool pi "refactor utils"); brief action ids still execute (deprecated — prefer `agent action run <id>`).',
+			'Dispatch a task to a configured coding-agent CLI (agent-cli run --tool pi "refactor utils"); brief action ids still execute (deprecated — prefer `agent-cli action run <id>`).',
 		)
 		.option("--tool <id>", "runner tool override (pi | codex)")
 		.option("--read-only", "run with a read-only tool/sandbox profile")
@@ -55,10 +55,10 @@ export function registerSessionCommands(
 			const looksLikeActionIds =
 				task.length > 0 && task.every((t) => ACTION_ID_RE.test(t));
 			if (!newOpt && (task.length === 0 || looksLikeActionIds)) {
-				// LEGACY: execute brief actions by id (same as `agent action run`).
+				// LEGACY: execute brief actions by id (same as `agent-cli action run`).
 				if (!isJson())
 					log.warn(
-						"action ids via `agent run` are deprecated; use `agent action run <id>`",
+						"action ids via `agent-cli run` are deprecated; use `agent-cli action run <id>`",
 					);
 				const ids = task;
 				const actMod = await import("../actions.js");
@@ -100,7 +100,7 @@ export function registerSessionCommands(
 			const joined = task.join(" ").trim();
 			if (!joined)
 				fail(
-					'Usage: agent run [--tool <id>] [--read-only] [--timeout <seconds>] "<task>"',
+					'Usage: agent-cli run [--tool <id>] [--read-only] [--timeout <seconds>] "<task>"',
 					{ command: "run" },
 				);
 			const runners = await import("../runners.js");
@@ -155,7 +155,7 @@ export function registerSessionCommands(
 					command: "action",
 					sub,
 				});
-			if (!id) fail("Usage: agent action verify <action-id>");
+			if (!id) fail("Usage: agent-cli action verify <action-id>");
 			const actMod = await import("../actions.js");
 			const s = await actMod.collectState();
 			const action = actMod.buildActions(s).find((a) => a.id === id);
@@ -178,7 +178,7 @@ export function registerSessionCommands(
 		});
 
 	// ---------------------------------------------------------------------------
-	// agent completion — ergonomics (config/version moved to src/commands/info.js)
+	// agent-cli completion — ergonomics (config/version moved to src/commands/info.js)
 	// ---------------------------------------------------------------------------
 	program
 		.command("setup")
@@ -236,7 +236,7 @@ export function registerSessionCommands(
 				);
 				log.kv("models", `${steps.models.count} unresolved`);
 				log.dim(
-					`Next: agent brief --check · agent models suggest · agent brief --apply-safe`,
+					`Next: agent-cli brief --check · agent-cli models suggest · agent-cli brief --apply-safe`,
 				);
 			}
 		});
@@ -385,7 +385,7 @@ export function registerSessionCommands(
 					ok: masterOk,
 					detail: pretty(masterPath),
 				});
-				if (!masterOk) issues.push("project master missing — run agent project init");
+				if (!masterOk) issues.push("project master missing — run agent-cli project init");
 				const cfg = await loadConfig();
 				const projIds = effectiveProjectIds(cfg);
 				for (const id of projIds) {
@@ -398,7 +398,7 @@ export function registerSessionCommands(
 						detail: cls.state + " " + pretty(cls.path),
 					});
 					if (cls.state !== "pointer")
-						issues.push(`${id} project pointer ${cls.state} — run agent link -p`);
+						issues.push(`${id} project pointer ${cls.state} — run agent-cli link -p`);
 				}
 				emit({ command: "project", action: "doctor", issues, checks });
 				if (!isJson())

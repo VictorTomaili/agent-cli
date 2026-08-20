@@ -32,7 +32,7 @@ export async function sessionStart({ task = null, cwd = process.cwd() } = {}) {
 		// caller (CLI/agent) can surface it before proceeding.
 		return {
 			ok: false,
-			reason: "a session is already active — run 'agent session end' first",
+			reason: "a session is already active — run 'agent-cli session end' first",
 			session: existing,
 		};
 	}
@@ -56,13 +56,13 @@ function suggestLessonTopic(session) {
 		topic: `session/${(session.task || "untitled")
 			.toLowerCase()
 			.replace(/[^a-z0-9]+/g, "-")}`,
-		suggestion: "agent lessons capture <topic> --inbox",
+		suggestion: "agent-cli lessons capture <topic> --inbox",
 	};
 }
 
 export async function sessionEnd() {
 	const session = readSession();
-	if (!session) return { ok: false, reason: "no active session — run agent session start" };
+	if (!session) return { ok: false, reason: "no active session — run agent-cli session start" };
 	const lesson = suggestLessonTopic(session);
 	const ended = { ...session, endedAt: new Date().toISOString() };
 	const durationMs = new Date(ended.endedAt) - new Date(ended.startedAt);
@@ -86,7 +86,7 @@ export async function sessionEnd() {
 
 export async function sessionReport() {
 	const session = readSession();
-	if (!session) return { ok: false, reason: "no active session — run agent session start" };
+	if (!session) return { ok: false, reason: "no active session — run agent-cli session start" };
 	const lesson = suggestLessonTopic(session);
 	const marked = markReported();
 	return {
@@ -112,7 +112,7 @@ export function recordLessonCapture(topic) {
 	return { ok: true, session };
 }
 
-/** Mark the active session as having been reported (`agent session report`
+/** Mark the active session as having been reported (`agent-cli session report`
  *  was run). Silent no-op when no session is active. */
 export function markReported() {
 	const session = readSession();

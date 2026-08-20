@@ -82,9 +82,9 @@ export async function syncInit({ remote = null } = {}) {
 }
 
 /** Commit all tracked changes; push when a remote exists. */
-export async function syncPush({ message = "agent sync" } = {}) {
+export async function syncPush({ message = "agent-cli sync" } = {}) {
 	const dir = AGENTS_DIR;
-	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent sync init" };
+	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent-cli sync init" };
 	const add = git(["add", "-A"], { cwd: dir });
 	if (!add.ok) return { ok: false, reason: add.stderr || "git add failed" };
 	const changed = git(["diff", "--cached", "--name-only"], { cwd: dir }).stdout;
@@ -105,10 +105,10 @@ export async function syncPush({ message = "agent sync" } = {}) {
 /** Fetch + merge the remote; auto-resolve conflicts with --take. */
 export async function syncPull({ take = null } = {}) {
 	const dir = AGENTS_DIR;
-	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent sync init" };
+	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent-cli sync init" };
 	const remote = remoteUrl(dir);
 	if (!remote)
-		return { ok: false, reason: "no remote configured — run agent sync init --remote <url>" };
+		return { ok: false, reason: "no remote configured — run agent-cli sync init --remote <url>" };
 	const fetch = git(["fetch", "-q", "origin"], { cwd: dir });
 	if (!fetch.ok) return { ok: false, reason: fetch.stderr || "git fetch failed" };
 	const branch = git(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: dir }).stdout || "master";
@@ -118,7 +118,7 @@ export async function syncPull({ take = null } = {}) {
 		const side = take === "remote" ? "--theirs" : "--ours";
 		git(["checkout", side, "."], { cwd: dir });
 		git(["add", "-A"], { cwd: dir });
-		const c = git([...GIT_AUTHOR, "commit", "-q", "-m", `agent sync: take ${take}`], { cwd: dir });
+		const c = git([...GIT_AUTHOR, "commit", "-q", "-m", `agent-cli sync: take ${take}`], { cwd: dir });
 		return {
 			ok: true,
 			pulled: true,
@@ -139,7 +139,7 @@ export async function syncPull({ take = null } = {}) {
 /** Working-tree + remote sync status. */
 export async function syncStatus() {
 	const dir = AGENTS_DIR;
-	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent sync init" };
+	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent-cli sync init" };
 	const branch = git(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: dir }).stdout || "none";
 	const head = headHash(dir);
 	const remote = remoteUrl(dir);
@@ -162,7 +162,7 @@ export async function syncStatus() {
 /** Recent commit history. */
 export async function syncLog({ limit = 20 } = {}) {
 	const dir = AGENTS_DIR;
-	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent sync init" };
+	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent-cli sync init" };
 	const r = git(
 		["log", `-${limit}`, "--pretty=format:%h|%ad|%s", "--date=short"],
 		{ cwd: dir },
@@ -181,7 +181,7 @@ export async function syncLog({ limit = 20 } = {}) {
 /** Diff of a commit, or uncommitted working changes when no commit given. */
 export async function syncDiff({ commit = null } = {}) {
 	const dir = AGENTS_DIR;
-	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent sync init" };
+	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent-cli sync init" };
 	if (commit) {
 		const summary = git(["show", "--stat", "--oneline", commit], { cwd: dir });
 		if (!summary.ok) return { ok: false, reason: `no such commit: ${commit}` };
@@ -195,8 +195,8 @@ export async function syncDiff({ commit = null } = {}) {
 /** Restore the brain working tree to a past commit; caller should re-link. */
 export async function syncRollback({ commit = null } = {}) {
 	const dir = AGENTS_DIR;
-	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent sync init" };
-	if (!commit) return { ok: false, reason: "usage: agent sync rollback <commit>" };
+	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent-cli sync init" };
+	if (!commit) return { ok: false, reason: "usage: agent-cli sync rollback <commit>" };
 	const check = git(["cat-file", "-e", `${commit}^{commit}`], { cwd: dir });
 	if (!check.ok) return { ok: false, reason: `no such commit: ${commit}` };
 	const previousHead = headHash(dir);
@@ -224,7 +224,7 @@ export function autoCommitEnabled(cfg) {
 /** Commit automatically when auto-commit is enabled (called after mutations). */
 export async function maybeAutoSync(cfg) {
 	if (!autoCommitEnabled(cfg)) return { ok: true, auto: false, nothingToDo: true };
-	const r = await syncPush({ message: "agent sync (auto)" });
+	const r = await syncPush({ message: "agent-cli sync (auto)" });
 	return { ok: r.ok, auto: true, ...r };
 }
 

@@ -17,7 +17,7 @@ that tool where the real master file lives, so you never edit the same content t
 
 It also bundles a broader toolkit for that master file: identity/soul/user profiles, model
 alias resolution, lessons learned, delegation handoffs, brain snapshots, and an integrated
-skill manager (`agent skill ...`). Run `agent --help` for the full command surface.
+skill manager (`agent-cli skill ...`). Run `agent --help` for the full command surface.
 
 ## Install
 
@@ -32,25 +32,25 @@ This creates a global `agent` command backed by `src/cli.js` (Node.js >= 18, ESM
 ## Quick start
 
 ```bash
-agent init             # bootstrap ~/AGENTS.md, detect + link installed tools, install SessionStart hooks
-agent status            # master state + per-target pointer health
-agent doctor            # full diagnostic (config, pointers, skill-cli, staged updates)
-agent edit               # open the master file in $EDITOR
+agent-cli init             # bootstrap ~/AGENTS.md, detect + link installed tools, install SessionStart hooks
+agent-cli status            # master state + per-target pointer health
+agent-cli doctor            # full diagnostic (config, pointers, skill-cli, staged updates)
+agent-cli edit               # open the master file in $EDITOR
 ```
 
-`agent init` is idempotent — re-running it repairs anything missing without touching your
+`agent-cli init` is idempotent — re-running it repairs anything missing without touching your
 edited content.
 
 ## Core concepts
 
 - **Master** — the one file you write: `~/AGENTS.md` (global) or `.agents/AGENTS.md`
   (project-scoped, inside a repo).
-- **Pointer stub** — a small generated file `agent link` writes at a tool's native config path
+- **Pointer stub** — a small generated file `agent-cli link` writes at a tool's native config path
   (e.g. `~/.claude/CLAUDE.md`). Contains machine-readable metadata plus a human-readable note
   redirecting the agent to read the master file. Safe to regenerate any time; only files
   `agent` itself created are ever touched.
-- **Target** — an AI coding tool `agent` knows how to point at. `agent targets` lists all known
-  targets (id, native config paths, install/enabled state); `agent target enable <id>
+- **Target** — an AI coding tool `agent` knows how to point at. `agent-cli targets` lists all known
+  targets (id, native config paths, install/enabled state); `agent-cli target enable <id>
   [--global|--project]` turns one on.
 
 ## Key commands
@@ -68,12 +68,12 @@ edited content.
 | Diagnostics | `doctor`, `config`, `stats`, `whoami`, `files`, `manifest`, `schema` |
 | Automation | `hooks install` (git hooks), `automation add\|list\|run`, `watch`, `serve` (MCP over stdio) |
 
-Run `agent help <command>` for details on any of these, or `agent manifest` for the full
+Run `agent-cli help <command>` for details on any of these, or `agent-cli manifest` for the full
 machine-readable command/exit-code contract.
 
 ## Project-driven documentation
 
-- The spec-driven workflow (`agent spect ...`) has its own guide at
+- The spec-driven workflow (`agent-cli spect ...`) has its own guide at
   [`.spect/README.md`](.spect/README.md).
 - The bundled sub-agent personas (planner, reviewer, scout, worker) live in
   [`seed/agents/`](seed/agents/) and are documented inline in each file's frontmatter.

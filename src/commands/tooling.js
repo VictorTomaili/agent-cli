@@ -58,7 +58,7 @@ export function registerToolingCommands(
 						"project",
 						result.initialized
 							? `${pretty(result.root)} (${result.counts.specs} specs, ${result.counts.plans} plans, ${result.counts.tasks} tasks)`
-							: "not initialized — run agent spect init",
+							: "not initialized — run agent-cli spect init",
 					);
 				return;
 			}
@@ -85,13 +85,13 @@ export function registerToolingCommands(
 								`  ${t.done ? c.green("[x]") : c.gray("[ ]")} ${c.bold(t.id.padEnd(9))} ${t.reqs.length ? c.gray("[" + t.reqs.join(", ") + "] ") : ""}${t.title}`,
 							);
 						log.dim(
-							`${filtered.filter((t) => !t.done).length} open — mark: agent spect task done|open <TASK-xxx>`,
+							`${filtered.filter((t) => !t.done).length} open — mark: agent-cli spect task done|open <TASK-xxx>`,
 						);
 					}
 					return;
 				}
 				if (sub === "done" || sub === "open") {
-					if (!id) fail("Usage: agent spect task done|open <TASK-xxx>");
+					if (!id) fail("Usage: agent-cli spect task done|open <TASK-xxx>");
 					const r = await spect.setTaskStatus(cwd, id, sub === "done");
 					emit({ command: "spect", action: "task", op: sub, ...r });
 					if (!r.ok) {
@@ -157,7 +157,7 @@ export function registerToolingCommands(
 			}
 			if (action === "close") {
 				const id = rest[0];
-				if (!id) fail("Usage: agent spect close <TASK-xxx>");
+				if (!id) fail("Usage: agent-cli spect close <TASK-xxx>");
 				const r = await spect.closeTask(cwd, id);
 				emit({ command: "spect", action, ...r });
 				if (!r.ok) {
@@ -173,7 +173,7 @@ export function registerToolingCommands(
 			}
 			if (action === "trace") {
 				const specId = rest[0];
-				if (!specId) fail("Usage: agent spect trace <SPEC-id>");
+				if (!specId) fail("Usage: agent-cli spect trace <SPEC-id>");
 				const r = await spect.traceSpect(specId, cwd);
 				emit({ command: "spect", action, ...r });
 				if (!r.ok) {
@@ -223,7 +223,7 @@ export function registerToolingCommands(
 		});
 
 	// ---------------------------------------------------------------------------
-	// agent sync — git-backed brain portability
+	// agent-cli sync — git-backed brain portability
 	// ---------------------------------------------------------------------------
 	program
 		.command("sync <action> [arg]")

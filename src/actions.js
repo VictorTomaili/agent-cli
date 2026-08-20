@@ -1,6 +1,6 @@
 // src/actions.js — the executable session contract.
-// Extracts the brief's state computation so `brief`, `agent run`, and
-// `agent action verify` share one source of truth. Actions are structured
+// Extracts the brief's state computation so `brief`, `agent-cli run`, and
+// `agent-cli action verify` share one source of truth. Actions are structured
 // { id, command, args, reason, severity, idempotent, safeToAutomate,
 //   precondition, verification, rollback } — machine-executable, unlike the
 // legacy free-form suggestedActions strings.
@@ -31,10 +31,10 @@ const PKG_VERSION = createRequire(import.meta.url)("../package.json").version;
 
 export const ACTION_SEVERITY = { critical: 3, high: 2, medium: 1, low: 0 };
 
-/** Collect the full session state the brief reports (shared with agent run / api). */
+/** Collect the full session state the brief reports (shared with agent-cli run / api). */
 export async function collectState(opts = {}) {
 	const cwd = opts.cwd || process.cwd();
-	const pkgName = opts.pkgName || "agent-cli";
+	const pkgName = opts.pkgName || "@victortomaili/agent-cli";
 	const cfg = await loadConfig();
 	const masterContent = await readMaster();
 	const installed = await detectInstalled();
@@ -209,7 +209,7 @@ export function buildActions(s) {
 	if (s.masterContent == null)
 		add({
 			id: "init",
-			command: "agent",
+			command: "agent-cli",
 			args: ["init"],
 			reason: "no master at ~/.agents/AGENTS.md",
 			severity: "critical",
@@ -223,7 +223,7 @@ export function buildActions(s) {
 	if (nextSuggestion)
 		add({
 			id: "onboard",
-			command: "agent",
+			command: "agent-cli",
 			args: ["onboard", "suggest"],
 			reason: `${nextSuggestion.kind} gap: ${nextSuggestion.question}`,
 			severity: nextSuggestion.kind === "identity" ? "high" : "medium",
@@ -237,7 +237,7 @@ export function buildActions(s) {
 		if (t.state === "native")
 			add({
 				id: `pull:${t.id}`,
-				command: "agent",
+				command: "agent-cli",
 				args: ["pull", t.id],
 				reason: `${t.id} holds native content to adopt`,
 				severity: "medium",
@@ -245,26 +245,26 @@ export function buildActions(s) {
 				safeToAutomate: false,
 				precondition: `${t.id} native file exists`,
 				verification: null,
-				rollback: `agent link --target ${t.id} --force`,
+				rollback: `agent-cli link --target ${t.id} --force`,
 			});
 		if (t.state !== "pointer")
 			add({
 				id: `link:${t.id}`,
-				command: "agent",
+				command: "agent-cli",
 				args: ["link", "--target", t.id],
 				reason: `${t.id} pointer ${t.state}`,
 				severity: "high",
 				idempotent: true,
 				safeToAutomate: true,
 				precondition: `${t.id} enabled in config`,
-				verification: { command: "agent", args: ["status", "--json"] },
-				rollback: `agent unlink --target ${t.id}`,
+				verification: { command: "agent-cli", args: ["status", "--json"] },
+				rollback: `agent-cli unlink --target ${t.id}`,
 			});
 	}
 	if (!isSkillAvailable())
 		add({
 			id: "skill:setup",
-			command: "agent",
+			command: "agent-cli",
 			args: ["skill", "setup"],
 			reason: "skill-cli store unavailable",
 			severity: "medium",
@@ -277,7 +277,7 @@ export function buildActions(s) {
 	if (s.consG.recommend)
 		add({
 			id: "consolidate",
-			command: "agent",
+			command: "agent-cli",
 			args: ["consolidate"],
 			reason: "global lessons consolidation recommended",
 			severity: "low",
@@ -290,7 +290,7 @@ export function buildActions(s) {
 	if (s.consP.recommend)
 		add({
 			id: "consolidate:project",
-			command: "agent",
+			command: "agent-cli",
 			args: ["consolidate", "-p"],
 			reason: "project lessons consolidation recommended",
 			severity: "low",
@@ -304,7 +304,7 @@ export function buildActions(s) {
 		add({
 			id: "update:agent-cli",
 			command: "npm",
-			args: ["i", "-g", "agent-cli@latest"],
+			args: ["i", "-g", "@victortomaili/agent-cli@latest"],
 			reason: `agent-cli ${s.upd.latest} available`,
 			severity: "low",
 			idempotent: true,
@@ -316,7 +316,7 @@ export function buildActions(s) {
 	if (s.stagedUpdates.length)
 		add({
 			id: "update:list",
-			command: "agent",
+			command: "agent-cli",
 			args: ["update", "list"],
 			reason: `${s.stagedUpdates.length} staged update payload(s)`,
 			severity: "medium",
@@ -329,7 +329,7 @@ export function buildActions(s) {
 	if (s.inboxCount >= 10)
 		add({
 			id: "lessons:triage",
-			command: "agent",
+			command: "agent-cli",
 			args: ["lessons", "inbox"],
 			reason: `${s.inboxCount} raw captures to triage`,
 			severity: "low",
@@ -342,7 +342,7 @@ export function buildActions(s) {
 	for (const u of s.unresolvedModels)
 		add({
 			id: `models:set:${u.name}`,
-			command: "agent",
+			command: "agent-cli",
 			args: ["models", "set", u.name, "<provider/model>"],
 			reason: `personality '${u.name}' uses unresolved alias '${u.model}'`,
 			severity: "medium",
@@ -355,7 +355,7 @@ export function buildActions(s) {
 	if (s.liveCatalogAge != null && s.liveCatalogAge >= 30)
 		add({
 			id: "models:research:fetch",
-			command: "agent",
+			command: "agent-cli",
 			args: ["models", "research", "--fetch"],
 			reason: `live model catalog is ${s.liveCatalogAge} day(s) old — refresh to keep model picks current`,
 			severity: "low",
@@ -380,23 +380,23 @@ export function gapFixHints(gapReport) {
 		for (const f of fields) {
 			if (kind === "identity") {
 				out.push(
-					`agent identity set ${f.replace(/^AGENT_/, "").toLowerCase()} "<value>"`,
+					`agent-cli identity set ${f.replace(/^AGENT_/, "").toLowerCase()} "<value>"`,
 				);
 			} else if (kind === "user") {
 				out.push(
-					`agent user set ${f.replace(/^USER_/, "").toLowerCase()} "<value>"`,
+					`agent-cli user set ${f.replace(/^USER_/, "").toLowerCase()} "<value>"`,
 				);
 			} else if (kind === "soul") {
 				out.push(
-					`agent soul set ${f.replace(/^SOUL_/, "").toLowerCase()} "<value>"`,
+					`agent-cli soul set ${f.replace(/^SOUL_/, "").toLowerCase()} "<value>"`,
 				);
 			} else if (kind === "environments") {
 				out.push(
-					`agent env set ${f.replace(/^ENV_LOCAL_/, "").toLowerCase()} "<value>"  (or: agent env capture to auto-detect)`,
+					`agent-cli env set ${f.replace(/^ENV_LOCAL_/, "").toLowerCase()} "<value>"  (or: agent-cli env capture to auto-detect)`,
 				);
 			} else if (kind === "lessons") {
 				out.push(
-					`agent lessons add <topic/descriptive-name> --body "..."  (or just run agents — they capture lessons automatically)`,
+					`agent-cli lessons add <topic/descriptive-name> --body "..."  (or just run agents — they capture lessons automatically)`,
 				);
 			} else {
 				out.push(`fill ${kind}.${f} in the relevant markdown file`);
@@ -408,17 +408,17 @@ export function gapFixHints(gapReport) {
 
 /** Compat: legacy free-form suggestedActions strings derived from actions.
  * Always shows the runnable command so a blind user can copy-paste or run
- * 'agent run <id>'. When the command contains a placeholder (e.g. <provider/model>)
+ * 'agent-cli run <id>'. When the command contains a placeholder (e.g. <provider/model>)
  * the placeholder is highlighted and the action id is appended for the run path. */
 export function suggestedStrings(actions) {
 	return actions.map((a) => {
 		const joined =
-			a.command === "agent"
-				? `agent ${a.args.join(" ")}`
+			a.command === "agent-cli"
+				? `agent-cli ${a.args.join(" ")}`
 				: `${a.command} ${a.args.join(" ")}`;
 		const needsInput = a.args.some((x) => /<[^>]+>/.test(String(x)));
 		return needsInput
-			? `${a.reason} → ${joined}  ${a.id ? `(or: agent run ${a.id})` : ""}`
+			? `${a.reason} → ${joined}  ${a.id ? `(or: agent-cli run ${a.id})` : ""}`
 			: joined;
 	});
 }
@@ -445,7 +445,7 @@ export function computeEtag(s) {
 
 /** Execute one action's command. */
 export function runAction(action) {
-	if (action.command === "agent") {
+	if (action.command === "agent-cli") {
 		const r = spawnSync(process.execPath, [CLI_DIR, ...action.args], {
 			encoding: "utf8",
 			env: { ...process.env, AGENT_CLI_HOME: process.env.AGENT_CLI_HOME },
@@ -505,8 +505,8 @@ export function verifyAction(action) {
 	if (!v)
 		return { ok: true, verified: null, reason: "no verification command" };
 	const r =
-		v.command === "agent"
-			? runAction({ command: "agent", args: v.args })
+		v.command === "agent-cli"
+			? runAction({ command: "agent-cli", args: v.args })
 			: {
 					ok: false,
 					code: 1,

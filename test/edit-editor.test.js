@@ -1,4 +1,4 @@
-// L1 regression tests: `agent edit` must never hand the raw $VISUAL/$EDITOR
+// L1 regression tests: `agent-cli edit` must never hand the raw $VISUAL/$EDITOR
 // string to a shell. Editor values parse into argv; unparseable values fail
 // closed; the Windows .cmd/.bat shim fallback re-quotes metachar-free args.
 import { test } from "node:test";
@@ -102,7 +102,7 @@ test("cmdShimSpawnSync: clean args spawn comspec /d /s /c with quoted cmdline", 
 	assert.equal(opts.stdio, "inherit");
 });
 
-// ---- end-to-end: `agent edit` spawns the editor argv without a shell ----------
+// ---- end-to-end: `agent-cli edit` spawns the editor argv without a shell ----------
 
 function runCli(args, env) {
 	const r = spawnSync(process.execPath, [CLI, ...args], {
@@ -113,7 +113,7 @@ function runCli(args, env) {
 	return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
-test("agent edit: EDITOR='node -e script' receives the target as argv (no shell)", () => {
+test("agent-cli edit: EDITOR='node -e script' receives the target as argv (no shell)", () => {
 	// The editor writes a marker into the file it was given as its LAST argv —
 	// only possible if we appended target to the parsed argv, not a shell string.
 	const script = "require('fs').appendFileSync(process.argv[1], 'EDITED')";
@@ -130,7 +130,7 @@ test("agent edit: EDITOR='node -e script' receives the target as argv (no shell)
 	assert.match(edited, /EDITED$/);
 });
 
-test("agent edit: shell metacharacters in EDITOR are NOT executed", () => {
+test("agent-cli edit: shell metacharacters in EDITOR are NOT executed", () => {
 	// With shell:true this payload would have been shell-interpreted (redirect +
 	// `|| calc`). Now: parseEditorCommand splits it into argv [node, -e, script,
 	// "pwned>marker", "||", "calc"] — spawnSync("node", …) passes them as LITERAL
@@ -152,7 +152,7 @@ test("agent edit: shell metacharacters in EDITOR are NOT executed", () => {
 	);
 });
 
-test("agent edit: unparseable EDITOR fails closed with a clear error", () => {
+test("agent-cli edit: unparseable EDITOR fails closed with a clear error", () => {
 	const r = runCli(["edit", "lessons"], {
 		AGENT_CLI_HOME: TMP,
 		VISUAL: "",

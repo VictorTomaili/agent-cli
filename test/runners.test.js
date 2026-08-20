@@ -1,5 +1,5 @@
-// Unit tests for src/runners.js — runner config (agent configure run) +
-// task dispatch with fallbacks (agent run). In-process with an isolated
+// Unit tests for src/runners.js — runner config (agent-cli configure run) +
+// task dispatch with fallbacks (agent-cli run). In-process with an isolated
 // AGENT_CLI_HOME (imported AFTER the env is set, like test/config.test.js).
 import { test } from "node:test";
 import assert from "node:assert";

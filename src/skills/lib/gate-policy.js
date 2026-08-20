@@ -30,10 +30,10 @@ export const GATE_DECIDE_HINT = `→ For EACH skill above, decide in your reply:
 // Full policy rendered into AGENTS.md (used by the agent at session start).
 export const GATE_POLICY_TEXT = `START GATE (mandatory): On the FIRST user message of a session, your VERY FIRST
 action — BEFORE ANYTHING ELSE (before thinking, before any tool call) — MUST be to
-run \`agent skill active\`. It lists each ACTIVE skill's name + FULL description (never the
+run \`agent-cli skill active\`. It lists each ACTIVE skill's name + FULL description (never the
 body). Read it, then for EACH skill classify which axis it moves and ACT — there is
 no discretion and no third option:
-- moves CORRECTNESS or QUALITY → load it now: \`agent skill cat <name>\`.
+- moves CORRECTNESS or QUALITY → load it now: \`agent-cli skill cat <name>\`.
 - moves COST, SPEED, or response STYLE → PROPOSE it. These are TRADE-OFFS — the
   USER decides them, NEVER you. Even if you are SURE one would hurt THIS task, you
   still ASK: "Enable <name>? It <one-line benefit>." (apply only on yes). They move
@@ -66,9 +66,9 @@ PRIORITIES: correctness > quality > cost (cheap) > speed — never trade correct
 or quality for speed or cost.
 Discovery: on EVERY later message, re-run this classification; load newly-relevant
 correctness/quality skills, PROPOSE newly-relevant cost/style/speed ones. Load each
-skill only ONCE per session (\`agent skill trigger <keyword>\` resolves a keyword).
+skill only ONCE per session (\`agent-cli skill trigger <keyword>\` resolves a keyword).
 
-Triggers: when the user types \`/X\`, run \`agent skill trigger X\`.
+Triggers: when the user types \`/X\`, run \`agent-cli skill trigger X\`.
 - Single match → apply the output directly.
-- Multiple matches → show the candidate list; load the right one with \`agent skill cat <name>\`.
+- Multiple matches → show the candidate list; load the right one with \`agent-cli skill cat <name>\`.
 `

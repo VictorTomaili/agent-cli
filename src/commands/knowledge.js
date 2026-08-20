@@ -44,7 +44,7 @@ export function registerKnowledgeCommands(
 				if (!isJson()) {
 					if (!items.length)
 						log.warn(
-							"No lessons yet. Create one: agent lessons add <topic/descriptive-name>",
+							"No lessons yet. Create one: agent-cli lessons add <topic/descriptive-name>",
 						);
 					for (const it of items)
 						log.raw(
@@ -55,7 +55,7 @@ export function registerKnowledgeCommands(
 			}
 			if (action === "add") {
 				if (!name) {
-					fail("Usage: agent lessons add <topic/descriptive-name>");
+					fail("Usage: agent-cli lessons add <topic/descriptive-name>");
 				}
 				if (opts.inbox) {
 					const r = await addInboxCapture(name, {
@@ -66,7 +66,7 @@ export function registerKnowledgeCommands(
 					emit({ command: "lessons", action, inbox: true, ...r });
 					if (!isJson())
 						log.success(
-							`Captured to inbox → ${pretty(r.file)} (triage: agent lessons triage --plan)`,
+							`Captured to inbox → ${pretty(r.file)} (triage: agent-cli lessons triage --plan)`,
 						);
 					return;
 				}
@@ -85,7 +85,7 @@ export function registerKnowledgeCommands(
 			}
 			if (action === "show") {
 				if (!name) {
-					fail("Usage: agent lessons show <topic/descriptive-name>");
+					fail("Usage: agent-cli lessons show <topic/descriptive-name>");
 				}
 				const { exists: ex, readFile: rf } = await import("../util.js");
 				const fp = await resolveLessonFile(name, { scope, cwd });
@@ -152,14 +152,14 @@ export function registerKnowledgeCommands(
 							log.raw(
 								`  [${p.index}] ${pretty(p.file)} → ${c.cyan(p.candidate)}${c.gray(`  (${p.topic})`)}`,
 							);
-						log.dim("File one: agent lessons triage --index <i> <topic>");
+						log.dim("File one: agent-cli lessons triage --index <i> <topic>");
 					}
 					return;
 				}
 				const fileIndex = opts.index == null ? opts.file : opts.index;
 				if (fileIndex != null) {
 					if (!name) {
-						fail("Usage: agent lessons triage --index <i> <topic/name>");
+						fail("Usage: agent-cli lessons triage --index <i> <topic/name>");
 					}
 					const r = await fileInboxItem(parseInt(fileIndex, 10), name, {
 						cwd,
@@ -198,13 +198,13 @@ export function registerKnowledgeCommands(
 						);
 					});
 					log.dim(
-						"File one: agent lessons triage --file <i> <topic/name> · delete: agent lessons triage --delete <i>",
+						"File one: agent-cli lessons triage --file <i> <topic/name> · delete: agent-cli lessons triage --delete <i>",
 					);
 				}
 				return;
 			}
 			if (action === "search") {
-				if (!name) fail("Usage: agent lessons search <query>");
+				if (!name) fail("Usage: agent-cli lessons search <query>");
 				const search = await import("../search.js");
 				const r = await search.searchLessons(name, {
 					includeProject: true,
@@ -222,7 +222,7 @@ export function registerKnowledgeCommands(
 			}
 			if (action === "capture") {
 				if (!name)
-					fail("Usage: agent lessons capture <topic> [--inbox|--direct]");
+					fail("Usage: agent-cli lessons capture <topic> [--inbox|--direct]");
 				const memMod = await import("../memory.js");
 				const info = memMod.gitInfo(cwd);
 				if (opts.inbox) {

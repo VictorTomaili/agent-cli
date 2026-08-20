@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // src/cli.js — agent-cli entry point. AI-first: --json everywhere, idempotent, no
 // interactive prompts (safe for agents/CI). Pointer model: edit ~/.agents/AGENTS.md
-// once; per-agent files are stubs that redirect there.
+// once; per-agent-cli files are stubs that redirect there.
 
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
@@ -230,7 +230,7 @@ async function preSnapshot(_label = "pre-mutation") {
 
 const program = new Command();
 // Tree-walk the commander program for the machine-readable command surface
-// (agent manifest / schema and the protocol command).
+// (agent-cli manifest / schema and the protocol command).
 function collectCommands(cmd = program, prefix = "") {
 	const rows = [];
 	for (const sub of cmd.commands) {
@@ -594,7 +594,7 @@ registerEvaluateCommands(program, {
 	resolveContained,
 });
 program
-	.name("agent")
+	.name("agent-cli")
 	.description(
 		"Manage AGENTS.md and point every coding agent at one canonical source (~/.agents/AGENTS.md). Bundles skill-cli.",
 	)
@@ -611,7 +611,7 @@ program
 		if (QUIET) silenceInfoLogs();
 		setExpectedCtx(ctxPaths());
 	})
-	// `agent sync auto on`: after any successful (non-exiting) command, best-effort
+	// `agent-cli sync auto on`: after any successful (non-exiting) command, best-effort
 	// auto-commit when auto-commit is enabled. process.exit() paths skip this.
 	.hook("postAction", async () => {
 		try {
@@ -624,7 +624,7 @@ program
 	});
 
 // ---------------------------------------------------------------------------
-// agent init
+// agent-cli init
 // ---------------------------------------------------------------------------
 program
 	.command("help [command]")
@@ -641,14 +641,14 @@ program
 		process.exit(0); // unreachable if help() throws via exitOverride
 	});
 
-// Bare `agent` — guided quick start (prose) or the manifest (JSON), exit 0.
+// Bare `agent-cli` — guided quick start (prose) or the manifest (JSON), exit 0.
 program.action((opts, cmd) => {
 	JSON_MODE = !!(opts.json || argvWantsJson());
 	JSON_COMPACT = !!opts.compact;
 	QUIET = !!(opts.quiet || opts.silent);
 	if (QUIET) silenceInfoLogs();
 	// commander drops unmatched operands from the root action's args; they stay
-	// on the program's `.args` (e.g. `agent frobnicate` → args=["frobnicate"]).
+	// on the program's `.args` (e.g. `agent-cli frobnicate` → args=["frobnicate"]).
 	const operands = (cmd && cmd.args) || [];
 	if (operands.length) {
 		// Unmatched first token → unknown command.
@@ -664,7 +664,7 @@ program.action((opts, cmd) => {
 					{ compact: JSON_COMPACT },
 				),
 			);
-		else log.error(`Unknown command: ${name} — run \`agent --help\``);
+		else log.error(`Unknown command: ${name} — run \`agent-cli --help\``);
 		process.exit(EXIT.ERROR);
 	}
 	if (JSON_MODE) {
@@ -683,14 +683,14 @@ program.action((opts, cmd) => {
 		`${c.bold("agent-cli")} ${c.gray("v" + VERSION)} — one canonical AGENTS.md at ~/.agents/AGENTS.md, mirrored to every coding agent.`,
 	);
 	log.raw("");
-	log.raw(`  ${c.cyan("agent init")}          bootstrap ~/.agents/AGENTS.md master + pointers + home pointer + brief hooks (idempotent)`);
-	log.raw(`  ${c.cyan("agent brief")}         AI session brief — health, gaps, next action (each action is runnable via 'agent run <id>')`);
-	log.raw(`  ${c.cyan("agent doctor")}        diagnose master, pointers, skill-cli, staged updates, npm version`);
-	log.raw(`  ${c.cyan("agent status")}        per-target pointer state and brief-hook health`);
-	log.raw(`  ${c.cyan("agent models")}        list/set/resolve model aliases; MODELS.md is the source of truth`);
-	log.raw(`  ${c.cyan("agent brief-hooks")}   install/uninstall/status SessionStart hooks (auto-runs 'agent brief' per session)`);
+	log.raw(`  ${c.cyan("agent-cli init")}          bootstrap ~/.agents/AGENTS.md master + pointers + home pointer + brief hooks (idempotent)`);
+	log.raw(`  ${c.cyan("agent-cli brief")}         AI session brief — health, gaps, next action (each action is runnable via 'agent-cli run <id>')`);
+	log.raw(`  ${c.cyan("agent-cli doctor")}        diagnose master, pointers, skill-cli, staged updates, npm version`);
+	log.raw(`  ${c.cyan("agent-cli status")}        per-target pointer state and brief-hook health`);
+	log.raw(`  ${c.cyan("agent-cli models")}        list/set/resolve model aliases; MODELS.md is the source of truth`);
+	log.raw(`  ${c.cyan("agent-cli brief-hooks")}   install/uninstall/status SessionStart hooks (auto-runs 'agent-cli brief' per session)`);
 	log.raw("");
-	log.dim(`Run ${c.cyan("agent --help")} for the full command list.`);
+	log.dim(`Run ${c.cyan("agent-cli --help")} for the full command list.`);
 });
 
 program.parseAsync(process.argv).catch((e) => {
@@ -698,7 +698,7 @@ program.parseAsync(process.argv).catch((e) => {
 	// errors (exitOverride). Route them through the JSON contract when requested.
 	const isCmdError =
 		e && typeof e.code === "string" && e.code.startsWith("commander.");
-	// Help was intentionally requested (`agent --help`, `agent help`, or the
+	// Help was intentionally requested (`agent-cli --help`, `agent-cli help`, or the
 	// `help` subcommand) — that is success, not an error. Exit 0.
 	if (
 		isCmdError &&

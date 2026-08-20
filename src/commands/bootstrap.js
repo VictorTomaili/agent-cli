@@ -52,7 +52,7 @@ export function registerBootstrapCommands(
 	}
 
 	// ---------------------------------------------------------------------------
-	// agent init
+	// agent-cli init
 	// ---------------------------------------------------------------------------
 	program
 		.command("init")
@@ -292,11 +292,11 @@ export function registerBootstrapCommands(
 					});
 					if (installable.length) {
 						log.dim(
-							`Detected ${installable.length} installable target(s): ${installable.join(", ")}. Enable with: agent target enable ${installable.slice(0, 3).join(" ")}${installable.length > 3 ? " …" : ""}`,
+							`Detected ${installable.length} installable target(s): ${installable.join(", ")}. Enable with: agent-cli target enable ${installable.slice(0, 3).join(" ")}${installable.length > 3 ? " …" : ""}`,
 						);
 					} else {
 						log.dim(
-							"No targets detected yet. Install a supported agent (claude/codex/gemini/pi/...) and run 'agent init' again, or 'agent target enable <id>' to enable manually.",
+							"No targets detected yet. Install a supported agent (claude/codex/gemini/pi/...) and run 'agent-cli init' again, or 'agent-cli target enable <id>' to enable manually.",
 						);
 					}
 				}
@@ -315,26 +315,26 @@ export function registerBootstrapCommands(
 					);
 				} else if (homePointer.skipped === "native-content") {
 					log.warn(
-						`Home pointer stub at ${c.cyan(pretty(HOME_POINTER_FILE))} has native content — run ${c.cyan("agent init --force")} to replace it.`,
+						`Home pointer stub at ${c.cyan(pretty(HOME_POINTER_FILE))} has native content — run ${c.cyan("agent-cli init --force")} to replace it.`,
 					);
 				}
 				if (blocked.length) {
 					for (const b of blocked) {
 						log.warn(
-							`${b.name}: native content — run ${c.cyan("agent pull " + b.id)} then ${c.cyan("agent link --force")}`,
+							`${b.name}: native content — run ${c.cyan("agent-cli pull " + b.id)} then ${c.cyan("agent-cli link --force")}`,
 						);
 					}
 				}
 				log.dim(
-					`Next: run ${c.cyan("agent brief")}, then read every file under "Load at session start". Edit the master: ${c.cyan("agent edit")}.`,
+					`Next: run ${c.cyan("agent-cli brief")}, then read every file under "Load at session start". Edit the master: ${c.cyan("agent-cli edit")}.`,
 				);
 			}
 		});
 
 	// ---------------------------------------------------------------------------
-	// agent brief-hooks (SessionStart auto-brief for supported agents)
+	// agent-cli brief-hooks (SessionStart auto-brief for supported agents)
 	//
-	// Named `brief-hooks` (not `hooks`) because `agent hooks` is already the
+	// Named `brief-hooks` (not `hooks`) because `agent-cli hooks` is already the
 	// git-hooks command; commander requires unique command names. The two share
 	// the same noun in user-facing help text but operate on entirely different
 	// files.
@@ -342,7 +342,7 @@ export function registerBootstrapCommands(
 	program
 		.command("brief-hooks <action>")
 		.description(
-			"Manage native SessionStart hooks for supported agents. Action: install | uninstall | status. Each installs a hook that calls `agent brief --oneline` at session start (unrelated to `agent hooks`, which manages git post-merge/checkout hooks).",
+			"Manage native SessionStart hooks for supported agents. Action: install | uninstall | status. Each installs a hook that calls `agent-cli brief --oneline` at session start (unrelated to `agent-cli hooks`, which manages git post-merge/checkout hooks).",
 		)
 		.option(
 			"-t, --target <ids...>",

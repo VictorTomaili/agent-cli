@@ -1,6 +1,6 @@
 // src/serve.js — minimal Model Context Protocol (MCP) server over stdio.
 // Exposes the read-only SDK (api/index.js) as MCP tools so an MCP host (Claude
-// Desktop, VS Code, Cursor, etc.) can call `agent brief`, `doctor`, `search`,
+// Desktop, VS Code, Cursor, etc.) can call `agent-cli brief`, `doctor`, `search`,
 // `snapshot`, `status`, `spect status` as tools. JSON-RPC 2.0, newline-delimited
 // on stdin/stdout. No dependencies.
 

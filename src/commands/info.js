@@ -37,7 +37,7 @@ export function registerInfoCommands(
 	program
 		.command("targets")
 		.description(
-			"List all known agent targets with install/enable state; use `status` for pointer health or `where` for resolved paths.",
+			"List all known agent-cli targets with install/enable state; use `status` for pointer health or `where` for resolved paths.",
 		)
 		.action(async () => {
 			const { detectInstalled } = await import("../detect.js");

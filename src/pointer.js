@@ -38,7 +38,7 @@ function pointerLines(target, scope, { masterAbs, masterTilde }) {
 		`   primary ${name}. Everything that belongs here is there.`,
 		"",
 		"Do NOT edit this pointer — it has no effect. Edit the canonical file instead",
-		"(`agent edit`), or redeploy stubs with `agent link`.",
+		"(`agent-cli edit`), or redeploy stubs with `agent-cli link`.",
 	];
 }
 
@@ -79,7 +79,7 @@ export function masterPointerContent({ masterAbs, masterTilde }) {
 		"   primary AGENTS.md. Everything that belongs here is there.",
 		"",
 		"Do NOT edit this pointer — it has no effect. Edit the canonical file instead",
-		"(`agent edit`), or redeploy with `agent init`.",
+		"(`agent-cli edit`), or redeploy with `agent-cli init`.",
 	].join("\n");
 }
 
@@ -163,7 +163,7 @@ function parsePointerBody(lines, start, target, scope) {
 	if (L(16) !== `   primary ${name}. Everything that belongs here is there.`) return null;
 	if (L(17) !== "") return null;
 	if (L(18) !== "Do NOT edit this pointer — it has no effect. Edit the canonical file instead") return null;
-	if (L(19) !== "(`agent edit`), or redeploy stubs with `agent link`.") return null;
+	if (L(19) !== "(`agent-cli edit`), or redeploy stubs with `agent-cli link`.") return null;
 	return { ok: true };
 }
 

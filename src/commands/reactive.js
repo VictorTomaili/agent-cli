@@ -8,7 +8,7 @@ export function registerReactiveCommands(
 	{ emit, fail, log, c, pretty, EXIT, isJson, setJson, path },
 ) {
 	// ---------------------------------------------------------------------------
-	// agent run / agent action verify — execute the session contract
+	// agent-cli run / agent-cli action verify — execute the session contract
 	// ---------------------------------------------------------------------------
 	program
 		.command("serve")
@@ -66,7 +66,7 @@ export function registerReactiveCommands(
 	program
 		.command("hooks <action>")
 		.description(
-			"Manage git hooks: install | remove | list. Hooks re-point agent files after merge/checkout (unrelated to `brief-hooks`, which manages native SessionStart hooks).",
+			"Manage git hooks: install | remove | list. Hooks re-point agent-cli files after merge/checkout (unrelated to `brief-hooks`, which manages native SessionStart hooks).",
 		)
 		.option("--git", "git hooks (default)")
 		.option(
@@ -87,7 +87,7 @@ export function registerReactiveCommands(
 				emit({ command: "hooks", action, installed });
 				if (!isJson()) {
 					log.success(`Installed git hooks: ${installed.join(", ")}`);
-					log.dim("They run `agent link` after every merge/checkout.");
+					log.dim("They run `agent-cli link` after every merge/checkout.");
 				}
 				return;
 			}
@@ -143,7 +143,7 @@ export function registerReactiveCommands(
 			if (action === "add") {
 				if (!name)
 					fail(
-						"Usage: agent automation add <name> --event <e> --command <cmd>",
+						"Usage: agent-cli automation add <name> --event <e> --command <cmd>",
 						{ command: "automation", action },
 					);
 				if (!opts.event)
@@ -180,7 +180,7 @@ export function registerReactiveCommands(
 				if (!isJson()) {
 					if (!jobs.length)
 						log.info(
-							'No automation jobs. Add one: agent automation add <name> --event session-start --command "…"',
+							'No automation jobs. Add one: agent-cli automation add <name> --event session-start --command "…"',
 						);
 					for (const j of jobs)
 						log.raw(
@@ -191,7 +191,7 @@ export function registerReactiveCommands(
 			}
 			if (action === "remove") {
 				if (!name)
-					fail("Usage: agent automation remove <name>", {
+					fail("Usage: agent-cli automation remove <name>", {
 						command: "automation",
 						action,
 					});

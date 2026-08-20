@@ -36,7 +36,7 @@ export function registerEvaluateCommands(
 				session = sess.currentSession();
 				source = "active";
 				if (!session) {
-					fail("No active session — run `agent session start` first.", {
+					fail("No active session — run `agent-cli session start` first.", {
 						command: "evaluate",
 						action,
 					});
@@ -85,7 +85,7 @@ export function registerEvaluateCommands(
 				const files = entries.filter((f) => f.endsWith(".json")).sort();
 				if (!files.length) {
 					fail(
-						"No archived sessions yet — run `agent session start` then `agent session end`.",
+						"No archived sessions yet — run `agent-cli session start` then `agent-cli session end`.",
 						{ command: "evaluate", action },
 					);
 				}

@@ -1,5 +1,5 @@
 // src/runners.js — external coding-agent runners: persisted config
-// (`agent configure run`) + task dispatch with a fallback chain (`agent run`).
+// (`agent-cli configure run`) + task dispatch with a fallback chain (`agent-cli run`).
 // Stored in config.json `runners`: { default: string|null, tools: {
 //   <toolId>: { provider, model, thinking, fallbacks[] } } }.
 // Follows the models.js persistence pattern (loadConfigSync → mutate →
@@ -103,7 +103,7 @@ export function setRunner(
 	};
 	if (entry.model == null)
 		throw new Error(
-			`--model is required when configuring '${toolId}' for the first time (agent configure run ${toolId} --model <id>)`,
+			`--model is required when configuring '${toolId}' for the first time (agent-cli configure run ${toolId} --model <id>)`,
 		);
 	for (const spec of entry.fallbacks || []) parseFallback(spec);
 	cfg.runners.tools[toolId] = entry;
@@ -136,12 +136,12 @@ export function resolveChain({ toolOverride } = {}) {
 	const toolId = toolOverride || runners.default || Object.keys(tools)[0];
 	if (!toolId)
 		throw new Error(
-			"No runners configured — run: agent configure run <tool> --model <model>",
+			"No runners configured — run: agent-cli configure run <tool> --model <model>",
 		);
 	const entry = tools[toolId];
 	if (!entry)
 		throw new Error(
-			`Runner '${toolId}' is not configured — run: agent configure run ${toolId} --model <model>`,
+			`Runner '${toolId}' is not configured — run: agent-cli configure run ${toolId} --model <model>`,
 		);
 	const chain = [
 		{

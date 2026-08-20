@@ -14,35 +14,35 @@ It is shared across ALL your coding agents via pointer stubs (CLAUDE.md / AGENTS
 GEMINI.md / etc. each just redirect here). No copies, no drift.
 
 Rules for any agent reading this:
-- This is the ONLY instructions file to edit. Per-agent files are pointers — editing
-  them has no effect. To open this file: \`agent edit\` (or read it directly).
-- To inspect state machine-readably: \`agent status --json\` or \`agent brief --json\`.
-- To deploy/refresh pointer stubs to agents: \`agent link\`.
-- To enable a new agent target: \`agent target enable <id>\` then \`agent link\`.
-- Diagnostics: \`agent doctor\`. AI session brief: \`agent brief\`.
-- skill is integrated here; after changing skills run \`agent skill refresh\`.
+- This is the ONLY instructions file to edit. Per-agent-cli files are pointers — editing
+  them has no effect. To open this file: \`agent-cli edit\` (or read it directly).
+- To inspect state machine-readably: \`agent-cli status --json\` or \`agent-cli brief --json\`.
+- To deploy/refresh pointer stubs to agents: \`agent-cli link\`.
+- To enable a new agent-cli target: \`agent-cli target enable <id>\` then \`agent-cli link\`.
+- Diagnostics: \`agent-cli doctor\`. AI session brief: \`agent-cli brief\`.
+- skill is integrated here; after changing skills run \`agent-cli skill refresh\`.
 
 Priority order: correctness > quality > cost > speed.
 
 ## Install & update
 
-- The CLI ships as the npm package \`@tomaili/agent\`. Install or update it
-  globally: \`npm i -g @tomaili/agent\`.
-- \`agent brief\` (already mandated at session start) surfaces a cached npm
+- The CLI ships as the npm package \`@victortomaili/agent-cli\`. Install or update it
+  globally: \`npm i -g @victortomaili/agent-cli\`.
+- \`agent-cli brief\` (already mandated at session start) surfaces a cached npm
   update check. When it reports a newer version, run the suggested update
   action before continuing.
-- If the \`agent\` command is missing entirely, tell the user and offer to
+- If the \`agent-cli\` command is missing entirely, tell the user and offer to
   install it. Never reimplement its functions by hand.
 
-## Sub-agent dispatch (agent run)
+## Sub-agent dispatch (agent-cli run)
 
 - Delegate bounded sub-tasks to external coding-agent CLIs via
-  \`agent run "<task>"\` (options: \`--tool <pi|codex>\`, \`--read-only\`,
+  \`agent-cli run "<task>"\` (options: \`--tool <pi|codex>\`, \`--read-only\`,
   \`--timeout <seconds>\`). The configured fallback chain is applied
   automatically; failures report per-attempt tool/model/kind.
-- Configure runners once per machine: \`agent configure run pi --provider zai
+- Configure runners once per machine: \`agent-cli configure run pi --provider zai
   --model glm-5.3 --thinking high --fallback codex:gpt-5.6-luna\` (spec
-  format \`tool:provider/model[:thinking]\`); bare \`agent configure run\`
+  format \`tool:provider/model[:thinking]\`); bare \`agent-cli configure run\`
   prints the current chain.
 - A coding agent (Claude Code, Codex, Gemini, ...) arriving on a machine
   where runners are NOT configured should propose a configuration to the
@@ -52,7 +52,7 @@ Priority order: correctness > quality > cost > speed.
 
 ## Session start read order (MANDATORY)
 
-\`agent brief\` emits a "Session start — read in this exact order" list. Read EVERY
+\`agent-cli brief\` emits a "Session start — read in this exact order" list. Read EVERY
 file in that list in the EXACT order emitted — do NOT skip ahead, read out of
 order, or parallelize the reads. Each file is interpreted through the prior files
 in the chain, so the order is part of the contract (changing it is a spec-level
@@ -81,10 +81,10 @@ a gap; the brief output marks it "(no project lessons yet)" instead.
 
 If a file is missing, skip it and proceed to the next. SPECT project files
 (loaded after the canonical 7 when the project uses SPECT) follow the same rule:
-read them in the order \`agent brief\` emits them.
+read them in the order \`agent-cli brief\` emits them.
 
 This rule is enforced four ways: (a) this AGENTS.md instruction, (b) the
-numbered list \`agent brief\` prints (with a "(global only)" annotation on
+numbered list \`agent-cli brief\` prints (with a "(global only)" annotation on
 the relevant entries), (c) \`src/agents-lib.js → IDENTITY_FILES\` (locks both
 the order AND the \`globalOnly\` flag), (d) a regression test that asserts the
 session-start load list contains exactly ONE entry per global-only kind and TWO
@@ -93,7 +93,7 @@ per overridable kind. All four must agree.
 ## Lesson capture (MANDATORY)
 
 When you hit something surprising, get corrected by the user, or confirm that
-a non-obvious approach actually worked, capture it: \`agent lessons add
+a non-obvious approach actually worked, capture it: \`agent-cli lessons add
 <topic/descriptive-name> [--body TEXT]\` (global scope by default; add \`-p\`
 / \`--project\` for a project-scoped lesson). Pick the topic yourself — there
 is no fixed taxonomy; a short descriptive path like \`windows-path-quoting\`
@@ -106,8 +106,8 @@ the same non-obvious decision from scratch. A lesson you notice but don't
 record is a lesson the next session pays for again.
 
 If you're mid-task and don't want to interrupt flow to pick a final topic
-name, use \`agent lessons add <topic> --inbox\` to drop a raw capture into
-the inbox for later triage (\`agent lessons triage --plan\`, then \`agent
+name, use \`agent-cli lessons add <topic> --inbox\` to drop a raw capture into
+the inbox for later triage (\`agent-cli lessons triage --plan\`, then \`agent-cli
 lessons triage --index <i> <topic>\`) — but prefer filing directly when the
 topic is already obvious. Re-adding the same topic is not an error: it
 increments an occurrence counter (recurrence signal) rather than
@@ -117,25 +117,25 @@ This rule is enforced three ways: (a) this AGENTS.md instruction, (b) the
 "Session start read order" section above, which makes LESSONS.md a
 mandatory read for every future session (so captured lessons are never
 inert), (c) \`src/lessons-lib.js\` (the \`addLesson\`/\`addInboxCapture\`
-primitives) plus \`src/commands/knowledge.js\` (the \`agent lessons\` command
+primitives) plus \`src/commands/knowledge.js\` (the \`agent-cli lessons\` command
 surface), which are exercised by \`test/lessons-lib.test.js\`.
 
 ## Gap filling (MANDATORY)
 
-\`agent brief\` reports unfilled fields in the brain files — IDENTITY.md,
+\`agent-cli brief\` reports unfilled fields in the brain files — IDENTITY.md,
 USER.md, SOUL.md (structured \`<TAG>\` fields; see \`src/fields.js →
 FIELD_TAGS\`), and ENVIRONMENTS.md (freeform \`- Field:\` gaps; see
 \`ENVIRONMENT_FIELDS\`). When a gap is reported, do NOT silently ignore it
 and do NOT guess a plausible-sounding value to fill it in. Surface the
-specific missing field to the user as a question, via \`agent onboard
+specific missing field to the user as a question, via \`agent-cli onboard
 suggest\` — it picks the single highest-priority unresolved gap (identity
 archetype > identity name > user > soul > environments) and returns one
 concrete question. For the identity-archetype case it returns options and
-a default; write the user's answer back with \`agent identity apply
+a default; write the user's answer back with \`agent-cli identity apply
 <choice>\`. For every other case (identity name, user, soul, environments)
 it returns an open-ended question plus the exact fix command (e.g.
-\`agent user set <field> "<value>"\`, \`agent soul set <field> "<value>"\`,
-\`agent env set <field> "<value>"\`) — use that command verbatim, never
+\`agent-cli user set <field> "<value>"\`, \`agent-cli soul set <field> "<value>"\`,
+\`agent-cli env set <field> "<value>"\`) — use that command verbatim, never
 guess one.
 
 A gap is a signal that the brain files don't yet know something true about
@@ -146,17 +146,17 @@ fixes it permanently.
 This rule is enforced three ways: (a) this AGENTS.md instruction, (b)
 \`src/agents-lib.js → computeOnboarding\`/\`nextGapSuggestion\` (computes the
 gap report and picks the single ranked next question, from
-\`src/fields.js\`'s tag schema, pure and unit-tested), (c) the \`agent onboard
+\`src/fields.js\`'s tag schema, pure and unit-tested), (c) the \`agent-cli onboard
 suggest\` command (\`src/commands/edit.js\`), which turns a gap into a
 single concrete question and fix command instead of leaving it for the
 agent to paper over.
 
 ## Session report (MANDATORY)
 
-At the natural end of a session or task, close the loop: run \`agent
+At the natural end of a session or task, close the loop: run \`agent-cli
 session end\` (if a session was started). It returns a suggested lesson
 topic derived from the session's task (\`session/<slugified-task>\`) plus
-the exact command to file it (\`agent lessons capture <topic> --inbox\`)
+the exact command to file it (\`agent-cli lessons capture <topic> --inbox\`)
 directly in its own output — ending already surfaces the next step, no
 separate call needed. This is how lesson candidates reach the inbox and
 how the brain stays current for whichever coding tool — Claude Code,
@@ -164,18 +164,18 @@ Codex, Gemini, or otherwise — picks up the next session. Skipping it
 doesn't lose data catastrophically, but it starves the next session of
 context this one already earned.
 
-\`agent session report\` is the mid-session variant of the same checklist —
-run it BEFORE \`agent session end\` if you want the lesson-suggestion
+\`agent-cli session report\` is the mid-session variant of the same checklist —
+run it BEFORE \`agent-cli session end\` if you want the lesson-suggestion
 without closing the session yet (e.g. a natural checkpoint partway through
-a long task). Do NOT run it after \`agent session end\`: ending clears the
+a long task). Do NOT run it after \`agent-cli session end\`: ending clears the
 active session, so a report call afterward has nothing to report and
-returns an error. \`agent session end\` archives the session to
-\`~/.agents/sessions/\` and clears the active slot so the next \`agent
+returns an error. \`agent-cli session end\` archives the session to
+\`~/.agents/sessions/\` and clears the active slot so the next \`agent-cli
 session start\` doesn't collide with a stale one.
 
 This rule is enforced two ways: (a) this AGENTS.md instruction, (b)
 \`src/session.js\` (\`sessionEnd\`/\`sessionReport\`, exercised by
-\`test/session.test.js\`) plus the \`agent session <action>\` command surface
+\`test/session.test.js\`) plus the \`agent-cli session <action>\` command surface
 that exposes them.
 
 ## Self-check (MANDATORY)
@@ -185,11 +185,11 @@ Before ending a turn, tick through this list:
 - Read order followed — AGENTS.md → SOUL.md → IDENTITY.md → USER.md →
   LESSONS.md → ENVIRONMENTS.md → MODELS.md, in that exact order, nothing
   skipped or reordered.
-- Gaps surfaced, not guessed — any \`agent brief\` gap became a question to
+- Gaps surfaced, not guessed — any \`agent-cli brief\` gap became a question to
   the user, not an invented value.
 - Lessons captured — anything surprising, corrected, or confirmed
-  non-obvious got an \`agent lessons add\`, not just a mental note.
-- Session reported — \`agent session end\` ran (or \`agent session report\`
+  non-obvious got an \`agent-cli lessons add\`, not just a mental note.
+- Session reported — \`agent-cli session end\` ran (or \`agent-cli session report\`
   mid-session, never after \`end\`) so the next session inherits this one's
   context.`;
 

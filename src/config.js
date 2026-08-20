@@ -141,7 +141,7 @@ export function defaultConfig() {
 		seedFiles: [], // seed paths known at the last install/stage, for deletion reconciliation
 		updateCheck: null, // cached npm latest-version check: { latestVersion, checkedAt }
 		sync: null, // git-backed brain sync: { remote, autoCommit, excluded, lastPull }
-		runners: { default: null, tools: {} }, // sub-agent runner dispatch (agent configure run / agent run)
+		runners: { default: null, tools: {} }, // sub-agent runner dispatch (agent-cli configure run / agent-cli run)
 		updatedAt: null,
 	};
 }

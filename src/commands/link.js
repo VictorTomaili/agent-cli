@@ -205,7 +205,7 @@ export function registerLinkCommands(
 			"(Re)write pointer stubs for already-enabled agents — e.g. to repair drift after a sync pull or manual config edit. Idempotent. Edit the master anytime — no re-link needed.",
 		)
 		// M7: link/unlink select targets via -t/--target, never positionals —
-		// a stray `agent link claude` must error, not silently link everything.
+		// a stray `agent-cli link claude` must error, not silently link everything.
 		.allowExcessArguments(false)
 		.option("-g, --global", "Home (~) scope only")
 		.option("-p, --project", "Current project (./) scope only")
@@ -229,7 +229,7 @@ export function registerLinkCommands(
 				const { masterAbs, masterTilde } = masterPaths(scope);
 				setExpectedCtx({ masterAbs, masterTilde });
 				if (scope === "global") {
-					// Global layout upkeep, mirroring `agent init`: migrate any pre-flip
+					// Global layout upkeep, mirroring `agent-cli init`: migrate any pre-flip
 					// master layout (~/AGENTS.md → ~/.agents/AGENTS.md, with backup), then
 					// refresh the managed home pointer at ~/AGENTS.md alongside the target
 					// stubs. Never destructive without --force: a native ~/AGENTS.md is

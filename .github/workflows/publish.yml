@@ -1,0 +1,31 @@
+name: Publish to npm
+
+# Deploys @victortomaili/agent-cli when a version tag is pushed:
+#   git tag v0.3.0 && git push origin v0.3.0
+# Requires the repository secret NPM_TOKEN (an npm automation token):
+#   gh secret set NPM_TOKEN -R VictorTomaili/agent-cli
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - name: Verify tag matches package.json version
+        run: |
+          node -e "const v=require('./package.json').version;const t=process.env.GITHUB_REF_NAME.replace(/^v/,'');if(v!==t){console.error('tag v'+t+' does not match package.json version '+v);process.exit(1)}"
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

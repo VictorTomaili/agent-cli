@@ -67,7 +67,7 @@ export function registerModelsCommands(
 			if (action === "set") {
 				const [alias, model] = rest;
 				if (!alias || !model) {
-					fail("Usage: agent models set <alias> <provider/model>");
+					fail("Usage: agent-cli models set <alias> <provider/model>");
 				}
 				const r = m.setAlias(alias, {
 					model,
@@ -241,11 +241,11 @@ export function registerModelsCommands(
 						if (applicable > 0) {
 							const src = opts.reassign ? "live" : "bundled";
 							log.dim(
-								`${applicable} alias${applicable === 1 ? "" : "es"} auto-pickable from the ${src} catalog. Apply with: agent models suggest --apply${opts.reassign ? " --reassign" : ""}`,
+								`${applicable} alias${applicable === 1 ? "" : "es"} auto-pickable from the ${src} catalog. Apply with: agent-cli models suggest --apply${opts.reassign ? " --reassign" : ""}`,
 							);
 						} else {
 							log.dim(
-								"No catalog match — assign manually: agent models set <alias> <provider/model>.",
+								"No catalog match — assign manually: agent-cli models set <alias> <provider/model>.",
 							);
 						}
 					} else log.success("All model aliases resolve.");
@@ -330,7 +330,7 @@ export function registerModelsCommands(
 			}
 			if (action === "test") {
 				const alias = rest[0];
-				if (!alias) fail("Usage: agent models test <alias>");
+				if (!alias) fail("Usage: agent-cli models test <alias>");
 				const r = m.getAlias(alias);
 				if (!r) fail(`No such alias: ${alias}`);
 				emit({ command: "models", action: "test", alias, ...r, valid: true });

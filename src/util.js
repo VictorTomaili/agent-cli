@@ -220,7 +220,7 @@ export async function homeExists(rel) {
 }
 
 // --- L1: shell-free $EDITOR spawning -----------------------------------------
-// `agent edit` used to spawn the raw $VISUAL/$EDITOR string with shell:true —
+// `agent-cli edit` used to spawn the raw $VISUAL/$EDITOR string with shell:true —
 // a poisoned env var meant arbitrary command execution. These helpers keep the
 // convenience ("code -w", quoted exe paths) without any shell interpretation.
 

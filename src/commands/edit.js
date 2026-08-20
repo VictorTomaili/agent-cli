@@ -164,7 +164,7 @@ export function registerEditCommands(
 					log.raw(c.bold(s.question));
 					if (s.kind === "identity" && s.options) {
 						log.dim(
-							`Default: ${s.default}. Ask the user, then: agent identity apply <choice>`,
+							`Default: ${s.default}. Ask the user, then: agent-cli identity apply <choice>`,
 						);
 					} else {
 						const { gapFixHints } = await import("../actions.js");

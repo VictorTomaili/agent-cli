@@ -1,5 +1,5 @@
 // src/hooks.js — render + install/uninstall/status for native SessionStart hooks
-// that call `agent brief --oneline` at the start of an agent session.
+// that call `agent-cli brief --oneline` at the start of a coding-agent session.
 //
 // Each supported agent reads a different file (settings.json, hooks.json,
 // config.toml, opencode.json, config.yaml) with a different JSON shape.
@@ -28,11 +28,11 @@ import { targetsWithHooks, getTarget } from "./targets.js";
 export const HOOK_MARKER = "agent-cli-session-brief";
 
 /**
- * Detect the invocation for the running `agent` binary, with a robust
- * fallback for environments where `agent` is not on PATH.
+ * Detect the invocation for the running `agent-cli` binary, with a robust
+ * fallback for environments where `agent-cli` is not on PATH.
  *
- * On Windows: prefer `where agent`; fall back to `<node.exe> <cli.js>`.
- * On POSIX:   prefer `which agent`; fall back to `<node> <cli.js>`.
+ * On Windows: prefer `where agent-cli`; fall back to `<node.exe> <cli.js>`.
+ * On POSIX:   prefer `which agent-cli`; fall back to `<node> <cli.js>`.
  *
  * Returns `{ bin, extraArgs }`: `bin` is the executable to invoke, `extraArgs`
  * are argv entries that must precede the `brief` subcommand (e.g. the cli.js
@@ -47,7 +47,7 @@ export const HOOK_MARKER = "agent-cli-session-brief";
 export function detectAgentBin() {
 	try {
 		const cmd = process.platform === "win32" ? "where" : "which";
-		const out = execFileSync(cmd, ["agent"], { encoding: "utf8" });
+		const out = execFileSync(cmd, ["agent-cli"], { encoding: "utf8" });
 		const lines = out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 		if (lines.length > 0) {
 			const bin = process.platform === "win32" ? pickWindowsAgentBin(lines) : lines[0];
@@ -61,7 +61,7 @@ export function detectAgentBin() {
 }
 
 /**
- * From a list of `where agent` match lines, prefer a recognized Windows
+ * From a list of `where agent-cli` match lines, prefer a recognized Windows
  * executable extension (.exe/.cmd/.bat) over an extensionless match.
  *
  * npm installs both an extensionless POSIX shim (for Git Bash) and a
@@ -94,7 +94,7 @@ function quoteCommand(bin, extraArgs, briefArgs) {
 
 /**
  * Build the native hook config snippet for one target that calls
- * `agent brief --oneline` at session start.
+ * `agent-cli brief --oneline` at session start.
  *
  * Returns: { event, json, configFile, scope, hookCount }
  *   - event      the native event name (SessionStart / sessionStart / session_start / pre_user_prompt)
@@ -290,7 +290,7 @@ export async function installHook(target, { force = false, agentBin } = {}) {
 			return { target: target.id, path: abs, skipped: "already-installed" };
 		}
 		if (!has && existingHooks.length > 0 && !force) {
-			return { target: target.id, path: abs, blocked: "native-content", hint: "agent hooks install --force" };
+			return { target: target.id, path: abs, blocked: "native-content", hint: "agent-cli hooks install --force" };
 		}
 		const cmd = quoteCommand(bin, extraArgs, "--oneline");
 		const next = [
@@ -326,7 +326,7 @@ export async function installHook(target, { force = false, agentBin } = {}) {
 			target: target.id,
 			path: abs,
 			blocked: "unparseable",
-			hint: "agent hooks install --force",
+			hint: "agent-cli hooks install --force",
 			detail: error.message,
 		};
 	}
@@ -340,7 +340,7 @@ export async function installHook(target, { force = false, agentBin } = {}) {
 			target: target.id,
 			path: abs,
 			blocked: "native-content",
-			hint: "agent hooks install --force",
+			hint: "agent-cli hooks install --force",
 		};
 	}
 

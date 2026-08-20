@@ -85,12 +85,12 @@ export function runJobs({ event = "*", cwd = process.cwd() } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Git hooks — wire `agent link` (and job hooks) into post-merge/post-checkout.
+// Git hooks — wire `agent-cli link` (and job hooks) into post-merge/post-checkout.
 // ---------------------------------------------------------------------------
 const HOOK_TEMPLATE = (extra) => `#!/bin/sh
-# Managed by agent-cli — ` + "`agent hooks install --git`" + `
-# Re-point agent files after branch changes / merges.
-command -v agent >/dev/null 2>&1 && agent link >/dev/null 2>&1
+# Managed by agent-cli — ` + "`agent-cli hooks install --git`" + `
+# Re-point agent-cli files after branch changes / merges.
+command -v agent-cli >/dev/null 2>&1 && agent-cli link >/dev/null 2>&1
 ${extra ? extra + "\n" : ""}
 `;
 
@@ -107,7 +107,7 @@ export function installGitHooks({ cwd = process.cwd(), withAutomation = false } 
 	}
 	fs.mkdirSync(hooksDir, { recursive: true });
 	const extra = withAutomation
-		? 'command -v agent >/dev/null 2>&1 && agent automation run --event post-merge >/dev/null 2>&1'
+		? 'command -v agent-cli >/dev/null 2>&1 && agent-cli automation run --event post-merge >/dev/null 2>&1'
 		: "";
 	for (const hook of ["post-merge", "post-checkout"]) {
 		fs.writeFileSync(path.join(hooksDir, hook), HOOK_TEMPLATE(extra), "utf8");
@@ -135,7 +135,7 @@ export function removeGitHooks({ cwd = process.cwd() } = {}) {
 
 // ---------------------------------------------------------------------------
 // Watcher — poll a set of agent-state files/dirs and emit typed change events.
-// Used by `agent watch` (long-running) and available for cron-like loops.
+// Used by `agent-cli watch` (long-running) and available for cron-like loops.
 // ---------------------------------------------------------------------------
 export function watchTargets(cwd = process.cwd()) {
 	const t = [

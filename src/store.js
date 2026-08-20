@@ -64,7 +64,7 @@ export async function findSeedSource() {
 const STARTER = `# AGENTS.md — canonical source (managed by agent-cli)
 
 > This single file is shared with all your coding agents via pointer stubs.
-> Edit it freely; no re-sync needed. Run \`agent link\` to (re)deploy pointers.
+> Edit it freely; no re-sync needed. Run \`agent-cli link\` to (re)deploy pointers.
 
 ## Conventions
 - (describe your stack, structure, and conventions here)
@@ -73,7 +73,7 @@ const STARTER = `# AGENTS.md — canonical source (managed by agent-cli)
 - Prefer specialized sub-agents by default. Discover an existing role, reuse it; otherwise author a reusable role, then delegate. The main agent plans, orchestrates, and verifies.
 
 ## SPECT task-start guidance
-- SPECT is optional. If the user explicitly requests specification-driven development, run agent spect init in the project directory when it is absent.
+- SPECT is optional. If the user explicitly requests specification-driven development, run agent-cli spect init in the project directory when it is absent.
 - If the project already has .spect, read its README, constitution, and relevant spec/plan/task files and follow its loop.
 - For ordinary tasks, do not initialize SPECT or create .spect automatically. If SPECT would materially help, explain the option and ask the user before initializing it.
 - When SPECT is active, use this loop: specify → plan → decompose → implement one task → verify acceptance criteria → review for bugs → refactor → re-verify. Failed checks return to implementation.
@@ -240,7 +240,7 @@ export function stripStrayPointerHeader(content) {
 	return lines.slice(start).join("\n");
 }
 
-/** Re-merge managed blocks into the current master (used by `agent skill refresh`). */
+/** Re-merge managed blocks into the current master (used by `agent-cli skill refresh`). */
 export async function refreshBlocks() {
 	const c = await readMaster();
 	if (c == null) return { changed: false, reason: "no-master" };
@@ -288,7 +288,7 @@ export async function ensureMasterPointer({
 			return {
 				path: HOME_POINTER_FILE,
 				skipped: "native-content",
-				hint: "agent init --force",
+				hint: "agent-cli init --force",
 			};
 		}
 		await writeFile(HOME_POINTER_FILE, desired);

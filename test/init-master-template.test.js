@@ -1,4 +1,4 @@
-// Regression: `agent init` must produce a canonical AGENTS.md that includes the
+// Regression: `agent-cli init` must produce a canonical AGENTS.md that includes the
 // mandatory session-start read order. The rule lives in src/blocks.js →
 // AGENT_CLI_BODY (the managed block injected by ensureMaster/refreshBlocks).
 // If a future edit to that template drops the rule, this test fails — forcing
@@ -26,7 +26,7 @@ const AGENT_CLI_BLOCK_END = "<!-- END agent-cli -->";
 //   - canonical ~/.agents/AGENTS.md
 //   - AGENT_CLI_BODY in src/blocks.js
 //   - IDENTITY_FILES in src/agents-lib.js
-//   - `agent brief` output numbering
+//   - `agent-cli brief` output numbering
 //   - test/identity-files-order.test.js
 const CANONICAL_ORDER = [
 	"1. AGENTS.md",
@@ -46,7 +46,7 @@ function readAgentCliBlock(content) {
 }
 
 // Run ensureMaster once — on a clean install (no master, no seed source)
-// this writes STARTER + managed blocks, which is exactly what `agent init`
+// this writes STARTER + managed blocks, which is exactly what `agent-cli init`
 // produces on a fresh machine.
 const result = await store.ensureMaster();
 const master = readFileSync(masterPath, "utf8");
@@ -78,10 +78,10 @@ test("fresh master contains the communication managed block", () => {
 	);
 });
 
-test("fresh master teaches the agent run dispatch", () => {
-	assert.ok(master.includes("agent run"), "missing `agent run` guidance");
-	assert.ok(master.includes("agent configure run"));
-	assert.ok(master.includes("@tomaili/agent"));
+test("fresh master teaches the agent-cli run dispatch", () => {
+	assert.ok(master.includes("agent-cli run"), "missing `agent-cli run` guidance");
+	assert.ok(master.includes("agent-cli configure run"));
+	assert.ok(master.includes("@victortomaili/agent-cli"));
 });
 
 test("agent-cli block contains the 'Session start read order' section", () => {

@@ -198,7 +198,7 @@ test("brief --json surfaces the open-session warning while a session is active, 
 		active.data.warnings.some(
 			(w) =>
 				w.includes("session open since") &&
-				w.includes("agent session end"),
+				w.includes("agent-cli session end"),
 		),
 		`expected open-session warning, got: ${JSON.stringify(active.data.warnings)}`,
 	);
@@ -990,11 +990,11 @@ test("skill passthrough emits a JSON envelope in --json mode", () => {
 test("bare `agent` prints a quick start and exits 0 with no stderr leak", () => {
 	const r = run([]);
 	assert.equal(r.code, 0);
-	assert.match(r.stdout, /agent init/);
+	assert.match(r.stdout, /agent-cli init/);
 	assert.equal(r.stderr, "");
 });
 
-test("`agent help` and `agent help <cmd>` exit 0", () => {
+test("`agent-cli help` and `agent-cli help <cmd>` exit 0", () => {
 	ok(run(["help"]));
 	ok(run(["help", "status"]));
 	ok(run(["--help"]));
@@ -1061,8 +1061,8 @@ test("link reports changed/nothingToDo booleans (idempotent second run)", () => 
 });
 
 test("link/unlink reject positional ids (M7 — must use --target)", () => {
-	// Regression: `agent link claude` used to silently link EVERY enabled
-	// target; `agent unlink claude` would unlink them all. Both now error.
+	// Regression: `agent-cli link claude` used to silently link EVERY enabled
+	// target; `agent-cli unlink claude` would unlink them all. Both now error.
 	const home = run(["init"]).home;
 	run(["target", "enable", "claude"], { envHome: home });
 	run(["target", "enable", "codex"], { envHome: home });
@@ -1087,7 +1087,7 @@ test("link:claude action args use --target (M7)", () => {
 	const linkAction = b.data.actions.find((a) => a.id === "link:claude");
 	assert.ok(linkAction, "expected link:claude action");
 	assert.deepEqual(linkAction.args, ["link", "--target", "claude"]);
-	assert.match(linkAction.rollback, /^agent unlink --target claude$/);
+	assert.match(linkAction.rollback, /^agent-cli unlink --target claude$/);
 });
 
 test("brief --since returns no actions when the state etag is unchanged", () => {

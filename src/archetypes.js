@@ -140,9 +140,9 @@ export function userContent() {
 <USER_PREFS>
 - Communication style, tools, conventions: (fill in)
 - \`consolidate.prompt: ask\`  # ask | auto | off — lesson consolidation at session start.
-  - \`ask\` (default): if \`agent brief\` recommends consolidation, ask the user once.
-  - \`auto\`: run \`agent consolidate\` automatically when recommended.
-  - \`off\`: never auto-consolidate (score still shown in \`agent brief\`).
+  - \`ask\` (default): if \`agent-cli brief\` recommends consolidation, ask the user once.
+  - \`auto\`: run \`agent-cli consolidate\` automatically when recommended.
+  - \`off\`: never auto-consolidate (score still shown in \`agent-cli brief\`).
 </USER_PREFS>
 
 ## Goals
@@ -188,7 +188,7 @@ export function environmentsContent() {
 export function lessonsContent() {
 	return `# LESSONS.md — always-on core (system-wide)
 
-> Critical-lesson POINTER index — loaded DIRECTLY every session (\`agent brief\` prints it).
+> Critical-lesson POINTER index — loaded DIRECTLY every session (\`agent-cli brief\` prints it).
 > Each line points to the full lesson file under \`lessons/\`. Keep this small (the ~10 most
 > critical); add a pointer the moment a lesson proves critical, demote stale ones yourself.
 > Full log: \`~/.agents/lessons/<topic>/<name>.md\` (progressive load).

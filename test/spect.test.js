@@ -230,7 +230,7 @@ test("closeTask marks done and suggests a lesson + snapshot", async () => {
 	assert.equal(r.ok, true);
 	assert.match(readFileSync(r.file, "utf8"), /\[x\] TASK-001/);
 	assert.match(r.lesson.suggestion, /lessons add/);
-	assert.equal(r.snapshotSuggestion, "agent snapshot");
+	assert.equal(r.snapshotSuggestion, "agent-cli snapshot");
 });
 
 test("spectHeadline reports counts and open tasks", async () => {

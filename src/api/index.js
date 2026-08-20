@@ -38,7 +38,7 @@ function masterPaths(scope = "global", cwd = process.cwd()) {
 	return { masterAbs: MASTER_FILE, masterTilde: pretty(MASTER_FILE) };
 }
 
-/** `agent status` payload. */
+/** `agent-cli status` payload. */
 export async function status({ all = false, cwd = process.cwd() } = {}) {
 	const cfg = await loadConfig();
 	const masterContent = await readMaster();
@@ -100,7 +100,7 @@ export async function status({ all = false, cwd = process.cwd() } = {}) {
 	};
 }
 
-/** `agent doctor` payload (issues + checks). Delegates to
+/** `agent-cli doctor` payload (issues + checks). Delegates to
  *  src/doctor-report.js#buildDoctorReport — the same pure builder the CLI
  *  uses — so the SDK cannot drift from the CLI's checks. Read-only: the npm
  *  update check is always the cached read, never a live fetch. */
@@ -118,8 +118,8 @@ export async function doctor({ cwd = process.cwd() } = {}) {
 	});
 }
 
-/** `agent brief` payload (read-only; never hits the network). */
-/** `agent brief` payload (read-only; never hits the network).
+/** `agent-cli brief` payload (read-only; never hits the network). */
+/** `agent-cli brief` payload (read-only; never hits the network).
  *  Delegates to src/actions.js collectState/buildActions — the single source of
  *  truth for the session contract, so the SDK cannot drift from the CLI. */
 export async function brief({ cwd = process.cwd() } = {}) {
@@ -129,7 +129,7 @@ export async function brief({ cwd = process.cwd() } = {}) {
 	const suggested = actMod.suggestedStrings(actionsList);
 	const etag = actMod.computeEtag(s);
 	const blockers = [];
-	if (s.masterContent == null) blockers.push("master missing — run `agent init`");
+	if (s.masterContent == null) blockers.push("master missing — run `agent-cli init`");
 	const warnings = [];
 	if (s.archetypeNeeded) warnings.push("identity onboarding incomplete");
 	if (s.unresolvedModels.length)

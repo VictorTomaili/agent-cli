@@ -106,7 +106,7 @@ export function registerSessionCoreCommands(
 		});
 
 	// ---------------------------------------------------------------------------
-	// agent brief — AI session entrypoint (the `skill active` analogue)
+	// agent-cli brief — AI session entrypoint (the `skill active` analogue)
 	// ---------------------------------------------------------------------------
 	program
 		.command("brief")
@@ -193,7 +193,7 @@ export function registerSessionCoreCommands(
 			if (opts.oneline) {
 				const onelineText = `v${VERSION} ${out.health === "ready" ? "✓" : "!"} ${out.actions.length} action${out.actions.length === 1 ? "" : "s"}${out.drift.length ? ` drift:${out.drift.join(",")}` : ""}`;
 				// Default: print the plain oneline text to stdout (so shell prompts
-				// can use it via $(agent brief --oneline)). Under --json, emit the
+				// can use it via $(agent-cli brief --oneline)). Under --json, emit the
 				// JSON envelope (data.onelineText) and don't pollute stdout.
 				if (isJson()) {
 					emit({
@@ -219,7 +219,7 @@ export function registerSessionCoreCommands(
 						`  ${c.gray("(" + s.onboarding.options.map((o) => o.key).join(" | ") + ")")}`,
 					);
 					log.dim(
-						"Then: agent identity apply <choice> [--soul <v>]. Other missing fields: agent identity/soul/user set <field> <value>.",
+						"Then: agent-cli identity apply <choice> [--soul <v>]. Other missing fields: agent-cli identity/soul/user set <field> <value>.",
 					);
 				} else if (s.gapRecommended) {
 					const gapStr = Object.entries(s.gapReport)
@@ -276,7 +276,7 @@ export function registerSessionCoreCommands(
 				if (s.stagedUpdates.length)
 					log.kv(
 						"staged",
-						c.yellow(`${s.stagedUpdates.length} payload(s) — agent update list`),
+						c.yellow(`${s.stagedUpdates.length} payload(s) — agent-cli update list`),
 					);
 				// AX: tell the agent exactly what to read now, and surface the lesson index.
 				// The order is MANDATORY (see AGENTS.md "Session start read order" + the
@@ -321,7 +321,7 @@ export function registerSessionCoreCommands(
 					);
 				} else {
 					log.dim(
-						"\nSPECT: not initialized (run agent spect init when using spec-driven work)",
+						"\nSPECT: not initialized (run agent-cli spect init when using spec-driven work)",
 					);
 				}
 				if (s.coreContent) {
@@ -340,7 +340,7 @@ export function registerSessionCoreCommands(
 				}
 				if (s.inboxCount)
 					log.dim(
-						`inbox: ${s.inboxCount} raw capture(s) — triage: agent lessons inbox`,
+						`inbox: ${s.inboxCount} raw capture(s) — triage: agent-cli lessons inbox`,
 					);
 				if (out.suggestedActions.length) log.raw(c.bold("\nSuggested:"));
 				for (const sug of out.suggestedActions) log.raw(`  ${c.cyan(sug)}`);

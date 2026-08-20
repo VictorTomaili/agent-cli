@@ -36,22 +36,22 @@ function runDisable(args) {
   }
 }
 
-test("AGENTS_BLOCK references the packaged `agent skill` command, never a bare `skill`", () => {
+test("AGENTS_BLOCK references the packaged `agent-cli skill` command, never a bare `skill`", () => {
   for (const needle of [
-    "`agent skill list`",
-    "`agent skill show <name>`",
-    "`agent skill cat <name>`",
-    "`agent skill default <name>`",
-    "`agent skill active`",
-    "`agent skill trigger <keyword>`",
-    "`agent skill trigger X`",
+    "`agent-cli skill list`",
+    "`agent-cli skill show <name>`",
+    "`agent-cli skill cat <name>`",
+    "`agent-cli skill default <name>`",
+    "`agent-cli skill active`",
+    "`agent-cli skill trigger <keyword>`",
+    "`agent-cli skill trigger X`",
   ]) {
     assert.ok(
       AGENTS_BLOCK.includes(needle),
       "expected " + needle + " in AGENTS_BLOCK"
     );
   }
-  // The packaged binary is `agent`; no standalone `skill ...` invocation may
+  // The packaged binary is `agent-cli`; no standalone `skill ...` invocation may
   // survive in the injected instructions.
   assert.doesNotMatch(
     AGENTS_BLOCK,
@@ -63,7 +63,7 @@ test("injectBlock injects the block and is idempotent (empty, native, and re-inj
   // Empty content: block only.
   const once = injectBlock("");
   assert.ok(once.startsWith("<!-- BEGIN skill-cli -->"));
-  assert.ok(once.includes("agent skill active"));
+  assert.ok(once.includes("agent-cli skill active"));
   assert.equal(injectBlock(once), once);
 
   // Native content is preserved and the block appended; re-inject is a no-op.
@@ -74,9 +74,9 @@ test("injectBlock injects the block and is idempotent (empty, native, and re-inj
   assert.equal(injectBlock(withBlock), withBlock);
 
   // A stale/mutated block region is replaced, not duplicated.
-  const stale = once.replace("agent skill active", "skill active");
+  const stale = once.replace("agent-cli skill active", "skill active");
   const fixed = injectBlock(stale);
-  assert.ok(fixed.includes("agent skill active"));
+  assert.ok(fixed.includes("agent-cli skill active"));
   assert.equal(
     (fixed.match(/<!-- BEGIN skill-cli -->/g) || []).length,
     1

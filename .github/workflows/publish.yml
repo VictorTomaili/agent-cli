@@ -1,18 +1,27 @@
 name: Publish to npm
 
-# Deploys @victortomaili/agent-cli when a version tag is pushed:
-#   git tag v0.3.0 && git push origin v0.3.0
-# Requires the repository secret NPM_TOKEN (an npm automation token):
+# Fully automatic: every push to master publishes @victortomaili/agent-cli
+# when package.json's version is not on npm yet, then pushes the vX.Y.Z tag.
+# Releasing = bumping "version" in package.json and pushing to master.
+# Requires the repository secret NPM_TOKEN (npm automation token):
 #   gh secret set NPM_TOKEN -R VictorTomaili/agent-cli
 on:
   push:
-    tags: ["v*"]
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write # pushes the release tag back to the repo
+    env:
+      # secrets.* is not usable in step-level `if:` — surface presence via env.
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,9 +32,37 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - name: Verify tag matches package.json version
+      - name: Check whether this version is already published
+        id: v
         run: |
-          node -e "const v=require('./package.json').version;const t=process.env.GITHUB_REF_NAME.replace(/^v/,'');if(v!==t){console.error('tag v'+t+' does not match package.json version '+v);process.exit(1)}"
-      - run: npm publish --access public
+          NAME=$(node -p "require('./package.json').name")
+          LOCAL=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view "$NAME" version 2>/dev/null || echo "none")
+          echo "name=$NAME"       >> "$GITHUB_OUTPUT"
+          echo "local=$LOCAL"     >> "$GITHUB_OUTPUT"
+          echo "published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+          if [ "$LOCAL" != "$PUBLISHED" ]; then
+            echo "publish=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Notice when NPM_TOKEN is not configured
+        if: steps.v.outputs.publish == 'true' && env.HAS_NPM_TOKEN != 'true'
+        run: echo "::warning::version ${{ steps.v.outputs.local }} is unpublished but the NPM_TOKEN secret is not set — run: gh secret set NPM_TOKEN -R VictorTomaili/agent-cli"
+      - name: Publish ${{ steps.v.outputs.local }}
+        if: steps.v.outputs.publish == 'true' && env.HAS_NPM_TOKEN == 'true'
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Tag the release
+        if: steps.v.outputs.publish == 'true' && env.HAS_NPM_TOKEN == 'true'
+        run: |
+          TAG="v${{ steps.v.outputs.local }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG already exists, skipping"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi

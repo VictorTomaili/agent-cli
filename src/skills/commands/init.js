@@ -25,7 +25,7 @@ function initGlobal() {
 	console.log();
 	console.log(c.bold("AGENTS.md integration:"));
 	console.log(
-		c.gray("  canonical master: ~/AGENTS.md (managed by agent-cli)"),
+		c.gray("  canonical master: ~/.agents/AGENTS.md (managed by agent-cli)"),
 	);
 	console.log(c.gray("  refresh:          agent skill refresh"));
 	console.log();

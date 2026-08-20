@@ -1,5 +1,5 @@
 // src/pointer.js — generate + write + inspect the thin pointer stubs that redirect
-// each agent's native config file to the canonical ~/AGENTS.md master.
+// each agent's native config file to the canonical ~/.agents/AGENTS.md master.
 
 import path from "node:path";
 import { lstat } from "node:fs/promises";
@@ -9,7 +9,7 @@ import {
 	pretty,
 	normalizeEndings,
 	MASTER_FILE,
-	POINTER_MASTER_FILE,
+	HOME_POINTER_FILE,
 } from "./util.js";
 import { pathFor, scopesFor, adaptContent } from "./targets.js";
 import { resolveScope } from "./util.js";
@@ -42,20 +42,21 @@ function pointerLines(target, scope, { masterAbs, masterTilde }) {
 	];
 }
 
-// --- master-pointer stub (the agent-cli-managed pointer at ~/.agents/AGENTS.md) ---
-// When the canonical master lives at ~/AGENTS.md, the old ~/.agents/AGENTS.md file
-// becomes a self-pointing stub — a pointer file written by agent-cli itself, not by
-// a target agent. It uses sentinel values for target/scope/native so the generic
-// `parsePointer` (which compares against a real target's id) cannot match it.
+// --- master-pointer stub (the agent-cli-managed pointer at ~/AGENTS.md) ---
+// When the canonical master lives at ~/.agents/AGENTS.md, the ~/AGENTS.md file
+// (the location older agents read natively) becomes a managed home pointer — a
+// pointer file written by agent-cli itself, not by a target agent. It uses
+// sentinel values for target/scope/native so the generic `parsePointer` (which
+// compares against a real target's id) cannot match it.
 const MASTER_POINTER_TARGET = "agent-cli-master-pointer";
 const MASTER_POINTER_SCOPE = "agent-cli";
 const MASTER_POINTER_NATIVE = "AGENTS.md";
 const MASTER_POINTER_HEAD = "# AGENTS.md (agent-cli's local copy) → redirected by agent-cli";
 
 /**
- * Build the on-disk body for the agent-cli self-pointer stub at
- * ~/.agents/AGENTS.md (POINTER_MASTER_FILE). Mirrors the shape of
- * `pointerContent` but with sentinel values that the generic parser ignores.
+ * Build the on-disk body for the agent-cli home pointer stub at ~/AGENTS.md
+ * (HOME_POINTER_FILE). Mirrors the shape of `pointerContent` but with sentinel
+ * values that the generic parser ignores.
  */
 export function masterPointerContent({ masterAbs, masterTilde }) {
 	return [
@@ -83,7 +84,7 @@ export function masterPointerContent({ masterAbs, masterTilde }) {
 }
 
 /**
- * Parse a self-pointer stub body (written by `masterPointerContent`).
+ * Parse a home pointer stub body (written by `masterPointerContent`).
  * Returns { ok: true, masterAbs, masterTilde } on match, else null.
  */
 export function parseMasterPointer(content) {
@@ -265,9 +266,9 @@ export async function linkTarget(
 	if (await isSymlinkPath(p)) {
 		return { target, scope, path: p, blocked: "native-content", hint: "remove-symlink" };
 	}
-	if (p === MASTER_FILE || p === POINTER_MASTER_FILE) {
-		// Both the canonical master and the agent-cli self-pointer stub are
-		// never `linkTarget` targets — the master is content, the self-pointer
+	if (p === MASTER_FILE || p === HOME_POINTER_FILE) {
+		// Both the canonical master and the agent-cli home pointer stub are
+		// never `linkTarget` targets — the master is content, the home pointer
 		// is owned by `ensureMasterPointer`. Skip silently.
 		return { target, scope, path: p, skipped: "is-master" };
 	}

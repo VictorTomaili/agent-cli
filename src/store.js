@@ -3,8 +3,9 @@
 import path from "node:path";
 import {
 	MASTER_FILE,
-	POINTER_MASTER_FILE,
+	HOME_POINTER_FILE,
 	AGENTS_DIR,
+	BACKUP_DIR,
 	HOME,
 	exists,
 	readFile,
@@ -13,14 +14,15 @@ import {
 	ensureDir,
 	pretty,
 	normalizeEndings,
+	fsp,
 } from "./util.js";
 import { ensureBlocks } from "./blocks.js";
 
 import {
 	masterPointerContent,
 	parseMasterPointer,
+	POINTER_MARK,
 } from "./pointer.js";
-
 
 // Candidate sources to seed the master from (home-relative), richest first.
 const SEED_CANDIDATES = [
@@ -92,37 +94,102 @@ const STARTER = `# AGENTS.md — canonical source (managed by agent-cli)
 - Lint:
 `;
 
+/** Does this content look like a REAL master (headings + substance)? Never
+ *  true for pointer stubs, empty templates, or corrupt fragments. */
+function isRealMaster(content) {
+	return (
+		content != null && content.trim().length >= 40 && content.includes("## ")
+	);
+}
+
+/** Write a timestamped backup copy of the pre-migration ~/AGENTS.md under
+ *  ~/.agents/backups and return its absolute path. */
+async function backupHomeCopy(content) {
+	await ensureDir(BACKUP_DIR);
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+	let backup = path.join(BACKUP_DIR, `AGENTS-${stamp}.md`);
+	for (let n = 2; await exists(backup); n++) {
+		backup = path.join(BACKUP_DIR, `AGENTS-${stamp}-${n}.md`);
+	}
+	await writeFile(backup, content.endsWith("\n") ? content : content + "\n");
+	return backup;
+}
+
+/**
+ * One-shot layout migration, run inside ensureMaster BEFORE any other decision.
+ * Pre-flip installs kept the real master at ~/AGENTS.md with a self-pointer
+ * stub at ~/.agents/AGENTS.md; the canonical layout is the reverse. Cases:
+ *
+ *   - old layout (real ~/AGENTS.md, no real ~/.agents/AGENTS.md) → move the
+ *     home content into ~/.agents/AGENTS.md (stripping any stray stub header
+ *     a buggy old `link` prepended), keep a backup, and turn ~/AGENTS.md into
+ *     the managed home pointer → { action: "migrated", backup }.
+ *   - divergence (both files real, or junk next to a real master) → keep the
+ *     canonical ~/.agents/AGENTS.md, back up + replace ~/AGENTS.md with the
+ *     home pointer, warn → { action: "diverged", backup, warning }.
+ *   - junk ~/AGENTS.md with no real master anywhere → refuse: never adopt or
+ *     replace content we cannot classify → { skipped: "master-too-small" }.
+ *
+ * Returns null when ~/AGENTS.md is absent or already the managed pointer
+ * (fresh install or the new layout) — the caller proceeds as before.
+ */
+async function migrateMasterLayout() {
+	const home = await readIfExists(HOME_POINTER_FILE);
+	if (home == null || parseMasterPointer(home)) return null;
+	const master = await readIfExists(MASTER_FILE);
+	const homeIsReal = isRealMaster(home);
+	const masterIsReal = isRealMaster(master);
+	if (homeIsReal && !masterIsReal) {
+		const backup = await backupHomeCopy(home);
+		await writeMaster(ensureBlocks(stripStrayPointerHeader(home)));
+		await ensureMasterPointer({ force: true });
+		return {
+			action: "migrated",
+			seed: null,
+			changed: true,
+			backup,
+			from: HOME_POINTER_FILE,
+		};
+	}
+	if (masterIsReal) {
+		const backup = await backupHomeCopy(home);
+		const merged = ensureBlocks(master);
+		if (merged !== master) await writeMaster(merged);
+		await ensureMasterPointer({ force: true });
+		return {
+			action: "diverged",
+			seed: null,
+			changed: true,
+			backup,
+			warning: homeIsReal
+				? `Both ${pretty(HOME_POINTER_FILE)} and ${pretty(MASTER_FILE)} held real content — kept the canonical master and backed up the home copy at ${pretty(backup)}. Merge anything you need from the backup into the master.`
+				: `${pretty(HOME_POINTER_FILE)} held unrecognized content next to the canonical master — kept the master and backed up the home copy at ${pretty(backup)}.`,
+		};
+	}
+	return {
+		action: "exists",
+		seed: null,
+		changed: false,
+		skipped: "master-too-small",
+	};
+}
+
 /**
  * Ensure the master exists, seeding from the richest existing source if possible.
  * Always guarantees both managed blocks (agent-cli + skill-cli) are present.
- * Returns { action: 'exists'|'seeded'|'starter', seed: rel|null, changed: bool }.
+ * Returns { action: 'exists'|'seeded'|'starter'|'migrated'|'diverged', seed: rel|null, changed: bool }.
  */
 export async function ensureMaster() {
+	// Layout migration first: adopting/repairing an old-layout install must run
+	// before any exists/seed decision, or the seed path would strand the user's
+	// content at ~/AGENTS.md.
+	const migration = await migrateMasterLayout();
+	if (migration) return migration;
 	if (await masterExists()) {
 		const c = await readMaster();
 		// Guard: never inject blocks into an empty/corrupt master — that would wipe it
 		// to blocks-only. A real master always has headings + substance.
 		if (!c || c.trim().length < 200 || !c.includes("## ")) {
-			// MIGRATION: ~/AGENTS.md holds only a pointer stub (the pre-0.3
-			// layout), while the real master content still lives at
-			// ~/.agents/AGENTS.md. Adopt the old master so upgrading an existing
-			// install never strands the user's content.
-			const old = await readIfExists(POINTER_MASTER_FILE);
-			// Adopt only if the old file looks like a REAL master (headings +
-			// substance), never a pointer stub or an empty template.
-			if (old && old.trim().length >= 40 && old.includes("## ")) {
-				// A buggy old `link` run may have prepended a pointer-stub header
-				// onto the master itself; strip it so the adopted content is clean.
-				const cleaned = stripStrayPointerHeader(old);
-				const merged = ensureBlocks(cleaned);
-				await writeMaster(merged);
-				return {
-					action: "migrated",
-					seed: ".agents/AGENTS.md",
-					changed: true,
-					from: POINTER_MASTER_FILE,
-				};
-			}
 			return {
 				action: "exists",
 				seed: null,
@@ -189,7 +256,7 @@ export async function refreshBlocks() {
 	return { changed: false };
 }
 /**
- * Ensure the agent-cli self-pointer stub at POINTER_MASTER_FILE
+ * Ensure the agent-cli self-pointer stub at HOME_POINTER_FILE
  * (~/.agents/AGENTS.md) exists and points at MASTER_FILE (~/AGENTS.md).
  *
  * - If the file is missing → write a fresh stub. Returns { action: "created" }.
@@ -204,12 +271,12 @@ export async function ensureMasterPointer({
 	force = false,
 } = {}) {
 	await ensureDir(AGENTS_DIR);
-	const existing = await readIfExists(POINTER_MASTER_FILE);
+	const existing = await readIfExists(HOME_POINTER_FILE);
 	const desired = masterPointerContent({ masterAbs, masterTilde: tilde });
 	if (existing == null) {
-		await writeFile(POINTER_MASTER_FILE, desired);
+		await writeFile(HOME_POINTER_FILE, desired);
 		return {
-			path: POINTER_MASTER_FILE,
+			path: HOME_POINTER_FILE,
 			action: "created",
 			masterAbs,
 			masterTilde: tilde,
@@ -219,14 +286,14 @@ export async function ensureMasterPointer({
 	if (!parsed) {
 		if (!force) {
 			return {
-				path: POINTER_MASTER_FILE,
+				path: HOME_POINTER_FILE,
 				skipped: "native-content",
 				hint: "agent init --force",
 			};
 		}
-		await writeFile(POINTER_MASTER_FILE, desired);
+		await writeFile(HOME_POINTER_FILE, desired);
 		return {
-			path: POINTER_MASTER_FILE,
+			path: HOME_POINTER_FILE,
 			action: "overwritten",
 			masterAbs,
 			masterTilde: tilde,
@@ -236,15 +303,15 @@ export async function ensureMasterPointer({
 		normalizeEndings(existing).trim() === normalizeEndings(desired).trim();
 	if (same) {
 		return {
-			path: POINTER_MASTER_FILE,
+			path: HOME_POINTER_FILE,
 			action: "skipped",
 			masterAbs,
 			masterTilde: tilde,
 		};
 	}
-	await writeFile(POINTER_MASTER_FILE, desired);
+	await writeFile(HOME_POINTER_FILE, desired);
 	return {
-		path: POINTER_MASTER_FILE,
+		path: HOME_POINTER_FILE,
 		action: "updated",
 		masterAbs,
 		masterTilde: tilde,
@@ -253,19 +320,18 @@ export async function ensureMasterPointer({
 
 /** Classify the current state of the self-pointer stub. */
 export async function classifyMasterPointer() {
-	const existing = await readIfExists(POINTER_MASTER_FILE);
-	if (existing == null) return { path: POINTER_MASTER_FILE, state: "missing" };
+	const existing = await readIfExists(HOME_POINTER_FILE);
+	if (existing == null) return { path: HOME_POINTER_FILE, state: "missing" };
 	const parsed = parseMasterPointer(existing);
-	if (!parsed) return { path: POINTER_MASTER_FILE, state: "native" };
+	if (!parsed) return { path: HOME_POINTER_FILE, state: "native" };
 	const desired = masterPointerContent({
 		masterAbs: parsed.masterAbs,
 		masterTilde: parsed.masterTilde,
 	});
 	return {
-		path: POINTER_MASTER_FILE,
+		path: HOME_POINTER_FILE,
 		state:
-			normalizeEndings(existing).trim() ===
-			normalizeEndings(desired).trim()
+			normalizeEndings(existing).trim() === normalizeEndings(desired).trim()
 				? "pointer"
 				: "pointer-stale",
 	};

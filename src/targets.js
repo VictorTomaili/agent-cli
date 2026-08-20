@@ -18,7 +18,7 @@
 function cursorTransform(content) {
 	return [
 		"---",
-		"description: Synced by agent-cli from ~/AGENTS.md",
+		"description: Synced by agent-cli from ~/.agents/AGENTS.md",
 		"alwaysApply: true",
 		"---",
 		"",

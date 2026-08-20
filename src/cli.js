@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // src/cli.js — agent-cli entry point. AI-first: --json everywhere, idempotent, no
-// interactive prompts (safe for agents/CI). Pointer model: edit ~/AGENTS.md
+// interactive prompts (safe for agents/CI). Pointer model: edit ~/.agents/AGENTS.md
 // once; per-agent files are stubs that redirect there.
 
 import { createRequire } from "node:module";
@@ -12,7 +12,7 @@ import {
 	log,
 	pretty,
 	MASTER_FILE,
-	POINTER_MASTER_FILE,
+	HOME_POINTER_FILE,
 	AGENTS_DIR,
 	exists,
 	readFile,
@@ -182,7 +182,7 @@ function ctxPaths() {
 }
 
 // --- project-aware master resolution ---
-// The global master lives at ~/AGENTS.md; a project master lives at
+// The global master lives at ~/.agents/AGENTS.md; a project master lives at
 // [cwd]/.agents/AGENTS.md and is what project-scoped pointers must redirect to.
 const SKILL_BEGIN = "<!-- BEGIN skill-cli -->";
 const SKILL_END = "<!-- END skill-cli -->";
@@ -258,7 +258,7 @@ registerTargetCommand(program, {
 	emit,
 	fail,
 	// Scope-aware: --project targets must redirect to the project master
-	// ([cwd]/.agents/AGENTS.md), not the global ~/AGENTS.md (P0-2).
+	// ([cwd]/.agents/AGENTS.md), not the global ~/.agents/AGENTS.md (P0-2).
 	masterPaths,
 	isJson: () => JSON_MODE,
 });
@@ -337,6 +337,7 @@ registerLinkCommands(program, {
 	fail,
 	log,
 	c,
+	pretty,
 	TARGETS,
 	targetsWithScope,
 	loadConfig,
@@ -345,6 +346,8 @@ registerLinkCommands(program, {
 	setExpectedCtx,
 	linkTarget,
 	unlinkTarget,
+	ensureMaster,
+	ensureMasterPointer,
 	isJson: () => JSON_MODE,
 });
 registerStatusCommand(program, {
@@ -576,7 +579,7 @@ registerBootstrapCommands(program, {
 	path,
 	AGENTS_DIR,
 	MASTER_FILE,
-	POINTER_MASTER_FILE,
+	HOME_POINTER_FILE,
 	VERSION,
 });
 registerEvaluateCommands(program, {
@@ -593,7 +596,7 @@ registerEvaluateCommands(program, {
 program
 	.name("agent")
 	.description(
-		"Manage AGENTS.md and point every coding agent at one canonical source (~/AGENTS.md). Bundles skill-cli.",
+		"Manage AGENTS.md and point every coding agent at one canonical source (~/.agents/AGENTS.md). Bundles skill-cli.",
 	)
 	.version(VERSION, "-v, --version")
 	.option("--json", "Emit machine-readable JSON (AI/CI friendly)")
@@ -677,10 +680,10 @@ program.action((opts, cmd) => {
 		return;
 	}
 	log.raw(
-		`${c.bold("agent-cli")} ${c.gray("v" + VERSION)} — one canonical AGENTS.md at ~/AGENTS.md, mirrored to every coding agent.`,
+		`${c.bold("agent-cli")} ${c.gray("v" + VERSION)} — one canonical AGENTS.md at ~/.agents/AGENTS.md, mirrored to every coding agent.`,
 	);
 	log.raw("");
-	log.raw(`  ${c.cyan("agent init")}          bootstrap ~/AGENTS.md + pointers + self-pointer + brief hooks (idempotent)`);
+	log.raw(`  ${c.cyan("agent init")}          bootstrap ~/.agents/AGENTS.md master + pointers + home pointer + brief hooks (idempotent)`);
 	log.raw(`  ${c.cyan("agent brief")}         AI session brief — health, gaps, next action (each action is runnable via 'agent run <id>')`);
 	log.raw(`  ${c.cyan("agent doctor")}        diagnose master, pointers, skill-cli, staged updates, npm version`);
 	log.raw(`  ${c.cyan("agent status")}        per-target pointer state and brief-hook health`);

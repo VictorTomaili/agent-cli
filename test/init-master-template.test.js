@@ -12,18 +12,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 // Isolated HOME so ensureMaster() writes to a temp master (not the user's
-// real ~/AGENTS.md).
+// real ~/.agents/AGENTS.md).
 const TMP = mkdtempSync(path.join(tmpdir(), "agent-init-tpl-home-"));
 process.env.AGENT_CLI_HOME = TMP;
 
 const store = await import("../src/store.js");
-const masterPath = path.join(TMP, "AGENTS.md");
+const masterPath = path.join(TMP, ".agents", "AGENTS.md");
 
 const AGENT_CLI_BLOCK_BEGIN = "<!-- BEGIN agent-cli -->";
 const AGENT_CLI_BLOCK_END = "<!-- END agent-cli -->";
 
 // Canonical session-start order. MUST match:
-//   - canonical ~/AGENTS.md
+//   - canonical ~/.agents/AGENTS.md
 //   - AGENT_CLI_BODY in src/blocks.js
 //   - IDENTITY_FILES in src/agents-lib.js
 //   - `agent brief` output numbering
@@ -50,7 +50,6 @@ function readAgentCliBlock(content) {
 // produces on a fresh machine.
 const result = await store.ensureMaster();
 const master = readFileSync(masterPath, "utf8");
-
 test("ensureMaster on a clean install writes the master (starter action)", () => {
 	assert.equal(result.action, "starter");
 	assert.equal(result.changed, true);

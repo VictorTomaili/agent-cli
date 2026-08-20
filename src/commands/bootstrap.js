@@ -3,7 +3,7 @@
 //   loadConfig, saveConfig, detectInstalled, getTarget, enableGlobal,
 //   ensureMaster, ensureMasterPointer, ensureSkillStore,
 //   stripSkillBlockFromMaster, linkTarget, ctxPaths, exists, writeFile,
-//   path, AGENTS_DIR, MASTER_FILE, POINTER_MASTER_FILE, VERSION }.
+//   path, AGENTS_DIR, MASTER_FILE, HOME_POINTER_FILE, VERSION }.
 
 /** Register the init + brief-hooks commands. */
 export function registerBootstrapCommands(
@@ -32,7 +32,7 @@ export function registerBootstrapCommands(
 		path,
 		AGENTS_DIR,
 		MASTER_FILE,
-		POINTER_MASTER_FILE,
+		HOME_POINTER_FILE,
 		VERSION,
 	},
 ) {
@@ -57,7 +57,7 @@ export function registerBootstrapCommands(
 	program
 		.command("init")
 		.description(
-			"Bootstrap ~/AGENTS.md master, deploy pointer stubs, deploy the self-pointer at ~/.agents/AGENTS.md, install SessionStart brief hooks, and set up skill-cli. Idempotent — re-runs repair any missing parts.",
+			"Bootstrap the ~/.agents/AGENTS.md master, deploy pointer stubs, deploy the home pointer at ~/AGENTS.md, install SessionStart brief hooks, and set up skill-cli. Idempotent — re-runs repair any missing parts.",
 		)
 		.option("--no-skill", "Skip skill-cli setup")
 		.option(
@@ -66,7 +66,7 @@ export function registerBootstrapCommands(
 		)
 		.option(
 			"--force",
-			"Overwrite native content in ~/.agents/AGENTS.md (destructive) and re-write all missing parts",
+			"Overwrite native content in ~/AGENTS.md (destructive) and re-write all missing parts",
 		)
 		.action(async (opts) => {
 			const result = { command: "init", steps: {} };
@@ -79,6 +79,17 @@ export function registerBootstrapCommands(
 					`Cannot initialize: ${master.skipped}. Preserve the existing master and repair it before retrying.`,
 					{ command: "init", steps: result.steps },
 				);
+			}
+			if (!isJson()) {
+				// Layout migration outcome (old ~/AGENTS.md master → ~/.agents/AGENTS.md):
+				// one clear line naming the backup, or a divergence warning.
+				if (master.action === "migrated") {
+					log.success(
+						`Master migrated to ${c.cyan(pretty(MASTER_FILE))} — previous copy backed up at ${c.cyan(pretty(master.backup))}`,
+					);
+				} else if (master.action === "diverged" && master.warning) {
+					log.warn(master.warning);
+				}
 			}
 
 			// 2. detect + enable installed global targets
@@ -155,18 +166,20 @@ export function registerBootstrapCommands(
 				modelsMdCreated,
 			};
 
-			// 5. deploy self-pointer stub (idempotent; re-creates ~/.agents/AGENTS.md
+			// 5. deploy home pointer stub at ~/AGENTS.md (idempotent; re-creates it
 			//    if missing or stale so agent-cli is the only writer of that path).
 			const mTildeForPointer = ctxPaths().masterTilde;
-			// After a migration the old ~/.agents/AGENTS.md holds the adopted master
-			// content — it must become the self-pointer stub unconditionally.
-			const forcePointer = !!opts.force || master.action === "migrated";
-			const masterPointer = await ensureMasterPointer({
+			// The layout migration inside ensureMaster already replaced ~/AGENTS.md
+			// with the home pointer when it moved the master — ensureMasterPointer
+			// then no-ops (identical content). --force still overrides stray native
+			// content at ~/AGENTS.md.
+			const forcePointer = !!opts.force;
+			const homePointer = await ensureMasterPointer({
 				masterAbs: MASTER_FILE,
 				masterTilde: mTildeForPointer,
 				force: forcePointer,
 			});
-			result.steps.masterPointer = masterPointer;
+			result.steps.homePointer = homePointer;
 
 			// 6. deploy per-target pointer stubs (non-destructive; auto-convert the seed source)
 			const { masterAbs, masterTilde: mTilde } = ctxPaths();
@@ -287,22 +300,22 @@ export function registerBootstrapCommands(
 						);
 					}
 				}
-				// Self-pointer stub status is independent of target count: report
+				// Home pointer stub status is independent of target count: report
 				// created/overwritten/updated/native-content whenever it happened.
 				if (
-					masterPointer.action === "created" ||
-					masterPointer.action === "overwritten"
+					homePointer.action === "created" ||
+					homePointer.action === "overwritten"
 				) {
 					log.success(
-						`Self-pointer stub written: ${c.cyan(pretty(POINTER_MASTER_FILE))}`,
+						`Home pointer stub written: ${c.cyan(pretty(HOME_POINTER_FILE))}`,
 					);
-				} else if (masterPointer.action === "updated") {
+				} else if (homePointer.action === "updated") {
 					log.info(
-						`Self-pointer stub refreshed: ${c.cyan(pretty(POINTER_MASTER_FILE))}`,
+						`Home pointer stub refreshed: ${c.cyan(pretty(HOME_POINTER_FILE))}`,
 					);
-				} else if (masterPointer.skipped === "native-content") {
+				} else if (homePointer.skipped === "native-content") {
 					log.warn(
-						`Self-pointer stub at ${c.cyan(pretty(POINTER_MASTER_FILE))} has native content — run ${c.cyan("agent init --force")} to replace it.`,
+						`Home pointer stub at ${c.cyan(pretty(HOME_POINTER_FILE))} has native content — run ${c.cyan("agent init --force")} to replace it.`,
 					);
 				}
 				if (blocked.length) {

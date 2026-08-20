@@ -1,6 +1,7 @@
 // src/commands/link.js — link + unlink, extracted from cli.js (HIGH-3).
-// Injected deps: { emit, fail, log, c, TARGETS, targetsWithScope, loadConfig,
-//   effectiveProjectIds, masterPaths, setExpectedCtx, linkTarget, unlinkTarget, isJson }.
+// Injected deps: { emit, fail, log, c, pretty, TARGETS, targetsWithScope, loadConfig,
+//   effectiveProjectIds, masterPaths, setExpectedCtx, linkTarget, unlinkTarget,
+//   ensureMaster, ensureMasterPointer, isJson }.
 
 function selectedTargets(scope, ids, targetsWithScope) {
 	const pool = targetsWithScope(scope);
@@ -184,6 +185,7 @@ export function registerLinkCommands(
 		fail,
 		log,
 		c,
+		pretty,
 		TARGETS,
 		targetsWithScope,
 		loadConfig,
@@ -192,6 +194,8 @@ export function registerLinkCommands(
 		setExpectedCtx,
 		linkTarget,
 		unlinkTarget,
+		ensureMaster,
+		ensureMasterPointer,
 		isJson,
 	},
 ) {
@@ -224,6 +228,29 @@ export function registerLinkCommands(
 				// Project pointers must redirect to the project master, not the global one.
 				const { masterAbs, masterTilde } = masterPaths(scope);
 				setExpectedCtx({ masterAbs, masterTilde });
+				if (scope === "global") {
+					// Global layout upkeep, mirroring `agent init`: migrate any pre-flip
+					// master layout (~/AGENTS.md → ~/.agents/AGENTS.md, with backup), then
+					// refresh the managed home pointer at ~/AGENTS.md alongside the target
+					// stubs. Never destructive without --force: a native ~/AGENTS.md is
+					// only converted after the migration backed it up.
+					const master = await ensureMaster();
+					if (master.action === "migrated" || master.action === "diverged")
+						out.master = {
+							action: master.action,
+							...(master.backup ? { backup: master.backup } : {}),
+						};
+					if (master.warning) out.masterWarning = master.warning;
+					const homePointer = await ensureMasterPointer({
+						masterAbs,
+						masterTilde,
+						force: !!(opts.force || opts.overwrite),
+					});
+					out.homePointer = {
+						path: homePointer.path,
+						action: homePointer.action ?? homePointer.skipped,
+					};
+				}
 				for (const t of targets) {
 					const r = await linkTarget(t, scope, {
 						masterAbs,
@@ -237,6 +264,11 @@ export function registerLinkCommands(
 			out.nothingToDo = out.results.every((r) => !r.linked);
 			emit(out);
 			if (!isJson()) {
+				if (out.master?.action === "migrated")
+					log.success(
+						`Master migrated to ${c.cyan("~/.agents/AGENTS.md")} — previous copy backed up at ${c.cyan(pretty(out.master.backup))}`,
+					);
+				if (out.masterWarning) log.warn(out.masterWarning);
 				const linked = out.results.filter((r) => r.linked).length;
 				const ok = out.results.filter((r) => r.unchanged).length;
 				const blocked = out.results.filter((r) => r.blocked);

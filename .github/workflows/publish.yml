@@ -1,13 +1,13 @@
 name: Publish to npm
 
-# Fully automatic: every push to master publishes @victortomaili/agent-cli
+# Fully automatic: every push to main publishes @victortomaili/agent-cli
 # when package.json's version is not on npm yet, then pushes the vX.Y.Z tag.
-# Releasing = bumping "version" in package.json and pushing to master.
+# Releasing = bumping "version" in package.json and pushing to main.
 # Requires the repository secret NPM_TOKEN (npm automation token):
 #   gh secret set NPM_TOKEN -R VictorTomaili/agent-cli
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:

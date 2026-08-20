@@ -4,6 +4,8 @@
 //   readMaster, detectInstalled, getTarget, enableGlobal, effectiveProjectIds,
 //   ensureSkillStore, findUnresolvedModels, classify, projectMasterPath,
 //   exists, writeFile, path }.
+// `run` dispatches tasks to external coding-agent CLIs (src/runners.js);
+// brief-action-id invocations keep the legacy behavior (deprecated).
 
 /** Register the run/action/setup/day-start/session-start/project commands. */
 export function registerSessionCommands(
@@ -33,47 +35,115 @@ export function registerSessionCommands(
 	},
 ) {
 	// ---------------------------------------------------------------------------
+	// agent run — dispatch a task to an external coding-agent CLI (with the
+	// configured fallback chain). Positionals that all look like brief action
+	// ids keep the LEGACY behavior (executing brief actions), deprecated.
+	// ---------------------------------------------------------------------------
+	const ACTION_ID_RE = /^[a-z][a-z0-9-]*:[a-z0-9][a-z0-9.:-]*$/;
 	program
-		.command("run [ids...]")
+		.command("run [task...]")
 		.description(
-			"Execute brief actions by id (agent run link:claude …); --safe limits to safeToAutomate.",
+			'Dispatch a task to a configured coding-agent CLI (agent run --tool pi "refactor utils"); brief action ids still execute (deprecated — prefer `agent action run <id>`).',
 		)
-		.option("--safe", "only run safeToAutomate actions")
-		.action(async (ids, opts) => {
-			const actMod = await import("../actions.js");
-			const s = await actMod.collectState();
-			const all = actMod.buildActions(s);
-			const byId = new Map(all.map((a) => [a.id, a]));
-			const selected = ids.length
-				? ids.map((id) => byId.get(id)).filter(Boolean)
-				: all;
-			if (ids.length && selected.length !== ids.length) {
-				const missing = ids.filter((id) => !byId.has(id));
-				fail(
-					`Unknown action id${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`,
-					{
-						command: "run",
-						missing,
-					},
-				);
+		.option("--tool <id>", "runner tool override (pi | codex)")
+		.option("--read-only", "run with a read-only tool/sandbox profile")
+		.option("--timeout <seconds>", "per-attempt timeout in seconds (default 600)")
+		.option("--safe", "(legacy action mode) only run safeToAutomate actions")
+		.action(async (task, opts) => {
+			const newOpt =
+				opts.tool != null || opts.readOnly === true || opts.timeout != null;
+			const looksLikeActionIds =
+				task.length > 0 && task.every((t) => ACTION_ID_RE.test(t));
+			if (!newOpt && (task.length === 0 || looksLikeActionIds)) {
+				// LEGACY: execute brief actions by id (same as `agent action run`).
+				if (!isJson())
+					log.warn(
+						"action ids via `agent run` are deprecated; use `agent action run <id>`",
+					);
+				const ids = task;
+				const actMod = await import("../actions.js");
+				const s = await actMod.collectState();
+				const all = actMod.buildActions(s);
+				const byId = new Map(all.map((a) => [a.id, a]));
+				const selected = ids.length
+					? ids.map((id) => byId.get(id)).filter(Boolean)
+					: all;
+				if (ids.length && selected.length !== ids.length) {
+					const missing = ids.filter((id) => !byId.has(id));
+					fail(
+						`Unknown action id${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`,
+						{
+							command: "run",
+							missing,
+						},
+					);
+				}
+				const toRun = opts.safe ? selected.filter((a) => a.safeToAutomate) : selected;
+				const res = actMod.applySafe(toRun);
+				emit({
+					command: "run",
+					ids: toRun.map((a) => a.id),
+					receipts: res.receipts,
+					applied: res.applied,
+					skipped: res.skipped,
+				});
+				if (!isJson())
+					for (const r of res.receipts)
+						log.raw(
+							`  ${r.applied ? c.green("✓") : c.gray("·")} ${r.id}${r.stderr ? c.yellow(" — " + r.stderr) : ""}`,
+						);
+				// no-op (nothing attempted) and full success both exit 0; a failed action exits 1.
+				const attempted = res.receipts.filter((r) => !r.skipped);
+				process.exit(attempted.some((r) => !r.applied) ? EXIT.ERROR : EXIT.OK);
 			}
-			const toRun = opts.safe ? selected.filter((a) => a.safeToAutomate) : selected;
-			const res = actMod.applySafe(toRun);
+			// NEW: dispatch the task text to the configured runner chain.
+			const joined = task.join(" ").trim();
+			if (!joined)
+				fail(
+					'Usage: agent run [--tool <id>] [--read-only] [--timeout <seconds>] "<task>"',
+					{ command: "run" },
+				);
+			const runners = await import("../runners.js");
+			const seconds = Number(opts.timeout);
+			const timeoutMs =
+				opts.timeout != null && Number.isFinite(seconds) && seconds > 0
+					? seconds * 1000
+					: 600000;
+			let res;
+			try {
+				res = runners.runTask({
+					task: joined,
+					readOnly: opts.readOnly === true,
+					toolOverride: opts.tool,
+					timeoutMs,
+					cwd: process.cwd(),
+				});
+			} catch (e) {
+				fail(e.message, { command: "run", task: joined });
+			}
+			if (!res.ok) {
+				const summary = res.attempts
+				.map((a) => `${a.tool}/${a.model}: ${a.kind}`)
+				.join("; ");
+				fail(`all runners failed (${summary})`, {
+					command: "run",
+					attempts: res.attempts,
+				});
+			}
 			emit({
 				command: "run",
-				ids: toRun.map((a) => a.id),
-				receipts: res.receipts,
-				applied: res.applied,
-				skipped: res.skipped,
+				tool: res.tool,
+				provider: res.provider,
+				model: res.model,
+				output: res.output,
+				attempts: res.attempts,
 			});
-			if (!isJson())
-				for (const r of res.receipts)
-					log.raw(
-						`  ${r.applied ? c.green("✓") : c.gray("·")} ${r.id}${r.stderr ? c.yellow(" — " + r.stderr) : ""}`,
-					);
-			// no-op (nothing attempted) and full success both exit 0; a failed action exits 1.
-			const attempted = res.receipts.filter((r) => !r.skipped);
-			process.exit(attempted.some((r) => !r.applied) ? EXIT.ERROR : EXIT.OK);
+			if (!isJson()) {
+				log.success(
+					`${res.tool}:${res.provider ? res.provider + "/" : ""}${res.model}`,
+				);
+				log.raw(res.output);
+			}
 		});
 
 	program

@@ -56,6 +56,15 @@ function isProjectTargets(v) {
 		Object.values(v).every((val) => val === null || isStringArray(val))
 	);
 }
+function isRunnersObject(v) {
+	return (
+		isPlainObject(v) &&
+		(v.default === undefined ||
+			v.default === null ||
+			typeof v.default === "string") &&
+		(v.tools === undefined || isPlainObject(v.tools))
+	);
+}
 
 /**
  * M4: the closed set of root-level config.json keys. Anything else is a typo
@@ -77,6 +86,7 @@ const ROOT_KEYS = new Set([
 	"updatedAt",
 	"models",
 	"providers",
+	"runners",
 ]);
 
 /**
@@ -113,6 +123,9 @@ function validShape(p) {
 		return false;
 	if (p.projectTargets !== undefined && !isProjectTargets(p.projectTargets))
 		return false;
+	// Runners (sub-agent dispatch config) — loosely: an object with an
+	// optional string-or-null `default` and an object `tools` map.
+	if (p.runners !== undefined && !isRunnersObject(p.runners)) return false;
 	return true;
 }
 
@@ -128,6 +141,7 @@ export function defaultConfig() {
 		seedFiles: [], // seed paths known at the last install/stage, for deletion reconciliation
 		updateCheck: null, // cached npm latest-version check: { latestVersion, checkedAt }
 		sync: null, // git-backed brain sync: { remote, autoCommit, excluded, lastPull }
+		runners: { default: null, tools: {} }, // sub-agent runner dispatch (agent configure run / agent run)
 		updatedAt: null,
 	};
 }

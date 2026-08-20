@@ -105,8 +105,12 @@ nothing — it's a JSON-only command).
 
 - The spec-driven workflow (`agent-cli spect ...`) has its own guide at
   [`.spect/README.md`](.spect/README.md).
-- The bundled sub-agent personas (planner, reviewer, scout, worker) live in
-  [`seed/agents/`](seed/agents/) and are documented inline in each file's frontmatter.
+- The bundled sub-agent personas — the **dev-team** roster (`orchestrator-agent`,
+  `cto-agent`, `dev-agent` ×3 slots, `devops-agent`, `qa-agent`, `security-agent`) — live in
+  [`seed/agents/`](seed/agents/) and are documented inline in each file's frontmatter. The
+  skill that turns them into a working delegation flow lives in
+  [`seed/skills/dev-team/`](seed/skills/dev-team/) (`SKILL.md`/`ROLES.md`/`WORKFLOW.md`);
+  both deploy into `~/.agents/` on `agent-cli init`.
 
 ## Development
 

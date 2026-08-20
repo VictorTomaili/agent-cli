@@ -28,13 +28,18 @@ function makeSeedDir() {
 	return dir;
 }
 
-test("shipped seed dir contains the 4 default personalities", async () => {
+test("shipped seed dir contains the dev-team roster + skill", async () => {
 	const rels = (await seed.listSeedFiles()).map((f) => f.rel).sort();
 	assert.deepEqual(rels, [
-		"agents/planner.md",
-		"agents/reviewer.md",
-		"agents/scout.md",
-		"agents/worker.md",
+		"agents/cto-agent.md",
+		"agents/dev-agent.md",
+		"agents/devops-agent.md",
+		"agents/orchestrator-agent.md",
+		"agents/qa-agent.md",
+		"agents/security-agent.md",
+		"skills/dev-team/ROLES.md",
+		"skills/dev-team/SKILL.md",
+		"skills/dev-team/WORKFLOW.md",
 	]);
 });
 

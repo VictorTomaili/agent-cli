@@ -141,7 +141,8 @@ first when touching one.
 ├── config.json           enabled targets, model aliases, seedVersion — CLI-owned, locked writes
 ├── .session.json         current session lifecycle state
 ├── .consolidate-state.json  lesson consolidation bookkeeping
-├── agents/                sub-agent persona files (planner.md, reviewer.md, scout.md, worker.md, …)
+├── agents/                sub-agent persona files (the dev-team roster — see seed/agents/)
+├── skills/dev-team/        the dev-team skill (SKILL.md/ROLES.md/WORKFLOW.md) — see seed/skills/
 ├── lessons/                per-topic lesson files (inbox + core)
 └── backups/                consolidation backup history
 ```

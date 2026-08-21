@@ -123,3 +123,58 @@ test("pruneSnapshots keeps at most n and removes the oldest", () => {
 	assert.ok(pruned.length >= before - 1);
 	assert.ok(snap.listSnapshots().length <= 1);
 });
+
+test("restores in the same millisecond never merge into one pre-restore backup", () => {
+	// Regression (flaky on fast Linux CI): restore() named its pre-restore
+	// backup `pre-restore-<ms-ts>` with no collision suffix. A second restore
+	// in the same millisecond copied the current brain INTO the first backup,
+	// corrupting it, then "restored" from that same dir — wrong contents.
+	// Freeze the clock so every restore computes the same name, then prove
+	// the second one suffixes instead of merging.
+	writeFileSync(path.join(brain(), "AGENTS.md"), "# v1\n");
+	const s1 = snap.snapshot();
+	writeFileSync(path.join(brain(), "AGENTS.md"), "# v2\n");
+	const FROZEN = new Date(2026, 0, 1, 12, 0, 0, 500).getTime();
+	const RealDate = Date;
+	let r1;
+	let r2;
+	try {
+		globalThis.Date = class extends RealDate {
+			constructor(...args) {
+				super(...(args.length ? args : [FROZEN]));
+			}
+		};
+		writeFileSync(path.join(brain(), "AGENTS.md"), "# backup-me\n");
+		r1 = snap.restore(s1.name);
+		assert.equal(r1.ok, true);
+		const backup1 = r1.preRestoreBackup;
+		assert.equal(
+			readFileSync(path.join(backup1, "AGENTS.md"), "utf8"),
+			"# backup-me\n",
+			"first pre-restore backup must capture the pre-restore brain",
+		);
+		// Second restore in the SAME frozen millisecond: must not touch backup1.
+		writeFileSync(path.join(brain(), "AGENTS.md"), "# second\n");
+		r2 = snap.restore(s1.name);
+	} finally {
+		globalThis.Date = RealDate;
+	}
+	assert.equal(r2.ok, true);
+	assert.notEqual(r2.preRestoreBackup, r1.preRestoreBackup);
+	assert.equal(
+		readFileSync(path.join(r1.preRestoreBackup, "AGENTS.md"), "utf8"),
+		"# backup-me\n",
+		"the first backup's contents must survive the second restore",
+	);
+	assert.equal(
+		readFileSync(path.join(r2.preRestoreBackup, "AGENTS.md"), "utf8"),
+		"# second\n",
+	);
+	// And restoring FROM the first backup still yields its captured contents.
+	const r3 = snap.restore(path.basename(r1.preRestoreBackup));
+	assert.equal(r3.ok, true);
+	assert.equal(
+		readFileSync(path.join(brain(), "AGENTS.md"), "utf8"),
+		"# backup-me\n",
+	);
+});

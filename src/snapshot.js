@@ -11,6 +11,17 @@ export const SNAP_DIR = path.join(BRAIN, "backups", "snapshots");
 function ts() {
 	return new Date().toISOString().replace(/[:.]/g, "-");
 }
+/**
+ * Timestamped dir names can collide when two snapshots (or two restores)
+ * happen in the same millisecond — a collision would silently merge the new
+ * copy into the existing dir, mutating it. Suffix until the name is free.
+ */
+function uniqueName(base) {
+	let name = base;
+	for (let n = 2; fs.existsSync(path.join(SNAP_DIR, name)); n++)
+		name = `${base}-${n}`;
+	return name;
+}
 function rm(p) {
 	try {
 		fs.rmSync(p, { recursive: true, force: true });
@@ -55,13 +66,7 @@ export function listSnapshots() {
 
 export function snapshot() {
 	ensureDir(SNAP_DIR);
-	// Millisecond timestamps can collide (two snapshots in the same ms) — a
-	// collision would silently merge the new copy into the existing snapshot
-	// dir, mutating it. Suffix until the name is free.
-	const base = ts();
-	let name = base;
-	for (let n = 2; fs.existsSync(path.join(SNAP_DIR, name)); n++)
-		name = `${base}-${n}`;
+	const name = uniqueName(ts());
 	const dst = path.join(SNAP_DIR, name);
 	copyDir(BRAIN, dst, new Set(["backups"]));
 	const files = countFiles(dst);
@@ -196,8 +201,13 @@ export function restore(name) {
 		return { ok: false, reason: "invalid snapshot contents" };
 	// safety: back up current brain first (P0-4: the pre-restore backup must
 	// carry a .snapshot.json so it can itself be restored later —
-	// validateSnapshot requires it).
-	const pre = path.join(SNAP_DIR, `pre-restore-${ts()}`);
+	// validateSnapshot requires it). uniqueName: a second restore in the same
+	// millisecond must NOT merge into the first pre-restore backup (that
+	// corrupted the backup's contents with the current brain).
+	const pre = path.join(
+		SNAP_DIR,
+		uniqueName(`pre-restore-${ts()}`),
+	);
 	copyDir(BRAIN, pre, new Set(["backups"]));
 	fs.writeFileSync(
 		path.join(pre, ".snapshot.json"),

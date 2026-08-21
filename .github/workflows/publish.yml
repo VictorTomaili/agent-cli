@@ -55,26 +55,6 @@ jobs:
             echo "::error::npm $NPMV < 11.5.1, trusted publishing unsupported"
             exit 1
           fi
-      - name: Debug OIDC claims
-        run: |
-          echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
-          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
-            echo "::error::no OIDC - id-token: write NOT in effect"
-            env | grep -o '^[A-Z_]*' | sort | tr '\n' ' '
-            exit 1
-          fi
-          curl -s \
-            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org" \
-            | node -e '
-              const fs = require("fs");
-              const r = JSON.parse(fs.readFileSync(0, "utf8"));
-              const p = r.value.split(".")[1];
-              const b = Buffer.from(p, "base64url").toString("utf8");
-              const c = JSON.parse(b);
-              delete c.aud;
-              console.log(JSON.stringify(c, null, 1));
-            '
       - run: npm ci
       - run: npm run check
       - run: npm test
@@ -94,12 +74,10 @@ jobs:
           fi
       - name: Publish ${{ steps.v.outputs.local }}
         if: steps.v.outputs.publish == 'true'
-        # --loglevel silly TEMP: surfaces the OIDC exchange failure reason
-        # (lib/utils/oidc.js logs it at verbose and swallows it otherwise).
-        # --provenance: REQUIRED for the OIDC exchange on private repos
-        # (npm/cli#8730): npm only auto-enables provenance for public repos;
-        # without it the token exchange 404s 'package not found'.
-        run: npm publish --access public --provenance --loglevel silly
+        # No --provenance: this repo is PRIVATE, and npm rejects provenance
+        # bundles from private repos (E422). npm's OIDC handler auto-skips
+        # provenance for private repos when the flag is absent.
+        run: npm publish --access public
         env:
           # Trusted publishing (OIDC) only: setup-node still defaults
           # NODE_AUTH_TOKEN when registry-url is set (actions/setup-node#1440);

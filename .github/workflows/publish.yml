@@ -96,7 +96,10 @@ jobs:
         if: steps.v.outputs.publish == 'true'
         # --loglevel silly TEMP: surfaces the OIDC exchange failure reason
         # (lib/utils/oidc.js logs it at verbose and swallows it otherwise).
-        run: npm publish --access public --loglevel silly
+        # --provenance: REQUIRED for the OIDC exchange on private repos
+        # (npm/cli#8730): npm only auto-enables provenance for public repos;
+        # without it the token exchange 404s 'package not found'.
+        run: npm publish --access public --provenance --loglevel silly
         env:
           # Trusted publishing (OIDC) only: setup-node still defaults
           # NODE_AUTH_TOKEN when registry-url is set (actions/setup-node#1440);

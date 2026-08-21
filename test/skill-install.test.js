@@ -158,7 +158,11 @@ test("M5: an oversized SKILL.md is skipped, not parsed (read cap)", () => {
 	// 1 MiB + 1 → over the cap
 	const big = "# padded\n" + "x".repeat(storeLib.MAX_SKILL_MD_BYTES);
 	writeFileSync(path.join(dir, "SKILL.md"), big);
-	assert.equal(storeLib.readSkill("bloated"), null, "oversized SKILL.md must be unreadable");
+	assert.equal(
+		storeLib.readSkill("bloated"),
+		null,
+		"oversized SKILL.md must be unreadable",
+	);
 	const listed = storeLib.listStore().map((s) => s.name);
 	assert.ok(!listed.includes("bloated"), "oversized skill must not be listed");
 });
@@ -221,8 +225,14 @@ test("HIGH-1: skills are fetched natively — no external skills package spawn",
 	// classifySource routes every supported source type to a native strategy.
 	assert.equal(fetchLib.classifySource("owner/repo").kind, "github");
 	assert.equal(fetchLib.classifySource("owner/repo@research").kind, "github");
-	assert.equal(fetchLib.classifySource("https://github.com/x/y.git").kind, "git");
-	assert.equal(fetchLib.classifySource("git@github.com:owner/repo.git").kind, "git");
+	assert.equal(
+		fetchLib.classifySource("https://github.com/x/y.git").kind,
+		"git",
+	);
+	assert.equal(
+		fetchLib.classifySource("git@github.com:owner/repo.git").kind,
+		"git",
+	);
 	assert.equal(fetchLib.classifySource("some-npm-package").kind, "npm");
 	assert.equal(fetchLib.classifySource("some-package_2").kind, "npm");
 	// invalid sources are refused up front (http(s) URLs are legit git targets —
@@ -238,7 +248,17 @@ test("windowsShellMetachars rejects cmd.exe expansion and boundary chars (M2)", 
 	// M2: % and ! are cmd.exe (delayed) expansion markers — %PATH% could expand
 	// to a string carrying metacharacters AFTER a pre-check; quotes break cmd's
 	// arg-boundary parsing. All must be rejected alongside & | < > ^.
-	for (const bad of ["a&b", "a|b", "a<b", "a>b", "a^b", "a%b", "a!b", 'a"b', "a'b"]) {
+	for (const bad of [
+		"a&b",
+		"a|b",
+		"a<b",
+		"a>b",
+		"a^b",
+		"a%b",
+		"a!b",
+		'a"b',
+		"a'b",
+	]) {
 		assert.ok(
 			/[\x26|\x3c\x3e\x5e%!"']/.test(bad),
 			`expected ${bad} to be rejected as a Windows shell metacharacter`,
@@ -266,7 +286,10 @@ test("skill provenance lists source/revision/hash for locked skills", () => {
 	// write a lock into the isolated store for the fixture skill
 	const dir = path.join(STORE_DIR, "provenance-skill");
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(path.join(dir, "SKILL.md"), "---\nname: provenance-skill\n---\nbody\n");
+	writeFileSync(
+		path.join(dir, "SKILL.md"),
+		"---\nname: provenance-skill\n---\nbody\n",
+	);
 	const lock = writeLock(dir, "github.com/x/y@z");
 	assert.ok(lock.source);
 	assert.ok(lock.contentHash);
@@ -286,14 +309,20 @@ function nestedFixture() {
 	const mk = (rel, name) => {
 		const d = path.join(root, rel);
 		mkdirSync(d, { recursive: true });
-		writeFileSync(path.join(d, "SKILL.md"), `---\nname: ${name}\ndescription: nested test\n---\n\nbody\n`);
+		writeFileSync(
+			path.join(d, "SKILL.md"),
+			`---\nname: ${name}\ndescription: nested test\n---\n\nbody\n`,
+		);
 	};
 	mk("skills/engineering/code-review", "code-review");
 	mk("skills/engineering/tdd", "tdd");
 	mk("skills/productivity/teach", "teach");
 	// a docs dir with plain .md files (no SKILL.md) — walked, never collected
 	mkdirSync(path.join(root, "docs"), { recursive: true });
-	writeFileSync(path.join(root, "docs", "code-review.md"), "prose, not a skill\n");
+	writeFileSync(
+		path.join(root, "docs", "code-review.md"),
+		"prose, not a skill\n",
+	);
 	return root;
 }
 
@@ -310,7 +339,10 @@ test("collectSkills still finds flat + ./skills/ layouts (no regression)", () =>
 	for (const rel of ["alpha", "skills/beta", "a/b/c/gamma"]) {
 		const d = path.join(root, rel);
 		mkdirSync(d, { recursive: true });
-		writeFileSync(path.join(d, "SKILL.md"), `---\nname: ${path.basename(rel)}\ndescription: t\n---\n\nb\n`);
+		writeFileSync(
+			path.join(d, "SKILL.md"),
+			`---\nname: ${path.basename(rel)}\ndescription: t\n---\n\nb\n`,
+		);
 	}
 	const out = mkdtempSync(path.join(tmpdir(), "agent-skill-collect2-"));
 	assert.equal(fetchLib.collectSkills(root, out), 3);
@@ -320,7 +352,9 @@ test("collectSkills still finds flat + ./skills/ layouts (no regression)", () =>
 
 test("collectSkills pin selects by dir basename at any depth", () => {
 	const out = mkdtempSync(path.join(tmpdir(), "agent-skill-collect3-"));
-	const found = fetchLib.collectSkills(nestedFixture(), out, { only: "code-review" });
+	const found = fetchLib.collectSkills(nestedFixture(), out, {
+		only: "code-review",
+	});
 	assert.equal(found, 1);
 	assert.ok(existsSync(path.join(out, "code-review", "SKILL.md")));
 	assert.ok(!existsSync(path.join(out, "tdd")));
@@ -330,21 +364,39 @@ test("collectSkills: a skill dir is never descended into; dupes first-wins deter
 	const root = mkdtempSync(path.join(tmpdir(), "agent-skill-edge-"));
 	// a SKILL.md INSIDE another skill's dir must not become a second skill
 	mkdirSync(path.join(root, "outer", "inner"), { recursive: true });
-	writeFileSync(path.join(root, "outer", "SKILL.md"), "---\nname: outer\ndescription: t\n---\n\nb\n");
-	writeFileSync(path.join(root, "outer", "inner", "SKILL.md"), "---\nname: inner\ndescription: t\n---\n\nb\n");
+	writeFileSync(
+		path.join(root, "outer", "SKILL.md"),
+		"---\nname: outer\ndescription: t\n---\n\nb\n",
+	);
+	writeFileSync(
+		path.join(root, "outer", "inner", "SKILL.md"),
+		"---\nname: inner\ndescription: t\n---\n\nb\n",
+	);
 	// same name at two depths — first (sorted) wins, no error
 	mkdirSync(path.join(root, "a", "dupe"), { recursive: true });
 	mkdirSync(path.join(root, "b", "dupe"), { recursive: true });
-	writeFileSync(path.join(root, "a", "dupe", "SKILL.md"), "---\nname: dupe-a\n---\n\nfrom a\n");
-	writeFileSync(path.join(root, "b", "dupe", "SKILL.md"), "---\nname: dupe-b\n---\n\nfrom b\n");
+	writeFileSync(
+		path.join(root, "a", "dupe", "SKILL.md"),
+		"---\nname: dupe-a\n---\n\nfrom a\n",
+	);
+	writeFileSync(
+		path.join(root, "b", "dupe", "SKILL.md"),
+		"---\nname: dupe-b\n---\n\nfrom b\n",
+	);
 	// .git content with a skill-shaped dir must be skipped
 	mkdirSync(path.join(root, ".git", "evil"), { recursive: true });
-	writeFileSync(path.join(root, ".git", "evil", "SKILL.md"), "---\nname: evil\n---\n\nb\n");
+	writeFileSync(
+		path.join(root, ".git", "evil", "SKILL.md"),
+		"---\nname: evil\n---\n\nb\n",
+	);
 
 	const out = mkdtempSync(path.join(tmpdir(), "agent-skill-collect4-"));
 	const found = fetchLib.collectSkills(root, out);
 	assert.equal(found, 2); // outer + one dupe
-	assert.ok(!existsSync(path.join(out, "inner")), "nested SKILL.md not a separate skill");
+	assert.ok(
+		!existsSync(path.join(out, "inner")),
+		"nested SKILL.md not a separate skill",
+	);
 	assert.ok(!existsSync(path.join(out, "evil")), ".git never entered");
 	const dupe = readFileSync(path.join(out, "dupe", "SKILL.md"), "utf8");
 	assert.ok(dupe.includes("from a"), "deterministic first-wins (sorted)");
@@ -354,7 +406,10 @@ test("collectSkills never follows symlinked dirs", () => {
 	const root = mkdtempSync(path.join(tmpdir(), "agent-skill-symlink-"));
 	const target = mkdtempSync(path.join(tmpdir(), "agent-skill-target-"));
 	mkdirSync(path.join(target, "linked"), { recursive: true });
-	writeFileSync(path.join(target, "linked", "SKILL.md"), "---\nname: linked\ndescription: t\n---\n\nb\n");
+	writeFileSync(
+		path.join(target, "linked", "SKILL.md"),
+		"---\nname: linked\ndescription: t\n---\n\nb\n",
+	);
 	symlinkSync(target, path.join(root, "escape"));
 	const out = mkdtempSync(path.join(tmpdir(), "agent-skill-collect5-"));
 	assert.equal(fetchLib.collectSkills(root, out), 0);

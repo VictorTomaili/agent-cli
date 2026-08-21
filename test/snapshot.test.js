@@ -51,12 +51,18 @@ test("restore replaces brain contents and makes a pre-restore backup", () => {
 
 test("P0-4: pre-restore backup carries .snapshot.json and is itself restorable", () => {
 	const before = snap.snapshot();
-	writeFileSync(path.join(brain(), "AGENTS.md"), "# will be preserved in backup\n");
+	writeFileSync(
+		path.join(brain(), "AGENTS.md"),
+		"# will be preserved in backup\n",
+	);
 	const r = snap.restore(before.name);
 	assert.equal(r.ok, true);
 	// the pre-restore backup must be a valid snapshot (has .snapshot.json)
 	const metaPath = path.join(r.preRestoreBackup, ".snapshot.json");
-	assert.ok(existsSync(metaPath), "pre-restore backup must include .snapshot.json");
+	assert.ok(
+		existsSync(metaPath),
+		"pre-restore backup must include .snapshot.json",
+	);
 	const meta = JSON.parse(readFileSync(metaPath, "utf8"));
 	assert.equal(meta.preRestoreOf, before.name);
 	// and it must be restorable via the public restore() path

@@ -204,15 +204,16 @@ export function restore(name) {
 	// validateSnapshot requires it). uniqueName: a second restore in the same
 	// millisecond must NOT merge into the first pre-restore backup (that
 	// corrupted the backup's contents with the current brain).
-	const pre = path.join(
-		SNAP_DIR,
-		uniqueName(`pre-restore-${ts()}`),
-	);
+	const pre = path.join(SNAP_DIR, uniqueName(`pre-restore-${ts()}`));
 	copyDir(BRAIN, pre, new Set(["backups"]));
 	fs.writeFileSync(
 		path.join(pre, ".snapshot.json"),
 		JSON.stringify(
-			{ created: new Date().toISOString(), preRestoreOf: name, files: countFiles(pre) },
+			{
+				created: new Date().toISOString(),
+				preRestoreOf: name,
+				files: countFiles(pre),
+			},
 			null,
 			2,
 		),

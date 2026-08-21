@@ -2,10 +2,18 @@
 // session-start + project, extracted from cli.js (HIGH-3). Injected deps:
 // { emit, fail, log, c, pretty, EXIT, isJson, loadConfig, saveConfig,
 //   readMaster, detectInstalled, getTarget, enableGlobal, effectiveProjectIds,
-//   ensureSkillStore, findUnresolvedModels, classify, projectMasterPath,
-//   exists, writeFile, path }.
+//   hasExplicitProjectTargets, ensureSkillStore, findUnresolvedModels, classify,
+//   projectMasterPath, masterPaths, setExpectedCtx, exists, writeFile, path }.
 // `run` dispatches tasks to external coding-agent CLIs (src/runners.js);
 // brief-action-id invocations keep the legacy behavior (deprecated).
+
+/** Suggested fix for an unhealthy project pointer, by on-disk state. */
+function pointerFix(state, id) {
+	if (state === "pointer-stale") return `agent-cli link -p -t ${id}`;
+	if (state === "native")
+		return `agent-cli pull ${id} -p, then agent-cli link -p -t ${id}`;
+	return `agent-cli target enable ${id} -p`;
+}
 
 /** Register the run/action/setup/day-start/session-start/project commands. */
 export function registerSessionCommands(
@@ -25,10 +33,13 @@ export function registerSessionCommands(
 		getTarget,
 		enableGlobal,
 		effectiveProjectIds,
+		hasExplicitProjectTargets,
 		ensureSkillStore,
 		findUnresolvedModels,
 		classify,
 		projectMasterPath,
+		masterPaths,
+		setExpectedCtx,
 		exists,
 		writeFile,
 		path,
@@ -347,7 +358,6 @@ export function registerSessionCommands(
 				return;
 			}
 			if (action === "init") {
-				const { ensureMaster } = await import("../store.js");
 				// project master at [cwd]/.agents/AGENTS.md
 				const masterPath = projectMasterPath(cwd);
 				const created = [];
@@ -385,27 +395,74 @@ export function registerSessionCommands(
 					ok: masterOk,
 					detail: pretty(masterPath),
 				});
-				if (!masterOk) issues.push("project master missing — run agent-cli project init");
+				if (!masterOk)
+					issues.push("project master missing — run agent-cli project init");
 				const cfg = await loadConfig();
+				// classify() must compare pointer stubs against the PROJECT master
+				// (same contract as link/unlink): without setExpectedCtx, project
+				// pointers are diffed against the global master and every healthy
+				// one classifies as pointer-stale.
+				const { masterAbs, masterTilde } = masterPaths("project", cwd);
+				setExpectedCtx({ masterAbs, masterTilde });
+				// An explicit per-root allowlist (materialized by `target disable
+				// <id> -p`, or legacy cfg.project) expresses per-tool intent: a
+				// native/missing pointer there is actionable drift. No explicit list
+				// = the "all project-capable targets" default, where unconfigured
+				// targets are OPTIONAL — doctor must not flag tools the project
+				// never opted into. A deployed-but-drifted stub (pointer-stale) is
+				// actionable either way: something wrote it.
+				const explicit = hasExplicitProjectTargets(cfg, cwd);
 				const projIds = effectiveProjectIds(cfg);
+				let optional = 0;
 				for (const id of projIds) {
 					const t = getTarget(id);
 					if (!t || !t.project) continue;
 					const cls = await classify(t, "project");
+					const isPointer = cls.state === "pointer";
+					const ok =
+						isPointer || (!explicit && cls.state !== "pointer-stale");
+					let status;
+					if (isPointer) status = "ok";
+					else if (ok) status = "optional";
+					else status = "error";
 					checks.push({
 						check: `pointer:${id}`,
-						ok: cls.state === "pointer",
+						ok,
+						status,
 						detail: cls.state + " " + pretty(cls.path),
 					});
-					if (cls.state !== "pointer")
-						issues.push(`${id} project pointer ${cls.state} — run agent-cli link -p`);
+						if (!ok) {
+							issues.push(
+								`${id} project pointer ${
+									cls.state === "pointer-stale" ? "stale" : cls.state
+								} — ${pointerFix(cls.state, id)}`,
+							);
+					} else if (!isPointer) {
+						optional++;
+					}
 				}
-				emit({ command: "project", action: "doctor", issues, checks });
-				if (!isJson())
-					for (const ck of checks)
+				emit({
+					command: "project",
+					action: "doctor",
+					issues,
+					checks,
+					optionalCount: optional,
+				});
+				if (!isJson()) {
+					for (const ck of checks) {
+						let mark;
+						if (ck.status === "optional") mark = c.gray("·");
+						else if (ck.ok) mark = c.green("✓");
+						else mark = c.red("✗");
 						log.raw(
-							`  ${ck.ok ? c.green("✓") : c.red("✗")} ${ck.check.padEnd(24)} ${c.gray(ck.detail)}`,
+							`  ${mark} ${ck.check.padEnd(24)} ${c.gray(ck.detail)}`,
 						);
+					}
+					if (optional > 0)
+						log.dim(
+							`${optional} target(s) unconfigured (optional) — agent-cli target enable <id> -p to manage one`,
+						);
+				}
 				if (issues.length) process.exit(EXIT.WORK);
 				return;
 			}

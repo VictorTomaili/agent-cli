@@ -377,6 +377,17 @@ export function effectiveProjectIds(cfg, root = process.cwd()) {
 	return list;
 }
 
+/**
+ * Whether the project root has an EXPLICIT target allowlist (per-root
+ * projectTargets entry or legacy cfg.project array) as opposed to the
+ * "all project-capable targets" default (null). Doctor uses this to
+ * distinguish deliberate per-tool intent (stricter checks) from the
+ * untouched default (unconfigured = optional, never an error).
+ */
+export function hasExplicitProjectTargets(cfg, root = process.cwd()) {
+	return Array.isArray(projectTargetList(cfg, root));
+}
+
 export function enableGlobal(cfg, id) {
 	if (!cfg.global.includes(id)) cfg.global.push(id);
 }

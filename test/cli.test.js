@@ -408,6 +408,76 @@ test("project doctor runs in human mode without crashing (loop var does not shad
 	assert.ok(data.checks.some((c) => c.check === "project-master-exists"));
 });
 
+test("project doctor treats unconfigured targets as optional, not errors", () => {
+	// A project with a master but no explicit target allowlist must exit 0:
+	// missing/native pointers are optional (the project never opted into
+	// those tools). Only pointer-stale drift and a missing master are issues.
+	const home = run(["init"]).home;
+	const project = mkdtempSync(path.join(tmpdir(), "agent-cli-projdoc-opt-"));
+	run(["project", "init"], { envHome: home, cwd: project });
+	const j = run(["project", "doctor", "--json"], {
+		envHome: home,
+		cwd: project,
+	});
+	assert.equal(j.code, 0, `expected exit 0, got ${j.code}: ${j.stderr}`);
+	const data = parseJson(j.stdout).data;
+	assert.deepEqual(data.issues, []);
+	const pointers = data.checks.filter((c) => c.check.startsWith("pointer:"));
+	assert.ok(pointers.length > 0, "expected pointer checks");
+	assert.ok(
+		pointers.every((c) => c.ok === true && c.status === "optional"),
+		`expected every unconfigured pointer to be optional, got ${JSON.stringify(
+			pointers.slice(0, 3),
+		)}`,
+	);
+	assert.ok(data.optionalCount >= pointers.length);
+});
+
+test("project doctor flags a drifted pointer; a healthy one stays ok", () => {
+	// pointer-stale is actionable even without an explicit allowlist: a stub
+	// exists but drifted. A correctly deployed pointer must classify as
+	// pointer (not stale) — doctor used to diff project stubs against the
+	// GLOBAL master, flagging every healthy project pointer as stale.
+	const home = run(["init"]).home;
+	const project = mkdtempSync(path.join(tmpdir(), "agent-cli-projdoc-stale-"));
+	run(["project", "init"], { envHome: home, cwd: project });
+	const en = run(["target", "enable", "claude", "-p"], {
+		envHome: home,
+		cwd: project,
+	});
+	ok(en);
+	const healthy = run(["project", "doctor", "--json"], {
+		envHome: home,
+		cwd: project,
+	});
+	assert.equal(healthy.code, 0, `healthy: ${healthy.stderr}`);
+	const claude = parseJson(healthy.stdout).data.checks.find(
+		(c) => c.check === "pointer:claude",
+	);
+	assert.equal(claude.ok, true);
+	assert.equal(claude.status, "ok");
+	assert.match(claude.detail, /^pointer /);
+	// Drift the stub: keep it a parseable pointer, change its master target.
+	const stub = path.join(project, "CLAUDE.md");
+	writeFileSync(
+		stub,
+		readFileSync(stub, "utf8").replace(
+			/<!-- master-abs: .*?-->/,
+			"<!-- master-abs: /gone/old-master.md -->",
+		),
+	);
+	const drifted = run(["project", "doctor", "--json"], {
+		envHome: home,
+		cwd: project,
+	});
+	assert.equal(drifted.code, 2, `drifted: ${drifted.stderr}`);
+	const data = parseJson(drifted.stdout).data;
+	assert.ok(
+		data.issues.some((i) => i.startsWith("claude project pointer stale")),
+		`issues: ${JSON.stringify(data.issues)}`,
+	);
+});
+
 test("spect init is project-only and brief loads the project manifest", () => {
 	const home = run(["init"]).home;
 	const project = mkdtempSync(path.join(tmpdir(), "agent-spect-project-"));

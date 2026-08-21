@@ -31,6 +31,7 @@ import {
 	isGlobalEnabled,
 	isProjectEnabled,
 	effectiveProjectIds,
+	hasExplicitProjectTargets,
 	isConfigCorrupt,
 } from "./config.js";
 import {
@@ -485,10 +486,13 @@ registerSessionCommands(program, {
 	getTarget,
 	enableGlobal,
 	effectiveProjectIds,
+	hasExplicitProjectTargets,
 	ensureSkillStore,
 	findUnresolvedModels,
 	classify,
 	projectMasterPath,
+	masterPaths,
+	setExpectedCtx,
 	exists,
 	writeFile,
 	path,

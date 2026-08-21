@@ -72,6 +72,12 @@ jobs:
       - name: Publish ${{ steps.v.outputs.local }}
         if: steps.v.outputs.publish == 'true'
         run: npm publish --access public
+        env:
+          # Trusted publishing (OIDC) only: setup-node still defaults
+          # NODE_AUTH_TOKEN when registry-url is set (actions/setup-node#1440);
+          # any non-empty value makes npm skip the OIDC exchange and PUT with
+          # the GitHub token -> E404. Blank it so npm falls through to OIDC.
+          NODE_AUTH_TOKEN: ""
       - name: Tag the release
         if: steps.v.outputs.publish == 'true'
         run: |

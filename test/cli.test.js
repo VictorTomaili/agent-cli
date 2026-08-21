@@ -189,16 +189,13 @@ test("brief --json surfaces the open-session warning while a session is active, 
 		envHome: home,
 	});
 	ok(started);
-	const active = parseJson(
-		run(["brief", "--json"], { envHome: home }).stdout,
-	);
+	const active = parseJson(run(["brief", "--json"], { envHome: home }).stdout);
 	assert.ok(active.data.session);
 	assert.equal(active.data.session.task, "fix the thing");
 	assert.ok(
 		active.data.warnings.some(
 			(w) =>
-				w.includes("session open since") &&
-				w.includes("agent-cli session end"),
+				w.includes("session open since") && w.includes("agent-cli session end"),
 		),
 		`expected open-session warning, got: ${JSON.stringify(active.data.warnings)}`,
 	);
@@ -712,9 +709,7 @@ test("update diff reports no differences without dumping files", () => {
 
 test("status summarizes targets by default and --all expands the catalog", () => {
 	const home = run(["init"]).home;
-	const summary = parseJson(
-		run(["status", "--json"], { envHome: home }).stdout,
-	);
+	const summary = parseJson(run(["status", "--json"], { envHome: home }).stdout);
 	const full = parseJson(
 		run(["status", "--all", "--json"], { envHome: home }).stdout,
 	);
@@ -915,10 +910,7 @@ test("identity/soul apply with unknown keys rejects in BOTH modes unless --fallb
 
 test("user apply refuses to replace a non-empty USER.md without --force", () => {
 	const home = run(["init"]).home;
-	writeFileSync(
-		path.join(home, ".agents", "USER.md"),
-		"# USER.md\n\nkeep me\n",
-	);
+	writeFileSync(path.join(home, ".agents", "USER.md"), "# USER.md\n\nkeep me\n");
 	bad(run(["user", "apply"], { envHome: home }));
 	assert.equal(
 		readFileSync(path.join(home, ".agents", "USER.md"), "utf8"),
@@ -1330,9 +1322,7 @@ test("sync diff + rollback round-trip via the CLI", {
 }, () => {
 	const home = run(["init"]).home;
 	ok(run(["sync", "init", "--json"], { envHome: home }));
-	ok(
-		run(["sync", "push", "--message", "initial", "--json"], { envHome: home }),
-	);
+	ok(run(["sync", "push", "--message", "initial", "--json"], { envHome: home }));
 	// add a lesson, push it as the second commit
 	ok(
 		run(
@@ -1349,8 +1339,7 @@ test("sync diff + rollback round-trip via the CLI", {
 	assert.ok(diff.data.summary);
 	// diffing the commit that added the lesson shows it in the body
 	const second = parseJson(
-		run(["sync", "diff", "--commit", "HEAD", "--json"], { envHome: home })
-			.stdout,
+		run(["sync", "diff", "--commit", "HEAD", "--json"], { envHome: home }).stdout,
 	);
 	assert.equal(second.data.ok, true);
 	assert.match(second.data.summary, /rollback-me/);
@@ -1418,8 +1407,7 @@ test("models suggest --reassign lists every alias even when all resolve", () => 
 	// init auto-applies aliases; reassign must consider them all (count > 0),
 	// even though 'suggest' alone reports 0 unresolved.
 	const r = parseJson(
-		run(["models", "suggest", "--reassign", "--json"], { envHome: home })
-			.stdout,
+		run(["models", "suggest", "--reassign", "--json"], { envHome: home }).stdout,
 	);
 	assert.equal(r.command, "models");
 	assert.ok(
@@ -1462,9 +1450,7 @@ test("status and doctor expose a corrupt config instead of hiding it", () => {
 	const doctor = parseJson(
 		run(["doctor", "--offline", "--json"], { envHome: home }).stdout,
 	);
-	const check = doctor.data.checks.find(
-		(c) => c.check === "config-not-corrupt",
-	);
+	const check = doctor.data.checks.find((c) => c.check === "config-not-corrupt");
 	assert.ok(check);
 	assert.equal(check.ok, false);
 	assert.ok(doctor.data.issues.some((i) => /config\.json is corrupt/.test(i)));
@@ -1498,15 +1484,7 @@ test("handoff create/list via the CLI", () => {
 	const home = run(["init"]).home;
 	ok(
 		run(
-			[
-				"handoff",
-				"create",
-				"--to",
-				"worker",
-				"--task",
-				"build parser",
-				"--json",
-			],
+			["handoff", "create", "--to", "worker", "--task", "build parser", "--json"],
 			{ envHome: home },
 		),
 	);
@@ -1525,167 +1503,169 @@ test("whoami reports identity + gaps via the CLI", () => {
 });
 
 test("fresh init creates the master at ~/.agents/AGENTS.md and the home pointer at ~/AGENTS.md", () => {
-		const home = run(["init"]).home;
-		// the master is REAL content at the new canonical location
-		const master = readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8");
-		assert.match(master, /## Session start read order/);
-		assert.doesNotMatch(master, /agent-cli-master-pointer/);
-		// ~/AGENTS.md is the managed home pointer stub pointing at the master
-		const stub = readFileSync(path.join(home, "AGENTS.md"), "utf8");
-		assert.match(stub, /agent-cli-master-pointer/);
-		assert.match(
-				stub,
-				new RegExp(
-						"master-abs: " +
-								path.join(home, ".agents", "AGENTS.md").replace(/[\\/]/g, "."),
-				),
-		);
-		assert.match(stub, /master-tilde: ~\/\.agents\/AGENTS\.md/);
-		assert.match(stub, /Read that file now/);
+	const home = run(["init"]).home;
+	// the master is REAL content at the new canonical location
+	const master = readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8");
+	assert.match(master, /## Session start read order/);
+	assert.doesNotMatch(master, /agent-cli-master-pointer/);
+	// ~/AGENTS.md is the managed home pointer stub pointing at the master
+	const stub = readFileSync(path.join(home, "AGENTS.md"), "utf8");
+	assert.match(stub, /agent-cli-master-pointer/);
+	assert.match(
+		stub,
+		new RegExp(
+			"master-abs: " +
+				path.join(home, ".agents", "AGENTS.md").replace(/[\\/]/g, "."),
+		),
+	);
+	assert.match(stub, /master-tilde: ~\/\.agents\/AGENTS\.md/);
+	assert.match(stub, /Read that file now/);
 });
 
 test("init migrates an old-layout ~/AGENTS.md master to ~/.agents/AGENTS.md (backup kept)", () => {
-		const home = mkdtempSync(path.join(tmpdir(), "agent-migrate-"));
-		mkdirSync(path.join(home, ".agents"), { recursive: true });
-		// OLD layout: real master at ~/AGENTS.md, self-pointer stub at ~/.agents/AGENTS.md
-		const oldMaster =
-				"# OLD MASTER content\n\n## Real user content\n\n" +
-				"padding padding padding padding padding padding padding padding padding padding\n";
-		writeFileSync(path.join(home, "AGENTS.md"), oldMaster);
-		writeFileSync(
-				path.join(home, ".agents", "AGENTS.md"),
-				[
-						"<!-- agent-cli-pointer -->",
-						"<!-- target: agent-cli-master-pointer -->",
-						"<!-- scope: agent-cli -->",
-						"<!-- native: AGENTS.md -->",
-						`<!-- master-abs: ${path.join(home, "AGENTS.md")} -->`,
-						"<!-- master-tilde: ~/AGENTS.md -->",
-						"",
-						"# AGENTS.md (agent-cli's local copy) → redirected by agent-cli",
-						"",
-						"This file is a **pointer stub**. Read the master instead.",
-				].join("\n"),
-		);
-		ok(run(["init", "--json"], { envHome: home }));
-		// master moved to ~/.agents/AGENTS.md with the old content preserved
-		assert.match(
-				readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8"),
-				/OLD MASTER content/,
-		);
-		// old master location is now the agent-cli home pointer stub
-		const stub = readFileSync(path.join(home, "AGENTS.md"), "utf8");
-		assert.match(stub, /agent-cli-master-pointer/);
-		assert.match(stub, /master-tilde: ~\/\.agents\/AGENTS\.md/);
-		// a backup of the pre-migration master exists
-		const backupDir = path.join(home, ".agents", "backups");
-		const backups = readdirSync(backupDir).filter((f) => f.endsWith(".md"));
-		assert.ok(backups.length >= 1, "expected a backup under ~/.agents/backups");
-		assert.match(
-				readFileSync(path.join(backupDir, backups[0]), "utf8"),
-				/OLD MASTER content/,
-		);
+	const home = mkdtempSync(path.join(tmpdir(), "agent-migrate-"));
+	mkdirSync(path.join(home, ".agents"), { recursive: true });
+	// OLD layout: real master at ~/AGENTS.md, self-pointer stub at ~/.agents/AGENTS.md
+	const oldMaster =
+		"# OLD MASTER content\n\n## Real user content\n\n" +
+		"padding padding padding padding padding padding padding padding padding padding\n";
+	writeFileSync(path.join(home, "AGENTS.md"), oldMaster);
+	writeFileSync(
+		path.join(home, ".agents", "AGENTS.md"),
+		[
+			"<!-- agent-cli-pointer -->",
+			"<!-- target: agent-cli-master-pointer -->",
+			"<!-- scope: agent-cli -->",
+			"<!-- native: AGENTS.md -->",
+			`<!-- master-abs: ${path.join(home, "AGENTS.md")} -->`,
+			"<!-- master-tilde: ~/AGENTS.md -->",
+			"",
+			"# AGENTS.md (agent-cli's local copy) → redirected by agent-cli",
+			"",
+			"This file is a **pointer stub**. Read the master instead.",
+		].join("\n"),
+	);
+	ok(run(["init", "--json"], { envHome: home }));
+	// master moved to ~/.agents/AGENTS.md with the old content preserved
+	assert.match(
+		readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8"),
+		/OLD MASTER content/,
+	);
+	// old master location is now the agent-cli home pointer stub
+	const stub = readFileSync(path.join(home, "AGENTS.md"), "utf8");
+	assert.match(stub, /agent-cli-master-pointer/);
+	assert.match(stub, /master-tilde: ~\/\.agents\/AGENTS\.md/);
+	// a backup of the pre-migration master exists
+	const backupDir = path.join(home, ".agents", "backups");
+	const backups = readdirSync(backupDir).filter((f) => f.endsWith(".md"));
+	assert.ok(backups.length >= 1, "expected a backup under ~/.agents/backups");
+	assert.match(
+		readFileSync(path.join(backupDir, backups[0]), "utf8"),
+		/OLD MASTER content/,
+	);
 });
 
 test("init divergence: both files real → keeps ~/.agents/AGENTS.md, backs up ~/AGENTS.md, warns", () => {
-		const home = mkdtempSync(path.join(tmpdir(), "agent-diverge-"));
-		mkdirSync(path.join(home, ".agents"), { recursive: true });
-		writeFileSync(
-				path.join(home, "AGENTS.md"),
-				"# HOME COPY\n\n## home content\n\npadding padding padding padding padding\n",
-		);
-		writeFileSync(
-				path.join(home, ".agents", "AGENTS.md"),
-				"# AGENTS-DIR MASTER\n\n## canonical content\n\nother padding padding padding padding\n",
-		);
-		const r = run(["init"], { envHome: home });
-		assert.equal(r.code, 0, `init exit ${r.code}: ${r.stderr}`);
-		// the warning names the backup so the user can reconcile
-		assert.match(r.stdout, /held real content/);
-		assert.match(r.stdout, /backed up/);
-		// the canonical master keeps ITS content
-		assert.match(
-				readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8"),
-				/AGENTS-DIR MASTER/,
-		);
-		assert.doesNotMatch(
-				readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8"),
-				/HOME COPY/,
-		);
-		// home became the pointer; the home copy survives only in the backup
-		assert.match(
-				readFileSync(path.join(home, "AGENTS.md"), "utf8"),
-				/agent-cli-master-pointer/,
-		);
-		const backupDir = path.join(home, ".agents", "backups");
-		const backups = readdirSync(backupDir).filter((f) => f.endsWith(".md"));
-		assert.ok(backups.length >= 1);
-		assert.match(
-				readFileSync(path.join(backupDir, backups[0]), "utf8"),
-				/HOME COPY/,
-		);
+	const home = mkdtempSync(path.join(tmpdir(), "agent-diverge-"));
+	mkdirSync(path.join(home, ".agents"), { recursive: true });
+	writeFileSync(
+		path.join(home, "AGENTS.md"),
+		"# HOME COPY\n\n## home content\n\npadding padding padding padding padding\n",
+	);
+	writeFileSync(
+		path.join(home, ".agents", "AGENTS.md"),
+		"# AGENTS-DIR MASTER\n\n## canonical content\n\nother padding padding padding padding\n",
+	);
+	const r = run(["init"], { envHome: home });
+	assert.equal(r.code, 0, `init exit ${r.code}: ${r.stderr}`);
+	// the warning names the backup so the user can reconcile
+	assert.match(r.stdout, /held real content/);
+	assert.match(r.stdout, /backed up/);
+	// the canonical master keeps ITS content
+	assert.match(
+		readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8"),
+		/AGENTS-DIR MASTER/,
+	);
+	assert.doesNotMatch(
+		readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8"),
+		/HOME COPY/,
+	);
+	// home became the pointer; the home copy survives only in the backup
+	assert.match(
+		readFileSync(path.join(home, "AGENTS.md"), "utf8"),
+		/agent-cli-master-pointer/,
+	);
+	const backupDir = path.join(home, ".agents", "backups");
+	const backups = readdirSync(backupDir).filter((f) => f.endsWith(".md"));
+	assert.ok(backups.length >= 1);
+	assert.match(
+		readFileSync(path.join(backupDir, backups[0]), "utf8"),
+		/HOME COPY/,
+	);
 });
 
 test("link never overwrites the ~/.agents/AGENTS.md master with a stub", () => {
-		const home = run(["init"]).home;
-		const custom =
-				"# MY MASTER\n\n## custom content\n\n" +
-				"enough substance to pass the size gate " + "x".repeat(200) + "\n";
-		writeFileSync(path.join(home, ".agents", "AGENTS.md"), custom);
-		ok(run(["link"], { envHome: home }));
-		const after = readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8");
-		assert.match(after, /MY MASTER/);
-		assert.doesNotMatch(after, /agent-cli-master-pointer/);
-		// the home pointer is (re)deployed, pointing at the master
-		assert.match(
-				readFileSync(path.join(home, "AGENTS.md"), "utf8"),
-				/agent-cli-master-pointer/,
-		);
+	const home = run(["init"]).home;
+	const custom =
+		"# MY MASTER\n\n## custom content\n\n" +
+		"enough substance to pass the size gate " +
+		"x".repeat(200) +
+		"\n";
+	writeFileSync(path.join(home, ".agents", "AGENTS.md"), custom);
+	ok(run(["link"], { envHome: home }));
+	const after = readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8");
+	assert.match(after, /MY MASTER/);
+	assert.doesNotMatch(after, /agent-cli-master-pointer/);
+	// the home pointer is (re)deployed, pointing at the master
+	assert.match(
+		readFileSync(path.join(home, "AGENTS.md"), "utf8"),
+		/agent-cli-master-pointer/,
+	);
 });
 
 test("target stubs point at the new master location (master-abs/master-tilde)", () => {
-		const home = run(["init"]).home;
-		ok(run(["target", "enable", "claude", "-g"], { envHome: home }));
-		ok(run(["link", "--target", "claude"], { envHome: home }));
-		const stub = readFileSync(path.join(home, ".claude", "CLAUDE.md"), "utf8");
-		assert.match(stub, /master-tilde: ~\/\.agents\/AGENTS\.md/);
-		assert.match(
-				stub,
-				new RegExp(
-						"master-abs: " +
-								path.join(home, ".agents", "AGENTS.md").replace(/[\\/]/g, "."),
-				),
-		);
-		// the stub redirects to the master, never the other way around
-		assert.doesNotMatch(stub, /agent-cli-master-pointer/);
+	const home = run(["init"]).home;
+	ok(run(["target", "enable", "claude", "-g"], { envHome: home }));
+	ok(run(["link", "--target", "claude"], { envHome: home }));
+	const stub = readFileSync(path.join(home, ".claude", "CLAUDE.md"), "utf8");
+	assert.match(stub, /master-tilde: ~\/\.agents\/AGENTS\.md/);
+	assert.match(
+		stub,
+		new RegExp(
+			"master-abs: " +
+				path.join(home, ".agents", "AGENTS.md").replace(/[\\/]/g, "."),
+		),
+	);
+	// the stub redirects to the master, never the other way around
+	assert.doesNotMatch(stub, /agent-cli-master-pointer/);
 });
 
 test("init migration strips a stray pointer header prepended onto the old master", () => {
-		const home = mkdtempSync(path.join(tmpdir(), "agent-migrate-stray-"));
-		mkdirSync(path.join(home, ".agents"), { recursive: true });
-		// old master has a pointer-stub header (buggy old link) ABOVE real content
-		const oldMaster =
-				"<!-- agent-cli-pointer -->\n" +
-				"# AGENTS.md → redirected by agent-cli\n\n" +
-				"This file is a **pointer stub**.\n\n" +
-				"<!-- BEGIN agent-cli -->\n" +
-				"## agent-cli (AGENTS.md manager)\n\n" +
-				"Real content padding padding padding padding padding padding padding padding\n";
-		writeFileSync(path.join(home, "AGENTS.md"), oldMaster);
-		writeFileSync(
-				path.join(home, ".agents", "AGENTS.md"),
-				"<!-- agent-cli-pointer -->\n# stub\n",
-		);
-		ok(run(["init", "--json"], { envHome: home }));
-		const adopted = readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8");
-		// the stray stub header is gone; the real content remains
-		assert.doesNotMatch(adopted, /pointer stub/);
-		assert.match(adopted, /Real content/);
-		// and the old master location is the managed home pointer
-		assert.match(
-				readFileSync(path.join(home, "AGENTS.md"), "utf8"),
-				/agent-cli-master-pointer/,
-		);
+	const home = mkdtempSync(path.join(tmpdir(), "agent-migrate-stray-"));
+	mkdirSync(path.join(home, ".agents"), { recursive: true });
+	// old master has a pointer-stub header (buggy old link) ABOVE real content
+	const oldMaster =
+		"<!-- agent-cli-pointer -->\n" +
+		"# AGENTS.md → redirected by agent-cli\n\n" +
+		"This file is a **pointer stub**.\n\n" +
+		"<!-- BEGIN agent-cli -->\n" +
+		"## agent-cli (AGENTS.md manager)\n\n" +
+		"Real content padding padding padding padding padding padding padding padding\n";
+	writeFileSync(path.join(home, "AGENTS.md"), oldMaster);
+	writeFileSync(
+		path.join(home, ".agents", "AGENTS.md"),
+		"<!-- agent-cli-pointer -->\n# stub\n",
+	);
+	ok(run(["init", "--json"], { envHome: home }));
+	const adopted = readFileSync(path.join(home, ".agents", "AGENTS.md"), "utf8");
+	// the stray stub header is gone; the real content remains
+	assert.doesNotMatch(adopted, /pointer stub/);
+	assert.match(adopted, /Real content/);
+	// and the old master location is the managed home pointer
+	assert.match(
+		readFileSync(path.join(home, "AGENTS.md"), "utf8"),
+		/agent-cli-master-pointer/,
+	);
 });
 
 test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss", async () => {
@@ -1694,14 +1674,10 @@ test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss
 	const env = { ...process.env, AGENT_CLI_HOME: home };
 	const runOne = (id) =>
 		new Promise((resolve) => {
-			const child = spawn(
-				process.execPath,
-				[CLI, "target", "enable", id, "-g"],
-				{
-					env,
-					stdio: ["ignore", "pipe", "pipe"],
-				},
-			);
+			const child = spawn(process.execPath, [CLI, "target", "enable", id, "-g"], {
+				env,
+				stdio: ["ignore", "pipe", "pipe"],
+			});
 			let stderr = "";
 			child.stderr.on("data", (d) => (stderr += d));
 			child.on("close", (code) => resolve({ id, code, stderr }));
@@ -1710,8 +1686,8 @@ test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss
 	for (const r of results) {
 		assert.equal(r.code, 0, `${r.id} enable failed: ${r.stderr}`);
 	}
-	const cfg = parseJson(run(["config", "--json"], { envHome: home }).stdout)
-		.data.config;
+	const cfg = parseJson(run(["config", "--json"], { envHome: home }).stdout).data
+		.config;
 	const got = [...cfg.global].sort();
 	assert.deepEqual(
 		got,
@@ -1748,9 +1724,11 @@ test("evaluate session --active scores the current unended session", () => {
 test("evaluate session defaults to the most recently archived session and reflects reported+lessons", () => {
 	const home = run(["init"]).home;
 	ok(run(["session", "start", "close", "the", "loop"], { envHome: home }));
-	ok(run(["lessons", "add", "session/close-the-loop-topic"], {
-		envHome: home,
-	}));
+	ok(
+		run(["lessons", "add", "session/close-the-loop-topic"], {
+			envHome: home,
+		}),
+	);
 	ok(run(["session", "report"], { envHome: home }));
 	ok(run(["session", "end"], { envHome: home }));
 
@@ -1778,7 +1756,10 @@ test("evaluate session <name> scores a specific archived session file", () => {
 	const r = run(["evaluate", "session", stem, "--json"], { envHome: home });
 	ok(r);
 	const j = parseJson(r.stdout);
-	assert.match(j.data.source, new RegExp(stem.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&")));
+	assert.match(
+		j.data.source,
+		new RegExp(stem.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&")),
+	);
 
 	const rMissing = run(["evaluate", "session", "does-not-exist", "--json"], {
 		envHome: home,
@@ -1797,10 +1778,9 @@ test("evaluate session <name> rejects a path-traversal name instead of reading o
 	const secretFile = path.join(home, ".agents", "config.json");
 	assert.ok(existsSync(secretFile), "sanity: the file we must not leak exists");
 
-	const rTraversal = run(
-		["evaluate", "session", "../config", "--json"],
-		{ envHome: home },
-	);
+	const rTraversal = run(["evaluate", "session", "../config", "--json"], {
+		envHome: home,
+	});
 	bad(rTraversal);
 	const jTraversal = parseJson(rTraversal.stdout);
 	assert.equal(jTraversal.ok, false);

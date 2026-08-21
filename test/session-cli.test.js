@@ -7,7 +7,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.js");
+const CLI = path.join(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"src",
+	"cli.js",
+);
 
 function home() {
 	return mkdtempSync(path.join(tmpdir(), "agent-sessioncli-"));
@@ -19,7 +24,11 @@ function run(args, envHome) {
 		env: { ...process.env, AGENT_CLI_HOME: envHome },
 	});
 	let parsed = null;
-	try { parsed = JSON.parse(r.stdout); } catch { /* non-JSON */ }
+	try {
+		parsed = JSON.parse(r.stdout);
+	} catch {
+		/* non-JSON */
+	}
 	return { status: r.status, parsed, stdout: r.stdout };
 }
 

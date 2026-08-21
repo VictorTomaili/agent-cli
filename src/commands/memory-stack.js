@@ -31,7 +31,9 @@ export function registerMemoryStackCommands(
 				return;
 			}
 			if (action === "maintain") {
-				const r = await memMod.memoryMaintain({ scope: opts.project ? "project" : "all" });
+				const r = await memMod.memoryMaintain({
+					scope: opts.project ? "project" : "all",
+				});
 				emit({ command: "memory", action: "maintain", ...r });
 				if (!isJson())
 					log.success(
@@ -39,7 +41,10 @@ export function registerMemoryStackCommands(
 					);
 				return;
 			}
-			fail(`Unknown memory action: ${action}. Use check|maintain`, { command: "memory", action });
+			fail(`Unknown memory action: ${action}. Use check|maintain`, {
+				command: "memory",
+				action,
+			});
 		});
 
 	program
@@ -54,7 +59,10 @@ export function registerMemoryStackCommands(
 		.action(async (action, task, opts) => {
 			const sess = await import("../session.js");
 			if (action === "start") {
-				const r = await sess.sessionStart({ task: task ? task.join(" ") : null, cwd: process.cwd() });
+				const r = await sess.sessionStart({
+					task: task ? task.join(" ") : null,
+					cwd: process.cwd(),
+				});
 				emit({ command: "session", action, ...r });
 				if (!isJson()) {
 					if (!r.ok) {
@@ -72,7 +80,13 @@ export function registerMemoryStackCommands(
 					// Hook mode: a host SessionEnd hook fires even when no session
 					// was ever started (headless runs, sessions that only ran
 					// `brief`). No active session is a normal no-op there, not an error.
-					emit({ command: "session", action, ok: true, noop: true, noActiveSession: true });
+					emit({
+						command: "session",
+						action,
+						ok: true,
+						noop: true,
+						noActiveSession: true,
+					});
 					if (!isJson()) log.dim("No active session — nothing to end.");
 					return;
 				}
@@ -102,7 +116,10 @@ export function registerMemoryStackCommands(
 				if (!r.ok) process.exit(EXIT.ERROR);
 				return;
 			}
-			fail(`Unknown session action: ${action}. Use start|end|report`, { command: "session", action });
+			fail(`Unknown session action: ${action}. Use start|end|report`, {
+				command: "session",
+				action,
+			});
 		});
 
 	program
@@ -115,7 +132,8 @@ export function registerMemoryStackCommands(
 			const sec = await import("../secrets.js");
 			const scope = opts.project ? "project" : "global";
 			if (action === "set") {
-				if (!name || !value.length) fail("Usage: agent-cli secret set <name> <value>");
+				if (!name || !value.length)
+					fail("Usage: agent-cli secret set <name> <value>");
 				const r = sec.setSecret(name, value.join(" "), { scope });
 				emit({ command: "secret", action, ...r });
 				if (!isJson()) log.success(`Secret '${name}' stored (${scope}).`);
@@ -146,7 +164,9 @@ export function registerMemoryStackCommands(
 				const r = sec.rmSecret(name, { scope });
 				emit({ command: "secret", action, ...r });
 				if (!isJson())
-					log.success(r.existed ? `Removed '${name}'.` : `No such secret '${name}'.`);
+					log.success(
+						r.existed ? `Removed '${name}'.` : `No such secret '${name}'.`,
+					);
 				return;
 			}
 			if (action === "env") {
@@ -155,15 +175,17 @@ export function registerMemoryStackCommands(
 				if (!isJson()) for (const l of env) process.stdout.write(l + "\n");
 				return;
 			}
-			fail(
-				`Unknown secret action: ${action}. Use set|get|list|rm|env`,
-				{ command: "secret", action },
-			);
+			fail(`Unknown secret action: ${action}. Use set|get|list|rm|env`, {
+				command: "secret",
+				action,
+			});
 		});
 
 	program
 		.command("env <action> [rest...]")
-		.description("Environment: capture (detect + fill ENVIRONMENTS.md) | set <Field> <value>.")
+		.description(
+			"Environment: capture (detect + fill ENVIRONMENTS.md) | set <Field> <value>.",
+		)
 		.option("-p, --project", "project scope")
 		.action(async (action, rest, opts) => {
 			if (action === "set") {
@@ -188,7 +210,10 @@ export function registerMemoryStackCommands(
 				return;
 			}
 			if (action !== "capture")
-				fail(`Unknown env action: ${action}. Use capture|set`, { command: "env", action });
+				fail(`Unknown env action: ${action}. Use capture|set`, {
+					command: "env",
+					action,
+				});
 			const envc = await import("../env-capture.js");
 			const r = await envc.captureAndApply({
 				scope: opts.project ? "project" : "global",

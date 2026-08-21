@@ -89,7 +89,9 @@ export function registerSessionCommands(
 						},
 					);
 				}
-				const toRun = opts.safe ? selected.filter((a) => a.safeToAutomate) : selected;
+				const toRun = opts.safe
+					? selected.filter((a) => a.safeToAutomate)
+					: selected;
 				const res = actMod.applySafe(toRun);
 				emit({
 					command: "run",
@@ -134,8 +136,8 @@ export function registerSessionCommands(
 			}
 			if (!res.ok) {
 				const summary = res.attempts
-				.map((a) => `${a.tool}/${a.model}: ${a.kind}`)
-				.join("; ");
+					.map((a) => `${a.tool}/${a.model}: ${a.kind}`)
+					.join("; ");
 				fail(`all runners failed (${summary})`, {
 					command: "run",
 					attempts: res.attempts,
@@ -159,7 +161,9 @@ export function registerSessionCommands(
 
 	program
 		.command("action <sub> [id]")
-		.description("Action feedback loop: verify <id> (run its verification command).")
+		.description(
+			"Action feedback loop: verify <id> (run its verification command).",
+		)
 		.action(async (sub, id) => {
 			if (sub !== "verify")
 				fail(`Unknown action sub: ${sub}. Use verify`, {
@@ -170,7 +174,8 @@ export function registerSessionCommands(
 			const actMod = await import("../actions.js");
 			const s = await actMod.collectState();
 			const action = actMod.buildActions(s).find((a) => a.id === id);
-			if (!action) fail(`Unknown action id: ${id}`, { command: "action", sub, id });
+			if (!action)
+				fail(`Unknown action id: ${id}`, { command: "action", sub, id });
 			const r = actMod.verifyAction(action);
 			emit({
 				command: "action",
@@ -293,7 +298,9 @@ export function registerSessionCommands(
 
 	program
 		.command("session-start [task...]")
-		.description("Start a session and emit the brief actions (session + day-start).")
+		.description(
+			"Start a session and emit the brief actions (session + day-start).",
+		)
 		.option("--offline", "never hit the network")
 		.action(async (task, opts) => {
 			const sess = await import("../session.js");
@@ -345,7 +352,7 @@ export function registerSessionCommands(
 					try {
 						await fsp.access(path.join(cwd, f));
 						out.packageManager =
-							out.packageManager ?? k === "package.json" ? "npm" : k;
+							(out.packageManager ?? k === "package.json") ? "npm" : k;
 						out.files[f] = true;
 					} catch {}
 				}
@@ -363,7 +370,10 @@ export function registerSessionCommands(
 				const created = [];
 				const arc = await import("../archetypes.js");
 				const files = [
-					["AGENTS.md", "# Project agent\n\n> Managed by agent-cli (project scope).\n"],
+					[
+						"AGENTS.md",
+						"# Project agent\n\n> Managed by agent-cli (project scope).\n",
+					],
 					["IDENTITY.md", arc.identityContent(arc.DEFAULT_IDENTITY)],
 					["SOUL.md", arc.soulContent(arc.DEFAULT_SOUL)],
 					["USER.md", arc.userContent()],
@@ -419,8 +429,7 @@ export function registerSessionCommands(
 					if (!t || !t.project) continue;
 					const cls = await classify(t, "project");
 					const isPointer = cls.state === "pointer";
-					const ok =
-						isPointer || (!explicit && cls.state !== "pointer-stale");
+					const ok = isPointer || (!explicit && cls.state !== "pointer-stale");
 					let status;
 					if (isPointer) status = "ok";
 					else if (ok) status = "optional";
@@ -431,12 +440,12 @@ export function registerSessionCommands(
 						status,
 						detail: cls.state + " " + pretty(cls.path),
 					});
-						if (!ok) {
-							issues.push(
-								`${id} project pointer ${
-									cls.state === "pointer-stale" ? "stale" : cls.state
-								} — ${pointerFix(cls.state, id)}`,
-							);
+					if (!ok) {
+						issues.push(
+							`${id} project pointer ${
+								cls.state === "pointer-stale" ? "stale" : cls.state
+							} — ${pointerFix(cls.state, id)}`,
+						);
 					} else if (!isPointer) {
 						optional++;
 					}
@@ -454,9 +463,7 @@ export function registerSessionCommands(
 						if (ck.status === "optional") mark = c.gray("·");
 						else if (ck.ok) mark = c.green("✓");
 						else mark = c.red("✗");
-						log.raw(
-							`  ${mark} ${ck.check.padEnd(24)} ${c.gray(ck.detail)}`,
-						);
+						log.raw(`  ${mark} ${ck.check.padEnd(24)} ${c.gray(ck.detail)}`);
 					}
 					if (optional > 0)
 						log.dim(

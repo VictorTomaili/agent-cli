@@ -102,18 +102,10 @@ function validShape(p) {
 		if (!ROOT_KEYS.has(key)) return false;
 	}
 	if (p.global !== undefined && !isStringArray(p.global)) return false;
-	if (
-		p.project !== undefined &&
-		p.project !== null &&
-		!isStringArray(p.project)
-	)
+	if (p.project !== undefined && p.project !== null && !isStringArray(p.project))
 		return false;
 	if (p.seedFiles !== undefined && !isStringArray(p.seedFiles)) return false;
-	if (
-		p.models !== undefined &&
-		p.models !== null &&
-		!isPlainObject(p.models)
-	)
+	if (p.models !== undefined && p.models !== null && !isPlainObject(p.models))
 		return false;
 	if (
 		p.models &&
@@ -243,49 +235,49 @@ function withConfigLock(fn, { timeoutMs = 2000 } = {}) {
 export function mutateConfigSync(mutator, { retries = 8 } = {}) {
 	return withConfigLock(() => {
 		for (let attempt = 0; ; attempt++) {
-		// Read the RAW bytes once — the CAS compares raw bytes, and the parse
-		// (which injects defaults) is derived from the same snapshot.
-		let raw;
-		try {
-			raw = fs.readFileSync(CONFIG_FILE, "utf8");
-		} catch {
-			raw = null; // file absent
-		}
-		const base = raw == null ? defaultConfig() : parseConfig(raw);
-		if (isConfigCorrupt(base))
-			throw new Error(
-				"config.json is corrupt; repair or remove it before changing settings",
-			);
-		const next = { ...defaultConfig(), ...base };
-		mutator(next);
-		next.version = CONFIG_VERSION;
+			// Read the RAW bytes once — the CAS compares raw bytes, and the parse
+			// (which injects defaults) is derived from the same snapshot.
+			let raw;
+			try {
+				raw = fs.readFileSync(CONFIG_FILE, "utf8");
+			} catch {
+				raw = null; // file absent
+			}
+			const base = raw == null ? defaultConfig() : parseConfig(raw);
+			if (isConfigCorrupt(base))
+				throw new Error(
+					"config.json is corrupt; repair or remove it before changing settings",
+				);
+			const next = { ...defaultConfig(), ...base };
+			mutator(next);
+			next.version = CONFIG_VERSION;
 
-		// Compare-and-swap: only commit if the file still matches the raw bytes
-		// we based the mutation on. A concurrent writer between read and rename
-		// changes the bytes → retry with fresh state so idempotent mutations
-		// converge (no lost update).
-		let live;
-		try {
-			live = fs.readFileSync(CONFIG_FILE, "utf8");
-		} catch {
-			live = null;
-		}
-		if (live !== raw) {
-			if (attempt >= retries)
-				throw new Error("config.json write conflict; giving up after retries");
-			continue;
-		}
+			// Compare-and-swap: only commit if the file still matches the raw bytes
+			// we based the mutation on. A concurrent writer between read and rename
+			// changes the bytes → retry with fresh state so idempotent mutations
+			// converge (no lost update).
+			let live;
+			try {
+				live = fs.readFileSync(CONFIG_FILE, "utf8");
+			} catch {
+				live = null;
+			}
+			if (live !== raw) {
+				if (attempt >= retries)
+					throw new Error("config.json write conflict; giving up after retries");
+				continue;
+			}
 
-		// M9: byte-idempotency — a no-op mutation (e.g. `target enable` on an
-		// already-enabled id, or re-running init) must not rewrite the file or
-		// churn `updatedAt`, so repeated runs stay byte-identical and the synced
-		// brain stays clean. Compare substantive fields only.
-		if (raw != null && stripUpdatedAt(raw) === stripUpdatedAt(serialize(next))) {
+			// M9: byte-idempotency — a no-op mutation (e.g. `target enable` on an
+			// already-enabled id, or re-running init) must not rewrite the file or
+			// churn `updatedAt`, so repeated runs stay byte-identical and the synced
+			// brain stays clean. Compare substantive fields only.
+			if (raw != null && stripUpdatedAt(raw) === stripUpdatedAt(serialize(next))) {
+				return next;
+			}
+			next.updatedAt = new Date().toISOString();
+			writeFileSync(CONFIG_FILE, JSON.stringify(next, null, 2) + "\n");
 			return next;
-		}
-		next.updatedAt = new Date().toISOString();
-		writeFileSync(CONFIG_FILE, JSON.stringify(next, null, 2) + "\n");
-		return next;
 		}
 	});
 }
@@ -356,10 +348,7 @@ export function atomicDisableProjectTarget(root, id) {
  * we fall back to the legacy global `project` field for backward compat.
  */
 function projectTargetList(cfg, root) {
-	if (
-		cfg.projectTargets &&
-		Object.hasOwn(cfg.projectTargets, root)
-	)
+	if (cfg.projectTargets && Object.hasOwn(cfg.projectTargets, root))
 		return cfg.projectTargets[root]; // null or string[]
 	return Array.isArray(cfg.project) ? cfg.project : null;
 }

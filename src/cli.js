@@ -63,11 +63,7 @@ import {
 	projectAgentsDir,
 	validateAgent,
 } from "./agents-lib.js";
-import {
-	ensureSkillStore,
-	isSkillAvailable,
-	runSkill,
-} from "./skill.js";
+import { ensureSkillStore, isSkillAvailable, runSkill } from "./skill.js";
 import { registerTargetCommand } from "./commands/target.js";
 import { registerInfoCommands } from "./commands/info.js";
 import { registerInspectCommands } from "./commands/inspect.js";
@@ -75,7 +71,10 @@ import { registerProtocolCommands } from "./commands/protocol.js";
 import { registerWhereCommand } from "./commands/where.js";
 import { registerArchetypeCommands } from "./commands/archetype.js";
 import { registerEditCommands } from "./commands/edit.js";
-import { registerLinkCommands, registerStatusCommand } from "./commands/link.js";
+import {
+	registerLinkCommands,
+	registerStatusCommand,
+} from "./commands/link.js";
 import { registerMemoryOpsCommands } from "./commands/memory-ops.js";
 import { registerMemoryStackCommands } from "./commands/memory-stack.js";
 import { registerIdentityCommands } from "./commands/identity-cmds.js";
@@ -145,8 +144,7 @@ function emit(obj) {
 				envelope({
 					command,
 					data: rest,
-					error:
-						rest.error || rest.reason || `command '${command}' failed`,
+					error: rest.error || rest.reason || `command '${command}' failed`,
 				}),
 				{ compact: JSON_COMPACT },
 			),
@@ -209,10 +207,11 @@ function argvWantsJson() {
 async function stripSkillBlockFromMaster() {
 	const c = await readMaster();
 	if (c == null || !c.includes(SKILL_BEGIN)) return false;
-	const stripped = c
-		.replace(new RegExp(`${SKILL_BEGIN}[\\s\\S]*?${SKILL_END}`), "")
-		.replace(/\n{3,}/g, "\n\n")
-		.replace(/\s+$/, "") + "\n";
+	const stripped =
+		c
+			.replace(new RegExp(`${SKILL_BEGIN}[\\s\\S]*?${SKILL_END}`), "")
+			.replace(/\n{3,}/g, "\n\n")
+			.replace(/\s+$/, "") + "\n";
 	await writeMaster(stripped);
 	return true;
 }
@@ -687,12 +686,24 @@ program.action((opts, cmd) => {
 		`${c.bold("agent-cli")} ${c.gray("v" + VERSION)} — one canonical AGENTS.md at ~/.agents/AGENTS.md, mirrored to every coding agent.`,
 	);
 	log.raw("");
-	log.raw(`  ${c.cyan("agent-cli init")}          bootstrap ~/.agents/AGENTS.md master + pointers + home pointer + brief hooks (idempotent)`);
-	log.raw(`  ${c.cyan("agent-cli brief")}         AI session brief — health, gaps, next action (each action is runnable via 'agent-cli run <id>')`);
-	log.raw(`  ${c.cyan("agent-cli doctor")}        diagnose master, pointers, skill-cli, staged updates, npm version`);
-	log.raw(`  ${c.cyan("agent-cli status")}        per-target pointer state and brief-hook health`);
-	log.raw(`  ${c.cyan("agent-cli models")}        list/set/resolve model aliases; MODELS.md is the source of truth`);
-	log.raw(`  ${c.cyan("agent-cli brief-hooks")}   install/uninstall/status SessionStart hooks (auto-runs 'agent-cli brief' per session)`);
+	log.raw(
+		`  ${c.cyan("agent-cli init")}          bootstrap ~/.agents/AGENTS.md master + pointers + home pointer + brief hooks (idempotent)`,
+	);
+	log.raw(
+		`  ${c.cyan("agent-cli brief")}         AI session brief — health, gaps, next action (each action is runnable via 'agent-cli run <id>')`,
+	);
+	log.raw(
+		`  ${c.cyan("agent-cli doctor")}        diagnose master, pointers, skill-cli, staged updates, npm version`,
+	);
+	log.raw(
+		`  ${c.cyan("agent-cli status")}        per-target pointer state and brief-hook health`,
+	);
+	log.raw(
+		`  ${c.cyan("agent-cli models")}        list/set/resolve model aliases; MODELS.md is the source of truth`,
+	);
+	log.raw(
+		`  ${c.cyan("agent-cli brief-hooks")}   install/uninstall/status SessionStart hooks (auto-runs 'agent-cli brief' per session)`,
+	);
 	log.raw("");
 	log.dim(`Run ${c.cyan("agent-cli --help")} for the full command list.`);
 });

@@ -34,7 +34,10 @@ jobs:
       id-token: write # OIDC token for npm's short-lived publish token
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      # setup-node v6 REQUIRED for OIDC: v5 defaults NODE_AUTH_TOKEN (the
+      # GitHub token) when registry-url is set, and npm then skips the OIDC
+      # exchange and PUTs with that token -> E404 (actions/setup-node#1440).
+      - uses: actions/setup-node@v6
         with:
           node-version: 24 # trusted publishing needs npm >= 11.5.1
           registry-url: https://registry.npmjs.org

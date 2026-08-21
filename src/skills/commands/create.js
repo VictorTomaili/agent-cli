@@ -3,17 +3,23 @@ import path from 'node:path'
 import c from 'picocolors'
 import { sanitizeSkillName } from '../lib/store.js'
 
+// Spec-conformant scaffold (agentskills.io): ONLY the six spec frontmatter
+// fields. agent-cli extensions live under metadata (the spec's extension
+// escape hatch) so the scaffolded skill passes `skills-ref validate` as-is.
 const TEMPLATE = (name, description) => `---
 name: ${name}
-description: ${description || 'One-line description of what this skill does for the agent.'}
-triggers: []
-version: 1.0.0
+description: ${description || 'A description of what this skill does and when to use it.'}
+license: MIT
+metadata:
+  agent-cli.version: "1.0.0"
 ---
 
 # ${name}
 
 Write the instructions here. Keep them concrete and task-focused: what the agent
 should do, when to use this skill, and any rules or steps it must follow.
+Keep SKILL.md under 500 lines — agents load it fully on activation; move
+detail into reference files instead.
 
 ## When to use
 
@@ -22,7 +28,20 @@ should do, when to use this skill, and any rules or steps it must follow.
 ## How to use
 
 1. ...
-2. ...
+
+## Extensions
+
+agent-cli activation keywords (optional) — the spec-conformant location is
+under metadata in the frontmatter:
+
+    metadata:
+      agent-cli.triggers: research, deep-work
+
+## Optional bundled directories (loaded on demand by the agent)
+
+- references/ — deep documentation (REFERENCE.md, domain notes)
+- scripts/ — executable helpers (self-contained; document dependencies)
+- assets/ — templates, images, lookup data
 `
 
 const TOOL_TEMPLATE = (name) => `// Optional executable tool for this skill.
@@ -50,11 +69,23 @@ export function cmdCreate(args) {
     console.error(c.gray('  Use letters/digits/._- only (starting alnum). No path separators or "..".'))
     process.exit(1)
   }
+  // Agent Skills spec names: lowercase alnum + hyphens, no leading/trailing or
+  // consecutive hyphen, <=64 — the scaffold mints conformant skills only.
+  if (
+    !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name) ||
+    name.includes('--') ||
+    name.length > 64
+  ) {
+    console.error(c.red('Invalid skill name: ' + raw))
+    console.error(c.gray('  The Agent Skills spec requires lowercase letters, digits, and single hyphens (max 64), e.g. pdf-processing.'))
+    console.error(c.gray('  Existing non-conformant skills still load; only new scaffolds must be conformant.'))
+    process.exit(1)
+  }
   const dirIdx = args.indexOf('-d')
-  const dirFlag = dirIdx >= 0 ? args[dirIdx + 1] : args.find((a, i) => args[i - 1] === '--dir')
+  const dirFlag = dirIdx >= 0 ? args[dirIdx + 1] : args.find((_a, i) => args[i - 1] === '--dir')
   const outDir = path.resolve(dirFlag || '.')
   const hasTool = args.includes('--tool')
-  const descArg = args.find((a, i) => args[i - 1] === '--desc')
+  const descArg = args.find((_a, i) => args[i - 1] === '--desc')
 
   const skillPath = path.join(outDir, name)
   const mdPath = path.join(skillPath, 'SKILL.md')

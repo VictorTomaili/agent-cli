@@ -61,10 +61,73 @@ export function normalizeTrigger(t) {
 	return String(t).trim().replace(/^\/+/, '').toLowerCase()
 }
 
-// frontmatter.triggers → normalized array
+// frontmatter.triggers → normalized array. Dual-location read: legacy
+// top-level `triggers` (array or comma string) OR the spec-conformant
+// `metadata.agent-cli.triggers` (comma string) — see SPEC_FIELDS below.
 export function getTriggers(data) {
 	const t = data.triggers
 	if (Array.isArray(t)) return t.map(normalizeTrigger).filter(Boolean)
 	if (typeof t === 'string') return t.split(',').map(normalizeTrigger).filter(Boolean)
+	const m = metadataString(data, 'triggers')
+	if (m) return m.split(',').map(normalizeTrigger).filter(Boolean)
 	return []
+}
+
+// --- Agent Skills open standard (agentskills.io) ------------------------------
+// The spec defines a CLOSED frontmatter allowlist: name, description, license,
+// allowed-tools, metadata, compatibility. agent-cli's historical extensions
+// (triggers, version) are NOT spec fields — for portability they live under
+// `metadata` (the spec's extension escape hatch: a string→string map) as
+// `agent-cli.triggers` / `agent-cli.version`. Everything is read dual-location
+// (top-level legacy + metadata) so existing stores keep working while new
+// skills mint spec-conformant frontmatter that passes skills-ref validate.
+
+/** The six frontmatter fields the Agent Skills spec allows. */
+export const SPEC_FIELDS = [
+	'name',
+	'description',
+	'license',
+	'allowed-tools',
+	'metadata',
+	'compatibility',
+]
+
+/** agent-cli extension fields — allowed, but warned as non-portable. */
+export const AGENT_CLI_EXT_FIELDS = ['triggers', 'version']
+
+/** Namespace prefix for agent-cli extensions inside `metadata`. */
+export const EXT_NS = 'agent-cli'
+
+function metadataString(data, key) {
+	const m = isPlainObject(data?.metadata) ? data.metadata : null
+	if (!m) return undefined
+	const v = m[`${EXT_NS}.${key}`]
+	return typeof v === 'string' && v.trim() !== '' ? v : undefined
+}
+
+export function getLicense(data) {
+	return stringField(data.license)
+}
+
+export function getCompatibility(data) {
+	return stringField(data.compatibility)
+}
+
+/** Space-separated pre-approved tool list (spec, experimental). Inert here. */
+export function getAllowedTools(data) {
+	return stringField(data['allowed-tools'])
+}
+
+/** The spec's extension map, when present and a mapping. */
+export function getMetadata(data) {
+	return isPlainObject(data?.metadata) ? data.metadata : null
+}
+
+/** Dual-location version read: legacy top-level (string or finite number),
+ * else metadata.agent-cli.version. '' when unset. */
+export function getVersion(data) {
+	const v = data?.version
+	if (typeof v === 'string' && v.trim() !== '') return v
+	if (typeof v === 'number' && Number.isFinite(v)) return String(v)
+	return metadataString(data, 'version') ?? ''
 }

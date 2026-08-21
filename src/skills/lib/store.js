@@ -1,7 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { STORE_DIR, CLI_ROOT } from './paths.js'
-import { parseSkillMd, getTriggers, stringField } from './frontmatter.js'
+import {
+	parseSkillMd,
+	getTriggers,
+	getVersion,
+	getLicense,
+	getCompatibility,
+	stringField,
+} from './frontmatter.js'
 
 // --- M5: bounded reads/traversals (local-DoS guard) --------------------------
 // A fetched skill is attacker-controlled: a giant SKILL.md or a zip-bomb tree
@@ -153,8 +160,11 @@ export function listStore() {
 				name: stringField(data.name) || entry.name,
 				dir: entry.name,
 				description: stringField(data.description),
-				version: stringField(data.version, '-'),
+				version: getVersion(data) || '-',
 				triggers: getTriggers(data),
+				// Agent Skills spec fields, surfaced for display (agentskills.io).
+				license: getLicense(data),
+				compatibility: getCompatibility(data),
 				path: md,
 				// GAP-15: carry the YAML parse error so list/show can surface it bounded.
 				parseError: parseError || null,

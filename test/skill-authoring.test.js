@@ -8,7 +8,6 @@ import {
 	writeFileSync,
 	readFileSync,
 	rmSync,
-	existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -66,15 +65,159 @@ test("validateSkill flags missing/invalid name and bad triggers", () => {
 	const traversal = validateMod.validateSkill("---\nname: ../evil\ndescription: x\n---\n\nbody\n");
 	assert.equal(traversal.ok, false);
 
-	const badTrig = validateMod.validateSkill("---\nname: a\ntriggers: [has space]\n---\n\nbody\n");
+	// Agent Skills spec: top-level triggers is an accepted extension, but each
+	// portability warning fires alongside the trigger-quality warning.
+	const badTrig = validateMod.validateSkill(
+		"---\nname: a\ndescription: x\ntriggers: [has space]\n---\n\nbody\n",
+	);
 	assert.equal(badTrig.ok, true);
 	assert.ok(badTrig.warnings.some((w) => w.includes("space")));
+	assert.ok(badTrig.warnings.some((w) => w.includes("agent-cli extension")));
 });
 
-test("validateSkill warns when description/body missing", () => {
+test("validateSkill errors on missing description (spec) and warns on missing body", () => {
+	// The Agent Skills spec makes description REQUIRED — it was a warning
+	// before the spec alignment. The missing body stays a warning.
 	const v = validateMod.validateSkill("---\nname: a\n---\n\n");
-	assert.ok(v.warnings.some((w) => w.includes("description")));
+	assert.equal(v.ok, false);
+	assert.ok(v.errors.some((e) => e.includes("description")));
 	assert.ok(v.warnings.some((w) => w.includes("body")));
+});
+
+test("validateSkill implements the Agent Skills spec name rules", () => {
+	const mk = (name, dirName) =>
+		validateMod.validateSkill(
+			`---\nname: ${name}\ndescription: x\n---\n\nbody\n`,
+			{ dirName },
+		);
+	assert.ok(mk("PDF-Processing").errors.some((e) => e.includes("lowercase")));
+	assert.ok(mk("-pdf").errors.some((e) => e.includes("hyphen")));
+	assert.ok(mk("pdf--processing").errors.some((e) => e.includes("consecutive")));
+	assert.ok(mk("a".repeat(65)).errors.some((e) => e.includes("64")));
+	assert.ok(mk("pdf_processing").errors.some((e) => e.includes("invalid characters")));
+	// spec: the name must match the parent directory (NFKC-normalized)
+	assert.ok(mk("pdf-processing", "wrong-dir").errors.some((e) => e.includes("must match")));
+	assert.equal(mk("pdf-processing", "pdf-processing").errors.length, 0);
+	// Deliberate deviation from skills-ref (which allows Unicode lowercase via
+	// isalnum()): names are ASCII-only here because sanitizeSkillName doubles as
+	// the path-traversal defense. A full-width "a" (U+FF41, NFKC-equivalent to
+	// "a") is rejected, not normalized-and-accepted.
+	const fw = validateMod.validateSkill(
+		`---\nname: \uFF41\ndescription: x\n---\n\nbody\n`,
+		{ dirName: "\uFF41" },
+	);
+	assert.ok(fw.errors.some((e) => e.includes("safe skill name")));
+});
+
+test("validateSkill enforces the spec closed allowlist and field limits", () => {
+	const extra = validateMod.validateSkill(
+		"---\nname: a\ndescription: x\nfoo: 1\nbar: 2\n---\n\nbody\n",
+	);
+	assert.equal(extra.ok, false);
+	assert.ok(extra.errors.some((e) => e.includes("unexpected fields")));
+	assert.ok(extra.errors.some((e) => e.includes("bar, foo")));
+	// all six spec fields are accepted
+	const spec = validateMod.validateSkill(
+		[
+			"---",
+			"name: a",
+			"description: x",
+			"license: MIT",
+			"allowed-tools: Read",
+			"compatibility: Requires git",
+			"metadata:",
+			"  author: example",
+			"---",
+			"",
+			"body",
+			"",
+		].join("\n"),
+	);
+	assert.equal(spec.ok, true);
+	assert.deepEqual(spec.warnings, []);
+	// compatibility > 500 chars → error
+	const long = validateMod.validateSkill(
+		`---\nname: a\ndescription: x\ncompatibility: ${"c".repeat(501)}\n---\n\nbody\n`,
+	);
+	assert.ok(long.errors.some((e) => e.includes("500")));
+	// description > 1024 chars → error
+	const longDesc = validateMod.validateSkill(
+		`---\nname: a\ndescription: ${"d".repeat(1025)}\n---\n\nbody\n`,
+	);
+	assert.ok(longDesc.errors.some((e) => e.includes("1024")));
+	// non-mapping metadata → error; non-string metadata values → warning
+	const badMeta = validateMod.validateSkill(
+		"---\nname: a\ndescription: x\nmetadata: [1,2]\n---\n\nbody\n",
+	);
+	assert.ok(badMeta.errors.some((e) => e.includes("metadata")));
+	const nonStrMeta = validateMod.validateSkill(
+		"---\nname: a\ndescription: x\nmetadata:\n  k: 3\n---\n\nbody\n",
+	);
+	assert.equal(nonStrMeta.ok, true);
+	assert.ok(nonStrMeta.warnings.some((w) => w.includes("metadata value")));
+});
+
+test("spec extensions read dual-location: top-level legacy + metadata namespace", async () => {
+	const fm = await import("../src/skills/lib/frontmatter.js");
+	// legacy top-level
+	assert.deepEqual(fm.getTriggers({ triggers: ["/Run", " report"] }), ["run", "report"]);
+	assert.equal(fm.getVersion({ version: 1 }), "1");
+	assert.equal(fm.getVersion({ version: "2.1.0" }), "2.1.0");
+	// spec-conformant metadata namespace
+	const specData = {
+		metadata: {
+			"agent-cli.triggers": "Research, /deep-work",
+			"agent-cli.version": "1.0.0",
+		},
+	};
+	assert.deepEqual(fm.getTriggers(specData), ["research", "deep-work"]);
+	assert.equal(fm.getVersion(specData), "1.0.0");
+	// top-level wins when both are present
+	assert.equal(fm.getVersion({ version: "3.0.0", metadata: { "agent-cli.version": "1.0.0" } }), "3.0.0");
+	// spec field readers
+	assert.equal(fm.getLicense({ license: "MIT" }), "MIT");
+	assert.equal(fm.getCompatibility({ compatibility: "Requires git" }), "Requires git");
+	assert.equal(fm.getAllowedTools({ "allowed-tools": "Bash(git:*) Read" }), "Bash(git:*) Read");
+	assert.deepEqual(fm.getMetadata({ metadata: { author: "x" } }), { author: "x" });
+	assert.equal(fm.getMetadata({ metadata: "nope" }), null);
+});
+
+test("a spec-conformant skill carries its fields through the store listing", () => {
+	// A pure Agent Skills skill (spec example shape) in the store: name,
+	// description, license, compatibility, metadata — no agent-cli fields.
+	const storeDir = path.join(TMP, ".skill-cli", "store", "pdf-processing");
+	mkdirSync(storeDir, { recursive: true });
+	writeFileSync(
+		path.join(storeDir, "SKILL.md"),
+		[
+			"---",
+			"name: pdf-processing",
+			"description: Extract PDF text, fill forms, merge files. Use when handling PDFs.",
+			"license: Apache-2.0",
+			"compatibility: Requires Python 3.14+ and uv",
+			"metadata:",
+			"  author: example-org",
+			"  version: \"1.0\"",
+			"---",
+			"",
+			"Body.",
+			"",
+		].join("\n"),
+	);
+	const hit = store.listStore().find((s) => s.dir === "pdf-processing");
+	assert.ok(hit, "spec skill listed");
+	assert.equal(hit.license, "Apache-2.0");
+	assert.equal(hit.compatibility, "Requires Python 3.14+ and uv");
+	assert.equal(hit.version, "-");
+	assert.deepEqual(hit.triggers, []);
+	// and it validates clean under the full spec rules
+	const v = validateMod.validateSkill(
+		readFileSync(path.join(storeDir, "SKILL.md"), "utf8"),
+		{ dirName: "pdf-processing" },
+	);
+	assert.equal(v.ok, true);
+	assert.deepEqual(v.warnings, []);
+	rmSync(storeDir, { recursive: true, force: true });
 });
 
 test("checkToolImports enforces the allowlist", () => {
@@ -109,7 +252,7 @@ test("writeLock/readLock record source + content hash; hash changes with content
 	const lock2 = lockMod.writeLock(d, "owner/repo");
 	assert.equal(lock.contentHash, lock2.contentHash);
 	// hash changes when content changes
-	writeFileSync(path.join(d, "SKILL.md"), GOOD + "\nmore\n");
+	writeFileSync(path.join(d, "SKILL.md"), `${GOOD}\nmore\n`);
 	const lock3 = lockMod.writeLock(d, "owner/repo");
 	assert.notEqual(lock.contentHash, lock3.contentHash);
 });

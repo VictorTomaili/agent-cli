@@ -117,19 +117,56 @@ function npmFetch(name, dest, timeoutMs = 120000) {
 	return path.join(cwd, 'pkg', 'package')
 }
 
-/** Copy `srcDir`'s skill subdirs (dirs containing SKILL.md) into `outDir`. */
-function collectSkills(srcDir, outDir, { only } = {}) {
-	fs.mkdirSync(outDir, { recursive: true })
-	let found = 0
-	for (const e of fs.readdirSync(srcDir, { withFileTypes: true })) {
-		if (!e.isDirectory() || e.isSymbolicLink()) continue
-		if (only && e.name !== only) continue
-		const md = path.join(srcDir, e.name, 'SKILL.md')
-		if (!fs.existsSync(md)) continue
-		fs.cpSync(path.join(srcDir, e.name), path.join(outDir, e.name), { recursive: true })
-		found++
-	}
-	return found
+// Walk bounds — a hostile repo must not make discovery unbounded (M5-style).
+const MAX_COLLECT_DEPTH = 5;
+const MAX_COLLECT_ENTRIES = 20_000;
+// Never descended into: VCS/tooling dirs that are huge or irrelevant.
+const SKIP_DIRS = new Set([".git", "node_modules"]);
+
+/**
+ * Recursively copy skill dirs — any directory DIRECTLY containing SKILL.md —
+ * from `srcDir` into `outDir`. Finds skills at any depth: flat
+ * (`<root>/<skill>/SKILL.md`), conventional (`<root>/skills/<skill>/`), and
+ * nested-category layouts (`<root>/skills/<category>/<skill>/SKILL.md` —
+ * e.g. mattpocock/skills). Rules:
+ *   - a dir that directly contains SKILL.md is collected and NOT descended
+ *     into (a nested SKILL.md inside a skill is not a separate skill)
+ *   - symlinked dirs are never followed (M1 containment)
+ *   - `.git` / `node_modules` are never entered
+ *   - duplicate dir names: first wins, deterministically (entries sorted)
+ *   - `only` pins the collected dir's basename, at any depth
+ * Exported for direct testing.
+ */
+export function collectSkills(srcDir, outDir, { only } = {}) {
+	fs.mkdirSync(outDir, { recursive: true });
+	const seen = new Set();
+	let visited = 0;
+	const walk = (dir, depth) => {
+		let found = 0;
+		let entries;
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return 0; // unreadable/vanished mid-walk — treated as empty
+		}
+		entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+		for (const e of entries) {
+			if (++visited > MAX_COLLECT_ENTRIES) return found;
+			if (!e.isDirectory() || e.isSymbolicLink() || SKIP_DIRS.has(e.name)) continue;
+			const child = path.join(dir, e.name);
+			if (fs.existsSync(path.join(child, "SKILL.md"))) {
+				if (only && e.name !== only) continue;
+				if (seen.has(e.name)) continue;
+				seen.add(e.name);
+				fs.cpSync(child, path.join(outDir, e.name), { recursive: true });
+				found++;
+			} else if (depth < MAX_COLLECT_DEPTH) {
+				found += walk(child, depth + 1);
+			}
+		}
+		return found;
+	};
+	return walk(srcDir, 0);
 }
 
 // B5/M2: the source reaches no shell here (execFileSync with args array), but a
@@ -178,21 +215,21 @@ export function fetchSkillsToTemp(source) {
 			skillsRoot = cls.dir
 		}
 
-		const fetchedDir = path.join(tmp, '.claude', 'skills')
-		const found = collectSkills(skillsRoot, fetchedDir, { only: pin || undefined })
-		if (found === 0) {
-			// maybe skills live in a nested dir (e.g. npm package exposes ./skills)
-			const nested = path.join(skillsRoot, 'skills')
-			if (fs.existsSync(nested)) collectSkills(nested, fetchedDir, { only: pin || undefined })
-		}
-		if (fs.readdirSync(fetchedDir).length === 0 && fs.existsSync(path.join(skillsRoot, 'SKILL.md'))) {
+		const fetchedDir = path.join(tmp, ".claude", "skills");
+		// Recursive discovery from the source root — finds flat, ./skills/, and
+		// nested-category layouts (skills/<category>/<skill>/SKILL.md) alike.
+		let found = collectSkills(skillsRoot, fetchedDir, { only: pin || undefined });
+		if (found === 0 && fs.existsSync(path.join(skillsRoot, "SKILL.md"))) {
 			// the source IS a single skill dir (SKILL.md at its root) — copy it whole
-			const name = pin || path.basename(skillsRoot)
-			fs.mkdirSync(fetchedDir, { recursive: true })
-			fs.cpSync(skillsRoot, path.join(fetchedDir, name), { recursive: true })
+			const name = pin || path.basename(skillsRoot);
+			fs.mkdirSync(fetchedDir, { recursive: true });
+			fs.cpSync(skillsRoot, path.join(fetchedDir, name), { recursive: true });
+			found = 1;
 		}
-		if (fs.readdirSync(fetchedDir).length === 0) {
-			throw new Error(`no skills found in source${pin ? ` matching '${pin}'` : ''} after fetch`)
+		if (found === 0) {
+			throw new Error(
+				`no skills found in source${pin ? ` matching '${pin}'` : ""} after fetch`,
+			);
 		}
 		return { tmp, fetchedDir }
 	} catch (e) {

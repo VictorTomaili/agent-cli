@@ -275,3 +275,88 @@ test("skill provenance lists source/revision/hash for locked skills", () => {
 	assert.equal(reread.contentHash, lock.contentHash);
 	assert.ok(reread.installedAt);
 });
+
+// --- recursive skill discovery (nested-category layouts) -----------------------
+// Regression: collectSkills used to scan only <root>/<skill>/ and <root>/skills/
+// <skill>/ — repos like mattpocock/skills nest at skills/<category>/<skill>/.
+
+function nestedFixture() {
+	// mirrors mattpocock/skills layout: skills/engineering/<skill>/SKILL.md
+	const root = mkdtempSync(path.join(tmpdir(), "agent-skill-nested-"));
+	const mk = (rel, name) => {
+		const d = path.join(root, rel);
+		mkdirSync(d, { recursive: true });
+		writeFileSync(path.join(d, "SKILL.md"), `---\nname: ${name}\ndescription: nested test\n---\n\nbody\n`);
+	};
+	mk("skills/engineering/code-review", "code-review");
+	mk("skills/engineering/tdd", "tdd");
+	mk("skills/productivity/teach", "teach");
+	// a docs dir with plain .md files (no SKILL.md) — walked, never collected
+	mkdirSync(path.join(root, "docs"), { recursive: true });
+	writeFileSync(path.join(root, "docs", "code-review.md"), "prose, not a skill\n");
+	return root;
+}
+
+test("collectSkills finds skills in nested-category layouts at any depth", () => {
+	const out = mkdtempSync(path.join(tmpdir(), "agent-skill-collect-"));
+	const found = fetchLib.collectSkills(nestedFixture(), out);
+	assert.equal(found, 3);
+	for (const s of ["code-review", "tdd", "teach"])
+		assert.ok(existsSync(path.join(out, s, "SKILL.md")), `${s} collected`);
+});
+
+test("collectSkills still finds flat + ./skills/ layouts (no regression)", () => {
+	const root = mkdtempSync(path.join(tmpdir(), "agent-skill-flat-"));
+	for (const rel of ["alpha", "skills/beta", "a/b/c/gamma"]) {
+		const d = path.join(root, rel);
+		mkdirSync(d, { recursive: true });
+		writeFileSync(path.join(d, "SKILL.md"), `---\nname: ${path.basename(rel)}\ndescription: t\n---\n\nb\n`);
+	}
+	const out = mkdtempSync(path.join(tmpdir(), "agent-skill-collect2-"));
+	assert.equal(fetchLib.collectSkills(root, out), 3);
+	for (const s of ["alpha", "beta", "gamma"])
+		assert.ok(existsSync(path.join(out, s, "SKILL.md")), `${s} collected`);
+});
+
+test("collectSkills pin selects by dir basename at any depth", () => {
+	const out = mkdtempSync(path.join(tmpdir(), "agent-skill-collect3-"));
+	const found = fetchLib.collectSkills(nestedFixture(), out, { only: "code-review" });
+	assert.equal(found, 1);
+	assert.ok(existsSync(path.join(out, "code-review", "SKILL.md")));
+	assert.ok(!existsSync(path.join(out, "tdd")));
+});
+
+test("collectSkills: a skill dir is never descended into; dupes first-wins deterministically; .git skipped", () => {
+	const root = mkdtempSync(path.join(tmpdir(), "agent-skill-edge-"));
+	// a SKILL.md INSIDE another skill's dir must not become a second skill
+	mkdirSync(path.join(root, "outer", "inner"), { recursive: true });
+	writeFileSync(path.join(root, "outer", "SKILL.md"), "---\nname: outer\ndescription: t\n---\n\nb\n");
+	writeFileSync(path.join(root, "outer", "inner", "SKILL.md"), "---\nname: inner\ndescription: t\n---\n\nb\n");
+	// same name at two depths — first (sorted) wins, no error
+	mkdirSync(path.join(root, "a", "dupe"), { recursive: true });
+	mkdirSync(path.join(root, "b", "dupe"), { recursive: true });
+	writeFileSync(path.join(root, "a", "dupe", "SKILL.md"), "---\nname: dupe-a\n---\n\nfrom a\n");
+	writeFileSync(path.join(root, "b", "dupe", "SKILL.md"), "---\nname: dupe-b\n---\n\nfrom b\n");
+	// .git content with a skill-shaped dir must be skipped
+	mkdirSync(path.join(root, ".git", "evil"), { recursive: true });
+	writeFileSync(path.join(root, ".git", "evil", "SKILL.md"), "---\nname: evil\n---\n\nb\n");
+
+	const out = mkdtempSync(path.join(tmpdir(), "agent-skill-collect4-"));
+	const found = fetchLib.collectSkills(root, out);
+	assert.equal(found, 2); // outer + one dupe
+	assert.ok(!existsSync(path.join(out, "inner")), "nested SKILL.md not a separate skill");
+	assert.ok(!existsSync(path.join(out, "evil")), ".git never entered");
+	const dupe = readFileSync(path.join(out, "dupe", "SKILL.md"), "utf8");
+	assert.ok(dupe.includes("from a"), "deterministic first-wins (sorted)");
+});
+
+test("collectSkills never follows symlinked dirs", () => {
+	const root = mkdtempSync(path.join(tmpdir(), "agent-skill-symlink-"));
+	const target = mkdtempSync(path.join(tmpdir(), "agent-skill-target-"));
+	mkdirSync(path.join(target, "linked"), { recursive: true });
+	writeFileSync(path.join(target, "linked", "SKILL.md"), "---\nname: linked\ndescription: t\n---\n\nb\n");
+	symlinkSync(target, path.join(root, "escape"));
+	const out = mkdtempSync(path.join(tmpdir(), "agent-skill-collect5-"));
+	assert.equal(fetchLib.collectSkills(root, out), 0);
+	assert.ok(!existsSync(path.join(out, "linked")), "symlinked dir not followed");
+});

@@ -7,7 +7,7 @@
 
 import { pretty, MASTER_FILE } from "./util.js";
 import { hasAgentCliBlock } from "./blocks.js";
-import { isSkillAvailable } from "./skill.js";
+import { isSkillAvailable, legacySkillFields } from "./skill.js";
 import { buildActions, suggestedStrings, computeEtag } from "./actions.js";
 
 /**
@@ -36,6 +36,16 @@ export function buildBriefPayload(s, { forTask = null, version } = {}) {
 	if (s.session)
 		warnings.push(
 			`session open since ${s.session.startedAt} — run \`agent-cli session end\` to close it out and capture lesson candidates`,
+		);
+	// Agent Skills spec alignment: skills still carrying pre-spec top-level
+	// extension fields (triggers/version) read fine, but migrating them makes
+	// the store portable to every spec client. Surface once, with the fix.
+	const legacySkills = isSkillAvailable() ? legacySkillFields() : [];
+	if (legacySkills.length)
+		warnings.push(
+			`${legacySkills.length} skill(s) use legacy top-level ${[
+				...new Set(legacySkills.flatMap((x) => x.legacyFields)),
+			].join("/")} — run \`agent-cli skill migrate --apply\` (Agent Skills spec upgrade; dry-run without --apply)`,
 		);
 
 	return {
@@ -66,6 +76,7 @@ export function buildBriefPayload(s, { forTask = null, version } = {}) {
 		drift: s.drift,
 		skill: {
 			available: isSkillAvailable(),
+			legacyFields: legacySkills,
 		},
 		suggestedActions: suggested,
 		consolidation: {

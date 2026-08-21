@@ -1786,3 +1786,26 @@ test("evaluate session <name> rejects a path-traversal name instead of reading o
 	assert.equal(jTraversal.ok, false);
 	assert.match(jTraversal.error, /invalid session name/i);
 });
+
+test("brief warns when store skills carry legacy top-level extension fields", () => {
+	const home = run(["init"]).home;
+	// seed a legacy-layout skill directly into the skill store
+	const storeSkill = path.join(home, ".skill-cli", "store", "legacy-demo");
+	mkdirSync(storeSkill, { recursive: true });
+	writeFileSync(
+		path.join(storeSkill, "SKILL.md"),
+		"---\nname: legacy-demo\ndescription: Legacy skill.\ntriggers: [deploy]\nversion: 1.0.0\n---\n\nBody.\n",
+	);
+	const j = run(["brief", "--json"], { envHome: home });
+	ok(j);
+	const data = parseJson(j.stdout).data;
+	assert.ok(
+		data.warnings.some((w) => w.includes("agent-cli skill migrate")),
+		`warnings: ${JSON.stringify(data.warnings)}`,
+	);
+	assert.ok(data.skill.legacyFields.some((x) => x.name === "legacy-demo"));
+	assert.equal(data.skill.available, true);
+	// human mode surfaces it too
+	const h = run(["brief"], { envHome: home });
+	assert.match(h.stdout, /skill migrate/);
+});

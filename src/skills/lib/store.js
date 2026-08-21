@@ -176,6 +176,13 @@ export function listStore() {
 				license: getLicense(data),
 				compatibility: getCompatibility(data),
 				path: md,
+				// Top-level agent-cli extension fields present (pre-spec layout) —
+				// drives `skill migrate` and the brief warning. Computed on the RAW
+				// data, not the dual-location readers.
+				legacyFields: [
+					...(data.triggers !== undefined ? ["triggers"] : []),
+					...(data.version !== undefined ? ["version"] : []),
+				],
 				// GAP-15: carry the YAML parse error so list/show can surface it bounded.
 				parseError: parseError || null,
 			});

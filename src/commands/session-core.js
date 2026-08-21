@@ -257,6 +257,21 @@ export function registerSessionCoreCommands(
 					"skill-cli",
 					out.skill.available ? c.green("✓ integrated") : c.red("✗"),
 				);
+				// Agent Skills spec alignment: suggest migrating skills still carrying
+				// pre-spec top-level triggers/version (payload carries the same warning).
+				if (out.skill.legacyFields?.length) {
+					const fields = [
+						...new Set(
+							out.skill.legacyFields.flatMap((x) => x.legacyFields),
+						),
+					].join("/");
+					log.warn(
+						`${out.skill.legacyFields.length} skill(s) use legacy top-level ${fields} — Agent Skills spec upgrade:`,
+					);
+					log.raw(
+						`  ${c.cyan("Run:")} agent-cli skill migrate --apply ${c.gray("(dry-run without --apply)")}`,
+					);
+				}
 				log.kv(
 					"drift",
 					s.drift.length ? c.yellow(s.drift.join(", ")) : c.green("none"),

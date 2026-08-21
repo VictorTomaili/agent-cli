@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,7 +39,10 @@ test("create scaffolds a skill; validate/test/run pass; capture + lock work", as
 
 	// an invalid skill fails validation
 	await import("node:fs").then((fs) =>
-		fs.writeFileSync(path.join(skillDir, "SKILL.md"), "---\ndescription: no name\n---\n\nbody\n"),
+		fs.writeFileSync(
+			path.join(skillDir, "SKILL.md"),
+			"---\ndescription: no name\n---\n\nbody\n",
+		),
 	);
 	const bad = run(["validate", "demo"]);
 	assert.equal(bad.status, 1);
@@ -62,12 +65,18 @@ test("create scaffolds a skill; validate/test/run pass; capture + lock work", as
 
 	const cap = run(["capture", "demo", "always", "validate", "first"]);
 	assert.equal(cap.status, 0);
-	assert.ok(readFileSync(path.join(skillDir, "SKILL.md"), "utf8").includes("## Lessons"));
+	assert.ok(
+		readFileSync(path.join(skillDir, "SKILL.md"), "utf8").includes("## Lessons"),
+	);
 
 	const lock = run(["lock", "demo", "--source", "owner/repo"]);
 	assert.equal(lock.status, 0);
 	assert.ok(existsSync(path.join(skillDir, "skill.lock")));
-	assert.ok(readFileSync(path.join(skillDir, "skill.lock"), "utf8").includes("owner/repo"));
+	assert.ok(
+		readFileSync(path.join(skillDir, "skill.lock"), "utf8").includes(
+			"owner/repo",
+		),
+	);
 
 	// install (non-TTY → no enable prompt) writes a lock too
 	const inst = run(["install", skillDir]);
@@ -102,7 +111,7 @@ test("create scaffolds Agent Skills spec-conformant frontmatter", () => {
 	assert.match(md, /^description: Handle PDFs$/m);
 	assert.match(md, /^license: MIT$/m);
 	// …extension version under the metadata namespace…
-	assert.match(md, /^  agent-cli\.version: "1\.0\.0"$/m);
+	assert.match(md, /^ {2}agent-cli\.version: "1\.0\.0"$/m);
 	// …and NO legacy top-level extension fields.
 	assert.doesNotMatch(md, /^triggers:/m);
 	assert.doesNotMatch(md, /^version:/m);
@@ -114,11 +123,63 @@ test("create scaffolds Agent Skills spec-conformant frontmatter", () => {
 });
 
 test("create rejects names the Agent Skills spec forbids", () => {
-	for (const bad of ["PDF-Processing", "pdf_processing", "a--b", "x".repeat(65)]) {
+	for (const bad of [
+		"PDF-Processing",
+		"pdf_processing",
+		"a--b",
+		"x".repeat(65),
+	]) {
 		const r = run(["create", bad]);
 		assert.notEqual(r.status, 0, `create ${bad} should fail`);
 		assert.ok(r.stderr.includes("Agent Skills spec"), r.stderr);
 	}
 	// store-side legacy names keep working — only the scaffold is strict
 	assert.equal(run(["create", "pdf-processing-2"]).status, 0);
+});
+
+test("migrate: dry-run then --apply moves legacy fields; idempotent; lock refreshed", () => {
+	// scaffold, then hand-write legacy frontmatter BEFORE install so the store copy carries it
+	assert.equal(run(["create", "legacy-demo", "--desc", "Legacy shape"]).status, 0);
+	writeFileSync(
+		path.join(WORK, "legacy-demo", "SKILL.md"),
+		"---\nname: legacy-demo\ndescription: Legacy shape\ntriggers: [deploy, /Ship It]\nversion: 2.0.0\n---\n\nDeploy steps.\n",
+	);
+	assert.equal(run(["install", path.join(WORK, "legacy-demo")]).status, 0);
+	const storeMd = () =>
+		readFileSync(path.join(TMP, ".skill-cli", "store", "legacy-demo", "SKILL.md"), "utf8");
+
+	// dry run: reports the plan, writes nothing
+	const d = run(["migrate", "legacy-demo"]);
+	assert.equal(d.status, 0);
+	assert.ok(d.stdout.includes("legacy-demo"));
+	assert.ok(d.stdout.includes("dry run"));
+	assert.match(storeMd(), /^triggers: /m);
+
+	// apply: writes atomically, refreshes the lock hash
+	const before = JSON.parse(
+		readFileSync(path.join(TMP, ".skill-cli", "store", "legacy-demo", "skill.lock"), "utf8"),
+	).contentHash;
+	const a = run(["migrate", "legacy-demo", "--apply"]);
+	assert.equal(a.status, 0);
+	assert.ok(a.stdout.includes("migrated 1"));
+	const md = storeMd();
+	assert.doesNotMatch(md, /^triggers: /m);
+	assert.doesNotMatch(md, /^version: /m);
+	assert.match(md, /agent-cli\.triggers: deploy, ship it/);
+	assert.match(md, /agent-cli\.version: '?2\.0\.0'?/);
+	const after = JSON.parse(
+		readFileSync(path.join(TMP, ".skill-cli", "store", "legacy-demo", "skill.lock"), "utf8"),
+	).contentHash;
+	assert.notEqual(before, after);
+
+	// post-migrate validate: clean, no portability warnings
+	const v = run(["validate", "legacy-demo"]);
+	assert.equal(v.status, 0);
+	assert.ok(!v.stdout.includes("agent-cli extension"), v.stdout);
+
+	// second migrate: nothing to do
+	const m2 = run(["migrate", "legacy-demo"]);
+	assert.equal(m2.status, 0);
+	assert.ok(m2.stdout.includes("already conformant"));
+	assert.ok(m2.stdout.includes("nothing to migrate"));
 });

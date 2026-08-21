@@ -8,6 +8,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { HOME, exists, ensureDir, writeFile } from "./util.js";
 import { VERSION as SKILL_VERSION } from "./skills/lib/version.js";
+import { listStore } from "./skills/lib/store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const SKILL_ROOT = path.resolve(__dirname, "skills");
@@ -106,6 +107,22 @@ export async function ensureSkillStore() {
  *  pay a Node child process per call. */
 export function skillVersion() {
 	return { version: SKILL_VERSION ?? null, source: "integrated", bin: null };
+}
+
+/**
+ * Store skills still carrying pre-spec top-level extension fields
+ * (triggers/version). Brief surfaces this as an upgrade warning pointing at
+ * `agent-cli skill migrate`. listStore honors AGENT_CLI_HOME like the rest of
+ * the CLI; returns [] when the store is absent.
+ */
+export function legacySkillFields() {
+	try {
+		return listStore()
+			.filter((s) => s.legacyFields?.length)
+			.map((s) => ({ name: s.name, legacyFields: s.legacyFields }));
+	} catch {
+		return [];
+	}
 }
 
 export const PATHS = {

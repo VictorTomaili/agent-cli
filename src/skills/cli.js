@@ -19,6 +19,7 @@ import { cmdTest } from './commands/test.js'
 import { cmdRun } from './commands/run.js'
 import { cmdLock, cmdProvenance } from './commands/lock.js'
 import { cmdCapture } from './commands/capture.js'
+import { cmdMigrate } from './commands/migrate.js'
 import { isInteractive } from './lib/interactive.js'
 import { VERSION } from './lib/version.js'
 
@@ -63,6 +64,7 @@ ${c.bold('Authoring')}
 	${c.cyan('skill lock')} ${c.gray('<name> [--source]')} write provenance lock (source + content hash)
 	${c.cyan('skill provenance')} ${c.gray('[name]')} show source/revision/hash for installed skills
 	${c.cyan('skill capture')} ${c.gray('<name> <lesson>')} append a lesson to SKILL.md
+	${c.cyan('skill migrate')} ${c.gray('[name] [--apply]')} move legacy top-level triggers/version into metadata (Agent Skills spec)
 
 ${c.gray('Source formats (install): owner/repo | github/gitlab URL | git URL | local path | npm package')}
 ${c.gray('Test (no real ~ touched): SKILL_CLI_HOME=/tmp/sktest skill init -g')}
@@ -123,6 +125,7 @@ async function main() {
 		case 'lock': cmdLock(rest); break
 		case 'provenance': cmdProvenance(rest); break
 		case 'capture': cmdCapture(rest); break
+		case 'migrate': cmdMigrate(rest); break
 		case '-v': case '--version':
 			console.log('skill-cli ' + VERSION); break
 		default:

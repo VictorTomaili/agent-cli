@@ -389,3 +389,67 @@ test("cmdShow surfaces the Agent Skills spec fields + metadata-located extension
 	assert.ok(out.includes("Requires git and node"), out);
 	assert.ok(out.includes("/research, /deep-work"), out);
 });
+
+test("planMigrate moves legacy extensions into the metadata namespace", async () => {
+	const migrateMod = await import("../src/skills/commands/migrate.js");
+	const legacy = [
+		"---",
+		"name: demo",
+		"description: Demo skill",
+		"license: MIT",
+		"triggers: [/Run, report]",
+		"version: 2.0.0",
+		"---",
+		"",
+		"Body stays verbatim.",
+		"",
+	].join("\n");
+	const plan = migrateMod.planMigrate(legacy);
+	assert.equal(plan.needs, true);
+	assert.ok(plan.moves.some((m) => m.includes("run, report")));
+	assert.ok(plan.moves.some((m) => m.includes("2.0.0")));
+	// top-level extensions gone; everything else + body preserved
+	const fm = (await import("../src/skills/lib/frontmatter.js")).parseSkillMd(plan.next);
+	assert.equal(fm.data.triggers, undefined);
+	assert.equal(fm.data.version, undefined);
+	assert.equal(fm.data.name, "demo");
+	assert.equal(fm.data.description, "Demo skill");
+	assert.equal(fm.data.license, "MIT");
+	assert.ok(fm.body.includes("Body stays verbatim."));
+	// the migrated values read back through the dual-location readers
+	const fmr = await import("../src/skills/lib/frontmatter.js");
+	assert.deepEqual(fmr.getTriggers(fm.data), ["run", "report"]);
+	assert.equal(fmr.getVersion(fm.data), "2.0.0");
+	// existing metadata is MERGED, not clobbered
+	const withMeta = [
+		"---",
+		"name: demo",
+		"description: Demo",
+		"metadata:",
+		"  author: example-org",
+		"version: 1.0.0",
+		"---",
+		"",
+		"Body.",
+		"",
+	].join("\n");
+	const plan2 = migrateMod.planMigrate(withMeta);
+	const fm2 = (await import("../src/skills/lib/frontmatter.js")).parseSkillMd(plan2.next);
+	assert.equal(fm2.data.metadata["author"], "example-org");
+	assert.equal(fm2.data.metadata["agent-cli.version"], "1.0.0");
+});
+
+test("planMigrate: empty triggers dropped, conformant/malformed are no-ops", async () => {
+	const migrateMod = await import("../src/skills/commands/migrate.js");
+	const empty = "---\nname: a\ndescription: x\ntriggers: []\n---\n\nbody\n";
+	const plan = migrateMod.planMigrate(empty);
+	assert.equal(plan.needs, true);
+	assert.ok(plan.moves.some((m) => m.includes("dropped")));
+	assert.ok(!plan.next.includes("agent-cli.triggers"));
+	const conformant = "---\nname: a\ndescription: x\n---\n\nbody\n";
+	assert.equal(migrateMod.planMigrate(conformant).needs, false);
+	const broken = "---\nname: [unclosed\n---\n\nbody\n";
+	const plan3 = migrateMod.planMigrate(broken);
+	assert.equal(plan3.needs, false);
+	assert.ok(plan3.parseError);
+});

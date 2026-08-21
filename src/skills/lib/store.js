@@ -180,8 +180,8 @@ export function listStore() {
 				// drives `skill migrate` and the brief warning. Computed on the RAW
 				// data, not the dual-location readers.
 				legacyFields: [
-					...(data.triggers !== undefined ? ["triggers"] : []),
-					...(data.version !== undefined ? ["version"] : []),
+					...(data.triggers === undefined ? [] : ["triggers"]),
+					...(data.version === undefined ? [] : ["version"]),
 				],
 				// GAP-15: carry the YAML parse error so list/show can surface it bounded.
 				parseError: parseError || null,

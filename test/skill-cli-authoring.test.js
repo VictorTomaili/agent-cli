@@ -139,14 +139,20 @@ test("create rejects names the Agent Skills spec forbids", () => {
 
 test("migrate: dry-run then --apply moves legacy fields; idempotent; lock refreshed", () => {
 	// scaffold, then hand-write legacy frontmatter BEFORE install so the store copy carries it
-	assert.equal(run(["create", "legacy-demo", "--desc", "Legacy shape"]).status, 0);
+	assert.equal(
+		run(["create", "legacy-demo", "--desc", "Legacy shape"]).status,
+		0,
+	);
 	writeFileSync(
 		path.join(WORK, "legacy-demo", "SKILL.md"),
 		"---\nname: legacy-demo\ndescription: Legacy shape\ntriggers: [deploy, /Ship It]\nversion: 2.0.0\n---\n\nDeploy steps.\n",
 	);
 	assert.equal(run(["install", path.join(WORK, "legacy-demo")]).status, 0);
 	const storeMd = () =>
-		readFileSync(path.join(TMP, ".skill-cli", "store", "legacy-demo", "SKILL.md"), "utf8");
+		readFileSync(
+			path.join(TMP, ".skill-cli", "store", "legacy-demo", "SKILL.md"),
+			"utf8",
+		);
 
 	// dry run: reports the plan, writes nothing
 	const d = run(["migrate", "legacy-demo"]);
@@ -157,7 +163,10 @@ test("migrate: dry-run then --apply moves legacy fields; idempotent; lock refres
 
 	// apply: writes atomically, refreshes the lock hash
 	const before = JSON.parse(
-		readFileSync(path.join(TMP, ".skill-cli", "store", "legacy-demo", "skill.lock"), "utf8"),
+		readFileSync(
+			path.join(TMP, ".skill-cli", "store", "legacy-demo", "skill.lock"),
+			"utf8",
+		),
 	).contentHash;
 	const a = run(["migrate", "legacy-demo", "--apply"]);
 	assert.equal(a.status, 0);
@@ -168,7 +177,10 @@ test("migrate: dry-run then --apply moves legacy fields; idempotent; lock refres
 	assert.match(md, /agent-cli\.triggers: deploy, ship it/);
 	assert.match(md, /agent-cli\.version: '?2\.0\.0'?/);
 	const after = JSON.parse(
-		readFileSync(path.join(TMP, ".skill-cli", "store", "legacy-demo", "skill.lock"), "utf8"),
+		readFileSync(
+			path.join(TMP, ".skill-cli", "store", "legacy-demo", "skill.lock"),
+			"utf8",
+		),
 	).contentHash;
 	assert.notEqual(before, after);
 

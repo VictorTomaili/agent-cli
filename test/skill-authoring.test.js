@@ -409,7 +409,9 @@ test("planMigrate moves legacy extensions into the metadata namespace", async ()
 	assert.ok(plan.moves.some((m) => m.includes("run, report")));
 	assert.ok(plan.moves.some((m) => m.includes("2.0.0")));
 	// top-level extensions gone; everything else + body preserved
-	const fm = (await import("../src/skills/lib/frontmatter.js")).parseSkillMd(plan.next);
+	const fm = (await import("../src/skills/lib/frontmatter.js")).parseSkillMd(
+		plan.next,
+	);
 	assert.equal(fm.data.triggers, undefined);
 	assert.equal(fm.data.version, undefined);
 	assert.equal(fm.data.name, "demo");
@@ -434,7 +436,9 @@ test("planMigrate moves legacy extensions into the metadata namespace", async ()
 		"",
 	].join("\n");
 	const plan2 = migrateMod.planMigrate(withMeta);
-	const fm2 = (await import("../src/skills/lib/frontmatter.js")).parseSkillMd(plan2.next);
+	const fm2 = (await import("../src/skills/lib/frontmatter.js")).parseSkillMd(
+		plan2.next,
+	);
 	assert.equal(fm2.data.metadata["author"], "example-org");
 	assert.equal(fm2.data.metadata["agent-cli.version"], "1.0.0");
 });

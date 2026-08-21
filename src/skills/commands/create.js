@@ -1,14 +1,14 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import c from 'picocolors'
-import { sanitizeSkillName } from '../lib/store.js'
+import fs from "node:fs";
+import path from "node:path";
+import c from "picocolors";
+import { sanitizeSkillName } from "../lib/store.js";
 
 // Spec-conformant scaffold (agentskills.io): ONLY the six spec frontmatter
 // fields. agent-cli extensions live under metadata (the spec's extension
 // escape hatch) so the scaffolded skill passes `skills-ref validate` as-is.
 const TEMPLATE = (name, description) => `---
 name: ${name}
-description: ${description || 'A description of what this skill does and when to use it.'}
+description: ${description || "A description of what this skill does and when to use it."}
 license: MIT
 metadata:
   agent-cli.version: "1.0.0"
@@ -42,7 +42,7 @@ under metadata in the frontmatter:
 - references/ — deep documentation (REFERENCE.md, domain notes)
 - scripts/ — executable helpers (self-contained; document dependencies)
 - assets/ — templates, images, lookup data
-`
+`;
 
 const TOOL_TEMPLATE = (name) => `// Optional executable tool for this skill.
 // Runs via: skill run ${name} [args...]   (or  skill test ${name})
@@ -50,56 +50,95 @@ const TOOL_TEMPLATE = (name) => `// Optional executable tool for this skill.
 export async function run(argv = []) {
   return { ok: true, output: '${name} tool executed with args: ' + argv.join(' ') }
 }
-`
+`;
 
 // `skill create <name> [-d <dir>]` — scaffold a new skill directory with a
 // SKILL.md (and an optional SKILL.tool.js). Creates in the current directory
 // (or -d/--dir), NOT in the store, so the author can iterate + `skill install .`
 // when ready. Refuses to overwrite an existing SKILL.md.
 export function cmdCreate(args) {
-  const raw = args.find(a => !a.startsWith('-'))
+  const raw = args.find((a) => !a.startsWith("-"));
   if (!raw) {
-    console.error(c.red('Usage: skill create <name> [-d <dir>] [--tool] [--desc "…"]'))
-    console.error(c.gray('  Scaffolds a new skill (SKILL.md + optional SKILL.tool.js) in ./<name> (or -d).'))
-    process.exit(1)
+    console.error(
+      c.red('Usage: skill create <name> [-d <dir>] [--tool] [--desc "…"]'),
+    );
+    console.error(
+      c.gray(
+        "  Scaffolds a new skill (SKILL.md + optional SKILL.tool.js) in ./<name> (or -d).",
+      ),
+    );
+    process.exit(1);
   }
-  const name = sanitizeSkillName(raw)
+  const name = sanitizeSkillName(raw);
   if (!name) {
-    console.error(c.red('Invalid skill name: ' + raw))
-    console.error(c.gray('  Use letters/digits/._- only (starting alnum). No path separators or "..".'))
-    process.exit(1)
+    console.error(c.red("Invalid skill name: " + raw));
+    console.error(
+      c.gray(
+        '  Use letters/digits/._- only (starting alnum). No path separators or "..".',
+      ),
+    );
+    process.exit(1);
   }
   // Agent Skills spec names: lowercase alnum + hyphens, no leading/trailing or
   // consecutive hyphen, <=64 — the scaffold mints conformant skills only.
   if (
     !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name) ||
-    name.includes('--') ||
+    name.includes("--") ||
     name.length > 64
   ) {
-    console.error(c.red('Invalid skill name: ' + raw))
-    console.error(c.gray('  The Agent Skills spec requires lowercase letters, digits, and single hyphens (max 64), e.g. pdf-processing.'))
-    console.error(c.gray('  Existing non-conformant skills still load; only new scaffolds must be conformant.'))
-    process.exit(1)
+    console.error(c.red("Invalid skill name: " + raw));
+    console.error(
+      c.gray(
+        "  The Agent Skills spec requires lowercase letters, digits, and single hyphens (max 64), e.g. pdf-processing.",
+      ),
+    );
+    console.error(
+      c.gray(
+        "  Existing non-conformant skills still load; only new scaffolds must be conformant.",
+      ),
+    );
+    process.exit(1);
   }
-  const dirIdx = args.indexOf('-d')
-  const dirFlag = dirIdx >= 0 ? args[dirIdx + 1] : args.find((_a, i) => args[i - 1] === '--dir')
-  const outDir = path.resolve(dirFlag || '.')
-  const hasTool = args.includes('--tool')
-  const descArg = args.find((_a, i) => args[i - 1] === '--desc')
+  const dirIdx = args.indexOf("-d");
+  const dirFlag =
+    dirIdx >= 0
+      ? args[dirIdx + 1]
+      : args.find((_a, i) => args[i - 1] === "--dir");
+  const outDir = path.resolve(dirFlag || ".");
+  const hasTool = args.includes("--tool");
+  const descArg = args.find((_a, i) => args[i - 1] === "--desc");
 
-  const skillPath = path.join(outDir, name)
-  const mdPath = path.join(skillPath, 'SKILL.md')
+  const skillPath = path.join(outDir, name);
+  const mdPath = path.join(skillPath, "SKILL.md");
   if (fs.existsSync(mdPath)) {
-    console.error(c.red('Already exists: ' + mdPath))
-    process.exit(1)
+    console.error(c.red("Already exists: " + mdPath));
+    process.exit(1);
   }
-  fs.mkdirSync(skillPath, { recursive: true })
-  fs.writeFileSync(mdPath, TEMPLATE(name, descArg), 'utf8')
+  fs.mkdirSync(skillPath, { recursive: true });
+  fs.writeFileSync(mdPath, TEMPLATE(name, descArg), "utf8");
   if (hasTool) {
-    fs.writeFileSync(path.join(skillPath, 'SKILL.tool.js'), TOOL_TEMPLATE(name), 'utf8')
+    fs.writeFileSync(
+      path.join(skillPath, "SKILL.tool.js"),
+      TOOL_TEMPLATE(name),
+      "utf8",
+    );
   }
-  fs.mkdirSync(path.join(skillPath, 'tests'), { recursive: true })
-  console.log(c.green('✓') + ' created skill: ' + c.bold(name) + ' at ' + c.cyan(skillPath))
-  console.log(c.gray('  Files: ') + (hasTool ? 'SKILL.md, SKILL.tool.js, tests/' : 'SKILL.md, tests/'))
-  console.log(c.gray('  Edit SKILL.md, then: ') + c.cyan('skill validate ' + name) + c.gray(' → ') + c.cyan('skill install ' + skillPath))
+  fs.mkdirSync(path.join(skillPath, "tests"), { recursive: true });
+  console.log(
+    c.green("✓") +
+      " created skill: " +
+      c.bold(name) +
+      " at " +
+      c.cyan(skillPath),
+  );
+  console.log(
+    c.gray("  Files: ") +
+      (hasTool ? "SKILL.md, SKILL.tool.js, tests/" : "SKILL.md, tests/"),
+  );
+  console.log(
+    c.gray("  Edit SKILL.md, then: ") +
+      c.cyan("skill validate " + name) +
+      c.gray(" → ") +
+      c.cyan("skill install " + skillPath),
+  );
 }

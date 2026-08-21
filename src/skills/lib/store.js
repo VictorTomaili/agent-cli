@@ -1,6 +1,6 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import { STORE_DIR, CLI_ROOT } from './paths.js'
+import fs from "node:fs";
+import path from "node:path";
+import { STORE_DIR, CLI_ROOT } from "./paths.js";
 import {
 	parseSkillMd,
 	getTriggers,
@@ -8,7 +8,7 @@ import {
 	getLicense,
 	getCompatibility,
 	stringField,
-} from './frontmatter.js'
+} from "./frontmatter.js";
 
 // --- M5: bounded reads/traversals (local-DoS guard) --------------------------
 // A fetched skill is attacker-controlled: a giant SKILL.md or a zip-bomb tree
@@ -33,7 +33,7 @@ export function readSkillMdBounded(md) {
 		return null;
 	}
 	if (!st.isFile() || st.size > MAX_SKILL_MD_BYTES) return null;
-	return fs.readFileSync(md, 'utf8');
+	return fs.readFileSync(md, "utf8");
 }
 
 // --- M1: symlink / Windows-junction containment for the skill store ----------
@@ -79,7 +79,12 @@ export function guardStoreBase() {
 	}
 	const realRoot = realpathOfExisting(CLI_ROOT);
 	const realStore = realpathOfExisting(STORE_DIR);
-	if (realStore && realRoot && realStore !== realRoot && !realStore.startsWith(realRoot + path.sep)) {
+	if (
+		realStore &&
+		realRoot &&
+		realStore !== realRoot &&
+		!realStore.startsWith(realRoot + path.sep)
+	) {
 		return new Error(
 			`refusing to use skill store: ${STORE_DIR} resolves outside ${CLI_ROOT}`,
 		);
@@ -108,7 +113,8 @@ export function containsSymlinks(dir) {
 		for (const e of entries) {
 			if (visited++ > MAX_WALK_ENTRIES) return true; // zip-bomb — unsafe
 			if (e.isSymbolicLink()) return true;
-			if (e.isDirectory()) stack.push({ d: path.join(d, e.name), depth: depth + 1 });
+			if (e.isDirectory())
+				stack.push({ d: path.join(d, e.name), depth: depth + 1 });
 		}
 	}
 	return false;
@@ -134,25 +140,29 @@ export function copySkillIntoStore(srcDir, dest) {
 	return null;
 }
 
-export function skillDir(name) { return path.join(STORE_DIR, name) }
-export function skillMdPath(name) { return path.join(skillDir(name), 'SKILL.md') }
+export function skillDir(name) {
+	return path.join(STORE_DIR, name);
+}
+export function skillMdPath(name) {
+	return path.join(skillDir(name), "SKILL.md");
+}
 
 // Scan the store for all skills (name, description, version, triggers, path)
 export function listStore() {
-	if (!fs.existsSync(STORE_DIR)) return []
-	const out = []
+	if (!fs.existsSync(STORE_DIR)) return [];
+	const out = [];
 	for (const entry of fs.readdirSync(STORE_DIR, { withFileTypes: true })) {
-		if (!entry.isDirectory()) continue
+		if (!entry.isDirectory()) continue;
 		// M1: a symlink/junction in the store must not be scanned (reads follow it).
-		if (entry.isSymbolicLink()) continue
-		const md = skillMdPath(entry.name)
-		if (!fs.existsSync(md)) continue
-		if (!isPlainSkillFile(md)) continue
+		if (entry.isSymbolicLink()) continue;
+		const md = skillMdPath(entry.name);
+		if (!fs.existsSync(md)) continue;
+		if (!isPlainSkillFile(md)) continue;
 		// M5: a hostile skill with an oversized SKILL.md must not be listed/parsed.
-		const raw = readSkillMdBounded(md)
-		if (raw == null) continue
+		const raw = readSkillMdBounded(md);
+		if (raw == null) continue;
 		try {
-			const { data, parseError } = parseSkillMd(raw)
+			const { data, parseError } = parseSkillMd(raw);
 			out.push({
 				// GAP-6: frontmatter name/description/version are untrusted — only real
 				// strings surface (a number `name` would crash padEnd/localeCompare;
@@ -160,7 +170,7 @@ export function listStore() {
 				name: stringField(data.name) || entry.name,
 				dir: entry.name,
 				description: stringField(data.description),
-				version: getVersion(data) || '-',
+				version: getVersion(data) || "-",
 				triggers: getTriggers(data),
 				// Agent Skills spec fields, surfaced for display (agentskills.io).
 				license: getLicense(data),
@@ -168,10 +178,12 @@ export function listStore() {
 				path: md,
 				// GAP-15: carry the YAML parse error so list/show can surface it bounded.
 				parseError: parseError || null,
-			})
-		} catch { /* broken skill → skip */ }
+			});
+		} catch {
+			/* broken skill → skip */
+		}
 	}
-	return out.sort((a, b) => a.name.localeCompare(b.name))
+	return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // A skill name is a plain identifier (alnum/._-, starting alnum). Rejecting path
@@ -179,18 +191,18 @@ export function listStore() {
 // escape STORE_DIR via the dir-name path. Exported so install/update can reuse it
 // on the WRITE path — the dangerous one: a malicious frontmatter `name: ../x`
 // could otherwise rmSync/cpSync outside STORE_DIR.
-export const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+export const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 // Returns a safe skill name (alnum/._- only, no "..", resolving strictly inside
 // STORE_DIR) or null if `name` could escape the store. Call before joining any
 // untrusted name (frontmatter `name`, fetched dir name) onto STORE_DIR.
 export function sanitizeSkillName(name) {
-	const n = String(name ?? '').trim()
-	if (!SAFE_NAME.test(n) || n.includes('..')) return null
-	const root = path.resolve(STORE_DIR)
-	const dest = path.resolve(STORE_DIR, n)
-	if (dest !== root && !dest.startsWith(root + path.sep)) return null
-	return n
+	const n = String(name ?? "").trim();
+	if (!SAFE_NAME.test(n) || n.includes("..")) return null;
+	const root = path.resolve(STORE_DIR);
+	const dest = path.resolve(STORE_DIR, n);
+	if (dest !== root && !dest.startsWith(root + path.sep)) return null;
+	return n;
 }
 
 /**
@@ -210,16 +222,25 @@ export function isPlainSkillFile(md) {
 }
 
 export function readSkill(nameOrDir) {
-	const n = String(nameOrDir)
-	let md = SAFE_NAME.test(n) && !n.includes('..') && fs.existsSync(skillMdPath(n)) ? skillMdPath(n) : null
+	const n = String(nameOrDir);
+	let md =
+		SAFE_NAME.test(n) && !n.includes("..") && fs.existsSync(skillMdPath(n))
+			? skillMdPath(n)
+			: null;
 	if (!md) {
-		const hit = listStore().find(s => s.name.toLowerCase() === n.toLowerCase())
-		if (!hit) return null
-		md = hit.path
+		const hit = listStore().find((s) => s.name.toLowerCase() === n.toLowerCase());
+		if (!hit) return null;
+		md = hit.path;
 	}
-	if (!isPlainSkillFile(md)) return null
-	const raw = readSkillMdBounded(md)
-	if (raw == null) return null // missing or exceeds the size cap
-	const { data, body, parseError } = parseSkillMd(raw)
-	return { name: stringField(data.name) || n, data, body, path: md, parseError: parseError || null }
+	if (!isPlainSkillFile(md)) return null;
+	const raw = readSkillMdBounded(md);
+	if (raw == null) return null; // missing or exceeds the size cap
+	const { data, body, parseError } = parseSkillMd(raw);
+	return {
+		name: stringField(data.name) || n,
+		data,
+		body,
+		path: md,
+		parseError: parseError || null,
+	};
 }

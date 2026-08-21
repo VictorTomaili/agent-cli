@@ -92,3 +92,33 @@ test("defaults (plural) lists defaults; enable -g marks one; active is separate"
 	// `defaults` output mentions undefault (its management verb) — distinct from active
 	assert.ok(d.stdout.includes("undefault"));
 });
+
+test("create scaffolds Agent Skills spec-conformant frontmatter", () => {
+	const c = run(["create", "pdf-processing", "--desc", "Handle PDFs"]);
+	assert.equal(c.status, 0);
+	const md = readFileSync(path.join(WORK, "pdf-processing", "SKILL.md"), "utf8");
+	// spec fields present…
+	assert.match(md, /^name: pdf-processing$/m);
+	assert.match(md, /^description: Handle PDFs$/m);
+	assert.match(md, /^license: MIT$/m);
+	// …extension version under the metadata namespace…
+	assert.match(md, /^  agent-cli\.version: "1\.0\.0"$/m);
+	// …and NO legacy top-level extension fields.
+	assert.doesNotMatch(md, /^triggers:/m);
+	assert.doesNotMatch(md, /^version:/m);
+	// the scaffold validates clean under the full spec rules — zero warnings
+	const v = run(["validate", "pdf-processing"]);
+	assert.equal(v.status, 0);
+	assert.ok(v.stdout.includes("valid"));
+	assert.ok(!v.stdout.includes("⚠"), v.stdout);
+});
+
+test("create rejects names the Agent Skills spec forbids", () => {
+	for (const bad of ["PDF-Processing", "pdf_processing", "a--b", "x".repeat(65)]) {
+		const r = run(["create", bad]);
+		assert.notEqual(r.status, 0, `create ${bad} should fail`);
+		assert.ok(r.stderr.includes("Agent Skills spec"), r.stderr);
+	}
+	// store-side legacy names keep working — only the scaffold is strict
+	assert.equal(run(["create", "pdf-processing-2"]).status, 0);
+});

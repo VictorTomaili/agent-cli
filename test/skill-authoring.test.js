@@ -62,7 +62,9 @@ test("validateSkill flags missing/invalid name and bad triggers", () => {
 	assert.equal(noName.ok, false);
 	assert.ok(noName.errors.some((e) => e.includes("name")));
 
-	const traversal = validateMod.validateSkill("---\nname: ../evil\ndescription: x\n---\n\nbody\n");
+	const traversal = validateMod.validateSkill(
+		"---\nname: ../evil\ndescription: x\n---\n\nbody\n",
+	);
 	assert.equal(traversal.ok, false);
 
 	// Agent Skills spec: top-level triggers is an accepted extension, but each
@@ -94,9 +96,15 @@ test("validateSkill implements the Agent Skills spec name rules", () => {
 	assert.ok(mk("-pdf").errors.some((e) => e.includes("hyphen")));
 	assert.ok(mk("pdf--processing").errors.some((e) => e.includes("consecutive")));
 	assert.ok(mk("a".repeat(65)).errors.some((e) => e.includes("64")));
-	assert.ok(mk("pdf_processing").errors.some((e) => e.includes("invalid characters")));
+	assert.ok(
+		mk("pdf_processing").errors.some((e) => e.includes("invalid characters")),
+	);
 	// spec: the name must match the parent directory (NFKC-normalized)
-	assert.ok(mk("pdf-processing", "wrong-dir").errors.some((e) => e.includes("must match")));
+	assert.ok(
+		mk("pdf-processing", "wrong-dir").errors.some((e) =>
+			e.includes("must match"),
+		),
+	);
 	assert.equal(mk("pdf-processing", "pdf-processing").errors.length, 0);
 	// Deliberate deviation from skills-ref (which allows Unicode lowercase via
 	// isalnum()): names are ASCII-only here because sanitizeSkillName doubles as
@@ -160,7 +168,10 @@ test("validateSkill enforces the spec closed allowlist and field limits", () => 
 test("spec extensions read dual-location: top-level legacy + metadata namespace", async () => {
 	const fm = await import("../src/skills/lib/frontmatter.js");
 	// legacy top-level
-	assert.deepEqual(fm.getTriggers({ triggers: ["/Run", " report"] }), ["run", "report"]);
+	assert.deepEqual(fm.getTriggers({ triggers: ["/Run", " report"] }), [
+		"run",
+		"report",
+	]);
 	assert.equal(fm.getVersion({ version: 1 }), "1");
 	assert.equal(fm.getVersion({ version: "2.1.0" }), "2.1.0");
 	// spec-conformant metadata namespace
@@ -173,12 +184,26 @@ test("spec extensions read dual-location: top-level legacy + metadata namespace"
 	assert.deepEqual(fm.getTriggers(specData), ["research", "deep-work"]);
 	assert.equal(fm.getVersion(specData), "1.0.0");
 	// top-level wins when both are present
-	assert.equal(fm.getVersion({ version: "3.0.0", metadata: { "agent-cli.version": "1.0.0" } }), "3.0.0");
+	assert.equal(
+		fm.getVersion({
+			version: "3.0.0",
+			metadata: { "agent-cli.version": "1.0.0" },
+		}),
+		"3.0.0",
+	);
 	// spec field readers
 	assert.equal(fm.getLicense({ license: "MIT" }), "MIT");
-	assert.equal(fm.getCompatibility({ compatibility: "Requires git" }), "Requires git");
-	assert.equal(fm.getAllowedTools({ "allowed-tools": "Bash(git:*) Read" }), "Bash(git:*) Read");
-	assert.deepEqual(fm.getMetadata({ metadata: { author: "x" } }), { author: "x" });
+	assert.equal(
+		fm.getCompatibility({ compatibility: "Requires git" }),
+		"Requires git",
+	);
+	assert.equal(
+		fm.getAllowedTools({ "allowed-tools": "Bash(git:*) Read" }),
+		"Bash(git:*) Read",
+	);
+	assert.deepEqual(fm.getMetadata({ metadata: { author: "x" } }), {
+		author: "x",
+	});
 	assert.equal(fm.getMetadata({ metadata: "nope" }), null);
 });
 
@@ -197,7 +222,7 @@ test("a spec-conformant skill carries its fields through the store listing", () 
 			"compatibility: Requires Python 3.14+ and uv",
 			"metadata:",
 			"  author: example-org",
-			"  version: \"1.0\"",
+			'  version: "1.0"',
 			"---",
 			"",
 			"Body.",
@@ -221,10 +246,24 @@ test("a spec-conformant skill carries its fields through the store listing", () 
 });
 
 test("checkToolImports enforces the allowlist", () => {
-	assert.equal(runMod.checkToolImports(`import fs from "node:fs"\nexport async function run(){return {ok:true}}`).ok, true);
-	assert.equal(runMod.checkToolImports(`import { exec } from "node:child_process"\n`).ok, false);
-	assert.equal(runMod.checkToolImports(`import http from "node:http"\n`).ok, false);
-	assert.equal(runMod.checkToolImports(`import path from "node:path"\n`).ok, true);
+	assert.equal(
+		runMod.checkToolImports(
+			`import fs from "node:fs"\nexport async function run(){return {ok:true}}`,
+		).ok,
+		true,
+	);
+	assert.equal(
+		runMod.checkToolImports(`import { exec } from "node:child_process"\n`).ok,
+		false,
+	);
+	assert.equal(
+		runMod.checkToolImports(`import http from "node:http"\n`).ok,
+		false,
+	);
+	assert.equal(
+		runMod.checkToolImports(`import path from "node:path"\n`).ok,
+		true,
+	);
 });
 
 test("runSkillTool executes a tool module and returns its result", async () => {
@@ -237,7 +276,10 @@ test("runSkillTool executes a tool module and returns its result", async () => {
 test("runSkillTool rejects a module without run()", async () => {
 	const d = tmpSkillDir(GOOD);
 	writeFileSync(path.join(d, "SKILL.tool.js"), "export const x = 1\n");
-	await assert.rejects(() => runMod.runSkillTool(path.join(d, "SKILL.tool.js")), /export a `run/);
+	await assert.rejects(
+		() => runMod.runSkillTool(path.join(d, "SKILL.tool.js")),
+		/export a `run/,
+	);
 });
 
 test("writeLock/readLock record source + content hash; hash changes with content", () => {
@@ -268,13 +310,22 @@ test("capture appends a lesson; skillLessons reads it", () => {
 
 test("AGENTS_BLOCK is single-sourced from gate-policy", () => {
 	// The injected bootstrap block embeds the shared policy — no drift.
-	assert.ok(agentsMd.AGENTS_BLOCK.includes(gate.GATE_POLICY_TEXT.trim().slice(0, 40)));
+	assert.ok(
+		agentsMd.AGENTS_BLOCK.includes(gate.GATE_POLICY_TEXT.trim().slice(0, 40)),
+	);
 	assert.ok(gate.GATE_POLICY_TEXT.includes("START GATE (mandatory)"));
 	assert.ok(gate.GATE_DECIDE_HINT.includes("PROPOSE"));
 	// cmdActive renders from the shared hint, not its own copy.
-	const src = readFileSync(new URL("../src/skills/commands/defaults.js", import.meta.url), "utf8");
+	const src = readFileSync(
+		new URL("../src/skills/commands/defaults.js", import.meta.url),
+		"utf8",
+	);
 	assert.ok(src.includes("GATE_DECIDE_HINT"));
-	assert.ok(!/→ For EACH skill above, decide in your reply:\n/.test(src.replace(/GATE_DECIDE_HINT/g, "")));
+	assert.ok(
+		!/→ For EACH skill above, decide in your reply:\n/.test(
+			src.replace(/GATE_DECIDE_HINT/g, ""),
+		),
+	);
 });
 
 test("cmdDefaults lists global defaults via computeDefaults (verb merge)", () => {
@@ -298,4 +349,43 @@ test("cmdDefaults lists global defaults via computeDefaults (verb merge)", () =>
 	assert.ok(logs.some((l) => l.includes("demo")));
 	assert.ok(logs.some((l) => l.includes("undefault")));
 	assert.ok(!logs.some((l) => l.includes("No default skills")));
+});
+
+test("cmdShow surfaces the Agent Skills spec fields + metadata-located extensions", async () => {
+	const showMod = await import("../src/skills/commands/show.js");
+	// a fully spec-conformant skill whose agent-cli extensions live under
+	// metadata — show must surface license/compatibility AND the triggers
+	// (dual-location read) + version from the metadata namespace.
+	const dir = path.join(TMP, ".skill-cli", "store", "spec-demo");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(
+		path.join(dir, "SKILL.md"),
+		[
+			"---",
+			"name: spec-demo",
+			"description: Demonstrates spec field display.",
+			"license: Apache-2.0",
+			"compatibility: Requires git and node",
+			"metadata:",
+			'  agent-cli.triggers: "research, deep-work"',
+			'  agent-cli.version: "2.1.0"',
+			"---",
+			"",
+			"Body.",
+			"",
+		].join("\n"),
+	);
+	const logs = [];
+	const orig = console.log;
+	console.log = (...a) => logs.push(a.join(" "));
+	try {
+		showMod.cmdShow(["spec-demo"]);
+	} finally {
+		console.log = orig;
+	}
+	const out = logs.join("\n");
+	assert.ok(out.includes("v2.1.0"), out);
+	assert.ok(out.includes("Apache-2.0"), out);
+	assert.ok(out.includes("Requires git and node"), out);
+	assert.ok(out.includes("/research, /deep-work"), out);
 });

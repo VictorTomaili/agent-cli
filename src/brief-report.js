@@ -45,7 +45,9 @@ export function buildBriefPayload(s, { forTask = null, version } = {}) {
 		warnings.push(
 			`${legacySkills.length} skill(s) use legacy top-level ${[
 				...new Set(legacySkills.flatMap((x) => x.legacyFields)),
-			].join("/")} — run \`agent-cli skill migrate --apply\` (Agent Skills spec upgrade; dry-run without --apply)`,
+			].join(
+				"/",
+			)} — run \`agent-cli skill migrate --apply\` (Agent Skills spec upgrade; dry-run without --apply)`,
 		);
 
 	return {

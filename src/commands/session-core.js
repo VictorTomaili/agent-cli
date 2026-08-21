@@ -45,9 +45,7 @@ export function registerSessionCoreCommands(
 			// npm latest version (cached by default; --force/--refresh to hit network)
 			const npm = await import("../npm-check.js");
 			const offline =
-				opts.offline ||
-				opts.network === false ||
-				process.env.AGENT_OFFLINE === "1";
+				opts.offline || opts.network === false || process.env.AGENT_OFFLINE === "1";
 			let upd;
 			if ((opts.force || opts.refresh) && !offline) {
 				upd = await npm.ensureUpdateCheck(cfg, PKG_NAME, VERSION, {
@@ -137,9 +135,7 @@ export function registerSessionCoreCommands(
 		.option("--oneline", "one-line status for shell prompts")
 		.action(async (opts) => {
 			const offline =
-				opts.offline ||
-				opts.network === false ||
-				process.env.AGENT_OFFLINE === "1";
+				opts.offline || opts.network === false || process.env.AGENT_OFFLINE === "1";
 			const actMod = await import("../actions.js");
 			const s = await actMod.collectState({
 				cwd: process.cwd(),
@@ -261,9 +257,7 @@ export function registerSessionCoreCommands(
 				// pre-spec top-level triggers/version (payload carries the same warning).
 				if (out.skill.legacyFields?.length) {
 					const fields = [
-						...new Set(
-							out.skill.legacyFields.flatMap((x) => x.legacyFields),
-						),
+						...new Set(out.skill.legacyFields.flatMap((x) => x.legacyFields)),
 					].join("/");
 					log.warn(
 						`${out.skill.legacyFields.length} skill(s) use legacy top-level ${fields} — Agent Skills spec upgrade:`,
@@ -298,9 +292,7 @@ export function registerSessionCoreCommands(
 				// test/identity-files-order.test.js regression). Number each step so the
 				// model reads them in sequence, not in parallel or out of order.
 				log.raw(
-					c.bold(
-						"\nSession start — read in this EXACT order (do NOT skip ahead):",
-					),
+					c.bold("\nSession start — read in this EXACT order (do NOT skip ahead):"),
 				);
 				out.sessionStart.load.forEach((f, i) => {
 					let tag;
@@ -308,11 +300,7 @@ export function registerSessionCoreCommands(
 					// "no project-specific lessons yet", which is a legitimate state (the
 					// global LESSONS.md carries the system-wide lessons). Don't surface it
 					// as a gap or a missing-file warning — only flag global lessons.
-					if (
-						f.kind === "lessons" &&
-						f.scope === "project" &&
-						f.filled !== true
-					) {
+					if (f.kind === "lessons" && f.scope === "project" && f.filled !== true) {
 						tag = c.cyan("(no project lessons yet)");
 					} else if (!f.exists) tag = c.gray("(missing)");
 					else if (f.filled === false || (f.gaps && f.gaps.length))
@@ -345,9 +333,7 @@ export function registerSessionCoreCommands(
 						if (line.trim()) log.raw(`  ${line}`);
 				}
 				if (s.lessonsIndex.length) {
-					log.raw(
-						c.bold("\nLessons (filenames = summaries; read only relevant):"),
-					);
+					log.raw(c.bold("\nLessons (filenames = summaries; read only relevant):"));
 					for (const l of s.lessonsIndex)
 						log.raw(
 							`  ${c.gray("×" + l.occurrences)} ${l.path}${l.marked ? c.yellow(" ⚠marked") : ""}`,

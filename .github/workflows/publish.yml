@@ -37,10 +37,13 @@ jobs:
       # setup-node v6 REQUIRED for OIDC: v5 defaults NODE_AUTH_TOKEN (the
       # GitHub token) when registry-url is set, and npm then skips the OIDC
       # exchange and PUTs with that token -> E404 (actions/setup-node#1440).
+      # registry-url is deliberately OMITTED: it writes a .npmrc that wires
+      # NODE_AUTH_TOKEN into registry auth, which blocks the OIDC exchange
+      # (empty token -> ENEEDAUTH). publishConfig.registry in package.json
+      # already targets registry.npmjs.org.
       - uses: actions/setup-node@v6
         with:
           node-version: 24 # trusted publishing needs npm >= 11.5.1
-          registry-url: https://registry.npmjs.org
           cache: npm
       - name: Fail fast if npm is too old for trusted publishing
         run: |

@@ -35,6 +35,10 @@ export const TARGETS = [
 		project: "CLAUDE.md",
 		detect: ".claude",
 		hooks: { event: "SessionStart", configFile: ".claude/settings.json" },
+		// Cross-tool sharing (agent-cli link agents|skills): home-relative dirs
+		// this tool natively reads. Cursor also reads ~/.claude/agents for
+		// Claude compatibility, so linking here covers it too.
+		share: { agents: ".claude/agents", skills: ".claude/skills" },
 	},
 	{
 		id: "codex",
@@ -43,6 +47,7 @@ export const TARGETS = [
 		global: ".codex/AGENTS.md",
 		project: "AGENTS.md",
 		detect: ".codex",
+		share: { agents: ".codex/agents" },
 		hooks: { event: "SessionStart", configFile: ".codex/hooks.json" },
 	},
 	{
@@ -52,6 +57,9 @@ export const TARGETS = [
 		global: ".pi/agent/AGENTS.md",
 		project: "AGENTS.md",
 		detect: ".pi",
+		// pi reads skills natively from ~/.agents/skills (the hub share.js links
+		// to the skill store); its sub-agents live in ~/.pi/agent/agents.
+		share: { agents: ".pi/agent/agents" },
 		hooks: {
 			event: "SessionStart",
 			configFile: ".pi/agent/hooks.json",
@@ -85,6 +93,10 @@ export const TARGETS = [
 		detect: ".cursor",
 		note: "Writes an alwaysApply .mdc rule. Cursor has no user-level rules file.",
 		transform: cursorTransform,
+		// Cursor user-level subagents (docs: ~/.cursor/agents). Cursor ALSO reads
+		// ~/.claude/agents + ~/.codex/agents for compatibility, so the claude/codex
+		// links cover Cursor even without this one.
+		share: { agents: ".cursor/agents" },
 		hooks: { event: "sessionStart", configFile: ".cursor/hooks.json" },
 	},
 	{
@@ -99,7 +111,8 @@ export const TARGETS = [
 		hooks: {
 			event: "pre_user_prompt",
 			configFile: ".codeium/windsurf/hooks.json",
-			note: "Cascade lacks SessionStart; we use pre_user_prompt as the nearest lifecycle hook.",
+			note:
+				"Cascade lacks SessionStart; we use pre_user_prompt as the nearest lifecycle hook.",
 		},
 	},
 	{
@@ -115,11 +128,13 @@ export const TARGETS = [
 	{
 		id: "copilot",
 		name: "GitHub Copilot",
-		docs: "https://docs.github.com/en/copilot/customizing-copilot/adding-repository-custom-instructions-for-github-copilot",
+		docs:
+			"https://docs.github.com/en/copilot/customizing-copilot/adding-repository-custom-instructions-for-github-copilot",
 		global: null,
 		project: ".github/copilot-instructions.md",
 		detect: null,
-		note: "Project-only. Copilot also reads AGENTS.md/CLAUDE.md/GEMINI.md natively.",
+		note:
+			"Project-only. Copilot also reads AGENTS.md/CLAUDE.md/GEMINI.md natively.",
 		hooks: { event: "sessionStart", configFile: ".copilot/hooks/hooks.json" },
 	},
 	{
@@ -129,7 +144,8 @@ export const TARGETS = [
 		global: null,
 		project: "CONVENTIONS.md",
 		detect: ".aider",
-		note: "CONVENTIONS.md is read into context; .aider.conf.yml is separate config.",
+		note:
+			"CONVENTIONS.md is read into context; .aider.conf.yml is separate config.",
 	},
 	{
 		id: "junie",
@@ -175,6 +191,8 @@ export const TARGETS = [
 		project: "AGENTS.md",
 		detect: ".opencode",
 		note: "OpenCode reads AGENTS.md.",
+		// OpenCode global custom agents (docs: ~/.config/opencode/agents).
+		share: { agents: ".config/opencode/agents" },
 		hooks: { event: "session_start", configFile: "opencode.json" },
 	},
 	{
@@ -223,7 +241,6 @@ export function scopesFor(target) {
 export function targetsWithHooks() {
 	return TARGETS.filter((t) => t.hooks && t.hooks.event && t.hooks.configFile);
 }
-
 
 /**
  * Adapt master content to a target's native format (e.g. Cursor frontmatter).

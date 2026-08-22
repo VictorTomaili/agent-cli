@@ -1130,10 +1130,10 @@ test("link/unlink reject positional ids (M7 — must use --target)", () => {
 	run(["target", "enable", "codex"], { envHome: home });
 	const l = run(["link", "claude"], { envHome: home });
 	bad(l);
-	assert.match(l.stderr, /too many arguments for 'link'/i);
+	assert.match(l.stderr, /too many arguments for 'link'|Unknown link kind/i);
 	const u = run(["unlink", "claude"], { envHome: home });
 	bad(u);
-	assert.match(u.stderr, /too many arguments for 'unlink'/i);
+	assert.match(u.stderr, /too many arguments for 'unlink'|Unknown link kind/i);
 	// The explicit form still works.
 	const ok = run(["link", "--target", "claude"], { envHome: home });
 	assert.equal(ok.code, 0, ok.stderr);
@@ -1679,8 +1679,12 @@ test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss
 				stdio: ["ignore", "pipe", "pipe"],
 			});
 			let stderr = "";
+			let stdout = "";
+			// Drain BOTH pipes — an undrained stdout can fill its OS buffer and
+			// deadlock the child (flaky hang seen on Windows).
+			child.stdout.on("data", (d) => (stdout += d));
 			child.stderr.on("data", (d) => (stderr += d));
-			child.on("close", (code) => resolve({ id, code, stderr }));
+			child.on("close", (code) => resolve({ id, code, stderr, stdout }));
 		});
 	const results = await Promise.all(ids.map(runOne));
 	for (const r of results) {
@@ -1808,4 +1812,143 @@ test("brief warns when store skills carry legacy top-level extension fields", ()
 	// human mode surfaces it too
 	const h = run(["brief"], { envHome: home });
 	assert.match(h.stdout, /skill migrate/);
+});
+
+test("share links: link agents|skills, doctor warns, unlink, native refusal", () => {
+	// Isolated home with personas + a store skill so sources are "live".
+	const home = run(["init"]).home;
+	run(["target", "enable", "claude"], { envHome: home }); // share-capable + enabled
+	const roster = path.join(home, ".agents", "agents");
+	mkdirSync(roster, { recursive: true });
+	writeFileSync(
+		path.join(roster, "scout.md"),
+		"---\nname: scout\ndescription: scouts\n---\n\nbody\n",
+	);
+	const store = path.join(home, ".skill-cli", "store", "demo-skill");
+	mkdirSync(store, { recursive: true });
+	writeFileSync(
+		path.join(store, "SKILL.md"),
+		"---\nname: demo-skill\ndescription: demo\n---\n\nbody\n",
+	);
+
+	// doctor: enabled+capable targets unlinked → issues suggest the fix
+	const d0 = run(["doctor", "--json"], { envHome: home });
+	const d0data = parseJson(d0.stdout).data;
+	assert.ok(
+		d0data.issues.some((i) => i.includes("agent-cli link agents")),
+		`issues: ${JSON.stringify(d0data.issues)}`,
+	);
+
+	// link agents (claude is enabled by init when .claude exists; pi likewise
+	// when .pi exists — assert at least the linked-capable set is non-empty)
+	const la = run(["link", "agents", "--json"], { envHome: home });
+	ok(la);
+	const laJson = parseJson(la.stdout);
+	assert.equal(laJson.command, "link");
+	const laData = laJson.data;
+	assert.equal(laData.what, "agents");
+	assert.ok(laData.results.length >= 1);
+	assert.ok(laData.results.every((r) => r.linked));
+	// claude agents dir now points at the roster
+	const claudeAgents = path.join(home, ".claude", "agents");
+	assert.ok(
+		readFileSync(path.join(claudeAgents, "scout.md"), "utf8").includes("scout"),
+		"persona readable through the link",
+	);
+	// idempotent
+	const la2 = run(["link", "agents", "--json"], { envHome: home });
+	assert.ok(parseJson(la2.stdout).data.results.every((r) => r.unchanged));
+
+	// link skills: per-tool dirs (e.g. .claude/skills) — the store is the source.
+	const ls = run(["link", "skills", "--json"], { envHome: home });
+	ok(ls);
+	assert.ok(
+		existsSync(path.join(home, ".claude", "skills", "demo-skill", "SKILL.md")),
+		"skill readable through the per-tool share link",
+	);
+	assert.ok(
+		readFileSync(
+			path.join(home, ".claude", "skills", "demo-skill", "SKILL.md"),
+			"utf8",
+		).includes("demo"),
+	);
+
+	// new persona in the roster appears through existing links (no re-run)
+	writeFileSync(
+		path.join(roster, "late.md"),
+		"---\nname: late\ndescription: later\n---\n\nb\n",
+	);
+	assert.ok(existsSync(path.join(claudeAgents, "late.md")));
+
+	// doctor now clean of share issues
+	const d1 = run(["doctor", "--json"], { envHome: home });
+	const d1data = parseJson(d1.stdout).data;
+	assert.ok(
+		!d1data.issues.some(
+			(i) => i.includes("link agents") || i.includes("link skills"),
+		),
+		`issues after link: ${JSON.stringify(d1data.issues)}`,
+	);
+
+	// unknown kind errors
+	const bad = run(["link", "personas", "--json"], { envHome: home });
+	assert.notEqual(bad.code, 0);
+
+	// native dir refusal: unlink codex first (it was linked earlier in the
+	// test), then place real content, then re-link — must refuse, not clobber.
+	const codexAgents = path.join(home, ".codex", "agents");
+	run(["unlink", "agents", "-t", "codex", "--json"], { envHome: home });
+	mkdirSync(codexAgents, { recursive: true });
+	writeFileSync(path.join(codexAgents, "own.md"), "native");
+	const nat = run(["link", "agents", "-t", "codex", "--json"], {
+		envHome: home,
+	});
+	const natData = parseJson(nat.stdout).data;
+	assert.ok(natData.results.every((r) => r.blocked === "native-content"));
+	assert.equal(readFileSync(path.join(codexAgents, "own.md"), "utf8"), "native");
+
+	// --force backs up native content, never deletes it
+	const forced = run(["link", "agents", "-t", "codex", "--force", "--json"], {
+		envHome: home,
+	});
+	const forcedData = parseJson(forced.stdout).data;
+	const row = forcedData.results.find((r) => r.id === "codex");
+	assert.ok(row.linked && row.backup, JSON.stringify(row));
+	assert.ok(
+		readFileSync(path.join(row.backup, "own.md"), "utf8") === "native",
+		"native content preserved in backup",
+	);
+
+	// unlink removes only OUR links; native/backup untouched
+	const un = run(["unlink", "skills", "--json"], { envHome: home });
+	const unData = parseJson(un.stdout).data;
+	assert.ok(unData.results.some((r) => r.id === "claude" && r.unlinked));
+	assert.ok(!existsSync(path.join(home, ".claude", "skills")));
+});
+
+test("share link warnings surface in brief and vanish after linking", () => {
+	const home = run(["init"]).home;
+	run(["target", "enable", "claude"], { envHome: home }); // share-capable + enabled
+	const roster = path.join(home, ".agents", "agents");
+	mkdirSync(roster, { recursive: true });
+	writeFileSync(
+		path.join(roster, "scout.md"),
+		"---\nname: scout\ndescription: s\n---\n\nb\n",
+	);
+
+	const j = run(["brief", "--json"], { envHome: home });
+	ok(j);
+	const data = parseJson(j.stdout).data;
+	assert.ok(
+		data.warnings.some((w) => w.includes("agent-cli link agents")),
+		`warnings: ${JSON.stringify(data.warnings)}`,
+	);
+
+	ok(run(["link", "agents", "--json"], { envHome: home }));
+	const j2 = run(["brief", "--json"], { envHome: home });
+	const data2 = parseJson(j2.stdout).data;
+	assert.ok(
+		!data2.warnings.some((w) => w.includes("link agents")),
+		`warnings after: ${JSON.stringify(data2.warnings)}`,
+	);
 });

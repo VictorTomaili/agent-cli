@@ -27,7 +27,9 @@ import { inspectSpect } from "../spect.js";
 import { listSnapshots, snapshot } from "../snapshot.js";
 import { getAliases, getAlias } from "../models.js";
 
-const PKG_VERSION = createRequire(import.meta.url)("../../package.json").version;
+const PKG_VERSION = createRequire(import.meta.url)(
+	"../../package.json",
+).version;
 
 /** Project master path, mirroring cli.js masterPaths(). */
 function masterPaths(scope = "global", cwd = process.cwd()) {
@@ -87,15 +89,11 @@ export async function status({ all = false, cwd = process.cwd() } = {}) {
 		targetCount: targets.length,
 		all,
 		targetsSummary: {
-			pointer: visibleTargets.filter((t) => t.global?.state === "pointer")
+			pointer: visibleTargets.filter((t) => t.global?.state === "pointer").length,
+			missing: visibleTargets.filter((t) => t.global?.state === "missing").length,
+			stale: visibleTargets.filter((t) => t.global?.state === "pointer-stale")
 				.length,
-			missing: visibleTargets.filter((t) => t.global?.state === "missing")
-				.length,
-			stale: visibleTargets.filter(
-				(t) => t.global?.state === "pointer-stale",
-			).length,
-			native: visibleTargets.filter((t) => t.global?.state === "native")
-				.length,
+			native: visibleTargets.filter((t) => t.global?.state === "native").length,
 		},
 	};
 }
@@ -110,11 +108,13 @@ export async function doctor({ cwd = process.cwd() } = {}) {
 	const npm = await import("../npm-check.js");
 	const upd = npm.readCachedUpdate(cfg, PKG_VERSION);
 	const { buildDoctorReport } = await import("../doctor-report.js");
+	const installed = await detectInstalled();
 	return buildDoctorReport(cfg, {
 		masterContent,
 		upd,
 		version: PKG_VERSION,
 		cwd,
+		installed,
 	});
 }
 
@@ -129,7 +129,8 @@ export async function brief({ cwd = process.cwd() } = {}) {
 	const suggested = actMod.suggestedStrings(actionsList);
 	const etag = actMod.computeEtag(s);
 	const blockers = [];
-	if (s.masterContent == null) blockers.push("master missing — run `agent-cli init`");
+	if (s.masterContent == null)
+		blockers.push("master missing — run `agent-cli init`");
 	const warnings = [];
 	if (s.archetypeNeeded) warnings.push("identity onboarding incomplete");
 	if (s.unresolvedModels.length)

@@ -21,6 +21,8 @@ import {
 import { MODELS_MD } from "./models.js";
 import { readProjectConfig as readProjectSkillConfig } from "./skills-gate.js";
 import { listStagedUpdates } from "./seed.js";
+import { shareHealth, SHARE_SOURCES, isOurLink } from "./share.js";
+import fsSync from "node:fs";
 
 const REQUIRED_FILES = new Set([
 	"identity",
@@ -43,7 +45,7 @@ const REQUIRED_FILES = new Set([
  */
 export async function buildDoctorReport(
 	cfg,
-	{ masterContent, upd, version, cwd = process.cwd() },
+	{ masterContent, upd, version, cwd = process.cwd(), installed = [] },
 ) {
 	const issues = [];
 	const checks = [];
@@ -93,7 +95,8 @@ export async function buildDoctorReport(
 		ok: skillOk,
 		detail: skillOk ? "integrated" : "none",
 	});
-	if (!skillOk) issues.push("skill-cli unavailable — run `agent-cli skill setup`.");
+	if (!skillOk)
+		issues.push("skill-cli unavailable — run `agent-cli skill setup`.");
 
 	// project skill.config health (false-green guard — doctor must not report
 	// all-clear when a broken project skill.config would break the skill gate).
@@ -172,29 +175,68 @@ export async function buildDoctorReport(
 				.join("; ")}`,
 		);
 	const oldPiAgents = path.join(os.homedir(), ".pi", "agent", "agents");
-	let orphans = 0;
-	try {
-		orphans = (await fsp.readdir(oldPiAgents)).filter((n) =>
-			n.endsWith(".md"),
-		).length;
-	} catch {
-		/* dir absent */
-	}
-	if (orphans > 0) {
-		checks.push({
-			check: "no-orphan-personalities",
-			ok: false,
-			detail: `${orphans} in old ~/.pi/agent/agents`,
-		});
-		issues.push(
-			`${orphans} personalities stranded in old path ~/.pi/agent/agents — move them to ~/.agents/agents`,
-		);
-	} else {
+	// ~/.pi/agent/agents is now the pi SHARE LINK target (agent-cli link agents):
+	// when it is our symlink to ~/.agents/agents, it is the DESIRED state — only
+	// real (non-link) files there are stranded orphans.
+	if (isOurLink(oldPiAgents, SHARE_SOURCES.agents)) {
 		checks.push({
 			check: "no-orphan-personalities",
 			ok: true,
-			detail: "old path clean",
+			detail: "shared via link",
 		});
+	} else {
+		let orphans = 0;
+		try {
+			orphans = (await fsp.readdir(oldPiAgents)).filter((n) =>
+				n.endsWith(".md"),
+			).length;
+		} catch {
+			/* dir absent */
+		}
+		if (orphans > 0) {
+			checks.push({
+				check: "no-orphan-personalities",
+				ok: false,
+				detail: `${orphans} in old ~/.pi/agent/agents`,
+			});
+			issues.push(
+				`${orphans} personalities stranded in old path ~/.pi/agent/agents — move them to ~/.agents/agents (agent-cli link agents then shares them everywhere)`,
+			);
+		} else {
+			checks.push({
+				check: "no-orphan-personalities",
+				ok: true,
+				detail: "old path clean",
+			});
+		}
+	}
+	// Cross-tool share links (agents/skills): for every enabled, share-capable
+	// target, the expected dir should be our link to the single source. Only
+	// actionable when the source actually has content (an empty roster/store
+	// gains nothing from being linked).
+	const sourceHasContent = (dir) => {
+		try {
+			return fsSync.readdirSync(dir).some((n) => !n.startsWith("."));
+		} catch {
+			return false;
+		}
+	};
+	const rosterLive = sourceHasContent(SHARE_SOURCES.agents);
+	const storeLive = sourceHasContent(SHARE_SOURCES.skills);
+	for (const h of shareHealth(cfg, { installed })) {
+		const live = h.kind === "agents" ? rosterLive : storeLive;
+		const ok = h.state === "linked" || !live;
+		checks.push({
+			check: `share-${h.kind}:${h.id}`,
+			ok,
+			detail: h.state + " " + pretty(h.path),
+		});
+		if (!ok)
+			issues.push(
+				`${h.id} ${h.kind} dir ${h.state} — run \`agent-cli link ${h.kind}\` to share the ${
+					h.kind === "agents" ? "persona roster" : "skill store"
+				} (manage once, use everywhere)`,
+			);
 	}
 	// npm latest version — caller supplies `upd` (cached read or forced refresh);
 	// this function never hits the network itself.

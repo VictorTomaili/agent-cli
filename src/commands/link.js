@@ -1,7 +1,8 @@
 // src/commands/link.js — link + unlink, extracted from cli.js (HIGH-3).
 // Injected deps: { emit, fail, log, c, pretty, TARGETS, targetsWithScope, loadConfig,
 //   effectiveProjectIds, masterPaths, setExpectedCtx, linkTarget, unlinkTarget,
-//   ensureMaster, ensureMasterPointer, isJson }.
+//   ensureMaster, ensureMasterPointer, isJson, linkShared, unlinkShared }.
+import { SHARE_KINDS } from "../share.js";
 
 function selectedTargets(scope, ids, targetsWithScope) {
 	const pool = targetsWithScope(scope);
@@ -24,6 +25,16 @@ function validateIds(opts, command, TARGETS, fail) {
 				{ command, target: unknown },
 			);
 	}
+}
+
+/** Shared-link flows use a fixed vocabulary positional (link agents|skills) —
+ *  anything else must error (M7 spirit: no silent anything-goes positionals). */
+function validateWhat(what, command, fail) {
+	if (what !== undefined && !SHARE_KINDS.includes(what))
+		fail(
+			`Unknown link kind: '${what}'. Use 'agent-cli link' (pointer stubs), 'agent-cli link agents', or 'agent-cli link skills'.`,
+			{ command, what },
+		);
 }
 
 /** Register the status command (pointer-health sibling of link/unlink). */
@@ -109,18 +120,13 @@ export function registerStatusCommand(
 				targetCount: targets.length,
 				all: showAll,
 				targetsSummary: {
-					pointer: visibleTargets.filter(
-						(t) => t.global?.state === "pointer",
-					).length,
-					missing: visibleTargets.filter(
-						(t) => t.global?.state === "missing",
-					).length,
-					stale: visibleTargets.filter(
-						(t) => t.global?.state === "pointer-stale",
-					).length,
-					native: visibleTargets.filter(
-						(t) => t.global?.state === "native",
-					).length,
+					pointer: visibleTargets.filter((t) => t.global?.state === "pointer")
+						.length,
+					missing: visibleTargets.filter((t) => t.global?.state === "missing")
+						.length,
+					stale: visibleTargets.filter((t) => t.global?.state === "pointer-stale")
+						.length,
+					native: visibleTargets.filter((t) => t.global?.state === "native").length,
 				},
 			};
 			emit(out);
@@ -177,6 +183,82 @@ export function registerStatusCommand(
 		});
 }
 
+/** Human line for one share-link result row. */
+function shareRowLine(c, pretty, r) {
+	const mark = r.linked
+		? c.green(r.unchanged ? "✓" : "✓+")
+		: r.unlinked
+			? c.green("−")
+			: r.blocked || r.skipped
+				? c.yellow("!")
+				: c.gray("·");
+	const note = r.blocked
+		? `native content — ${r.hint ?? "move it into the shared source first"}`
+		: r.skipped
+			? `skipped (${r.skipped})`
+			: r.missing
+				? "not linked (missing)"
+				: r.unchanged
+					? "already linked"
+					: r.backup
+						? `linked (native backed up: ${pretty(r.backup)})`
+						: "";
+	return `  ${mark} ${String(r.id).padEnd(10)} ${pretty(r.path)}${note ? c.gray("  — " + note) : ""}`;
+}
+
+/** `link agents|skills` flow: share the roster/store with capable tools. */
+function sharedLinkFlow(
+	what,
+	opts,
+	{ emit, log, c, pretty, isJson, fail, linkShared },
+) {
+	if (opts.project)
+		fail("Share links are home-scope only (-g is the default; no -p).", {
+			command: "link",
+			what,
+		});
+	const results = linkShared(what, opts.target, {
+		force: !!(opts.force || opts.overwrite),
+	});
+	const linked = results.filter((r) => r.linked && !r.unchanged).length;
+	const ok = results.filter((r) => r.unchanged).length;
+	const blocked = results.filter((r) => r.blocked);
+	emit({
+		command: "link",
+		what,
+		scope: "global",
+		results,
+		changed: linked > 0,
+	});
+	if (!isJson()) {
+		for (const r of results) log.raw(shareRowLine(c, pretty, r));
+		log.success(`${linked} linked, ${ok} up-to-date`);
+		if (blocked.length)
+			for (const b of blocked)
+				log.warn(`${b.id}: native content — ${b.hint ?? "merge or use --force"}`);
+	}
+}
+
+/** `unlink agents|skills` flow. */
+function sharedUnlinkFlow(
+	what,
+	opts,
+	{ emit, log, c, pretty, isJson, unlinkShared },
+) {
+	if (opts.project)
+		fail("Share links are home-scope only (-g is the default; no -p).", {
+			command: "unlink",
+			what,
+		});
+	const results = unlinkShared(what, opts.target);
+	const n = results.filter((r) => r.unlinked).length;
+	emit({ command: "unlink", what, scope: "global", results, changed: n > 0 });
+	if (!isJson()) {
+		for (const r of results) log.raw(shareRowLine(c, pretty, r));
+		log.success(`${n} share link(s) removed`);
+	}
+}
+
 /** Register the link and unlink commands. */
 export function registerLinkCommands(
 	program,
@@ -197,24 +279,37 @@ export function registerLinkCommands(
 		ensureMaster,
 		ensureMasterPointer,
 		isJson,
+		linkShared,
+		unlinkShared,
 	},
 ) {
 	program
-		.command("link")
+		.command("link [what]")
 		.description(
-			"(Re)write pointer stubs for already-enabled agents — e.g. to repair drift after a sync pull or manual config edit. Idempotent. Edit the master anytime — no re-link needed.",
+			"(Re)write pointer stubs for already-enabled agents — e.g. to repair drift after a sync pull or manual config edit. Idempotent. Edit the master anytime — no re-link needed. 'link agents' / 'link skills' share the persona roster / skill store with every capable tool (manage once, use everywhere).",
 		)
-		// M7: link/unlink select targets via -t/--target, never positionals —
-		// a stray `agent-cli link claude` must error, not silently link everything.
+		// M7: link/unlink select targets via -t/--target, never bare ids — the one
+		// accepted positional is the fixed vocabulary 'agents' | 'skills'.
 		.allowExcessArguments(false)
 		.option("-g, --global", "Home (~) scope only")
 		.option("-p, --project", "Current project (./) scope only")
 		.option("-t, --target <ids...>", "Restrict to target ids")
 		.option("--force", "Overwrite native (non-pointer) content (destructive)")
 		.option("--overwrite", "alias for --force")
-		.action(async (opts) => {
+		.action(async (what, opts) => {
+			validateWhat(what, "link", fail);
 			const cfg = await loadConfig();
 			validateIds(opts, "link", TARGETS, fail);
+			if (what)
+				return sharedLinkFlow(what, opts, {
+					emit,
+					log,
+					c,
+					pretty,
+					isJson,
+					fail,
+					linkShared,
+				});
 			const scopes = [];
 			if (opts.global) scopes.push("global");
 			if (opts.project) scopes.push("project");
@@ -222,8 +317,7 @@ export function registerLinkCommands(
 			const out = { command: "link", scopes, results: [] };
 			for (const scope of scopes) {
 				let ids = opts.target;
-				if (!ids)
-					ids = scope === "global" ? cfg.global : effectiveProjectIds(cfg);
+				if (!ids) ids = scope === "global" ? cfg.global : effectiveProjectIds(cfg);
 				const targets = selectedTargets(scope, ids, targetsWithScope);
 				// Project pointers must redirect to the project master, not the global one.
 				const { masterAbs, masterTilde } = masterPaths(scope);
@@ -280,17 +374,27 @@ export function registerLinkCommands(
 		});
 
 	program
-		.command("unlink")
+		.command("unlink [what]")
 		.description(
-			"Remove pointer stubs only (deletes only files that are pointers); does not disable the target in config.json — use `target disable` to do both.",
+			"Remove pointer stubs only (deletes only files that are pointers); does not disable the target in config.json — use `target disable` to do both. 'unlink agents' / 'unlink skills' remove the cross-tool share links.",
 		)
 		.allowExcessArguments(false)
 		.option("-g, --global")
 		.option("-p, --project")
 		.option("-t, --target <ids...>")
-		.action(async (opts) => {
+		.action(async (what, opts) => {
+			validateWhat(what, "unlink", fail);
 			const cfg = await loadConfig();
 			validateIds(opts, "unlink", TARGETS, fail);
+			if (what)
+				return sharedUnlinkFlow(what, opts, {
+					emit,
+					log,
+					c,
+					pretty,
+					isJson,
+					unlinkShared,
+				});
 			const scopes = [];
 			if (opts.global) scopes.push("global");
 			if (opts.project) scopes.push("project");
@@ -298,8 +402,7 @@ export function registerLinkCommands(
 			const out = { command: "unlink", scopes, results: [] };
 			for (const scope of scopes) {
 				let ids = opts.target;
-				if (!ids)
-					ids = scope === "global" ? cfg.global : effectiveProjectIds(cfg);
+				if (!ids) ids = scope === "global" ? cfg.global : effectiveProjectIds(cfg);
 				const targets = selectedTargets(scope, ids, targetsWithScope);
 				// unlinkTarget classifies via expectedCtx() — keep it in sync with scope.
 				const { masterAbs, masterTilde } = masterPaths(scope);

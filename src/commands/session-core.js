@@ -1,6 +1,6 @@
 // src/commands/session-core.js — doctor + brief, extracted from cli.js
 // (HIGH-3). Injected deps: { emit, log, c, pretty, EXIT, isJson, loadConfig,
-//   saveConfig, readMaster, VERSION, PKG_NAME }.
+//   saveConfig, readMaster, VERSION, PKG_NAME, detectInstalled }.
 //
 // The payload-building logic (doctor's checks/issues, brief's JSON envelope)
 // lives in src/doctor-report.js and src/brief-report.js as pure, testable
@@ -25,6 +25,7 @@ export function registerSessionCoreCommands(
 		readMaster,
 		VERSION,
 		PKG_NAME,
+		detectInstalled,
 	},
 ) {
 	program
@@ -58,11 +59,13 @@ export function registerSessionCoreCommands(
 			}
 
 			const { buildDoctorReport } = await import("../doctor-report.js");
+			const installedTargets = await detectInstalled();
 			const { issues, checks } = await buildDoctorReport(cfg, {
 				masterContent,
 				upd,
 				version: VERSION,
 				cwd: process.cwd(),
+				installed: installedTargets,
 			});
 
 			let plan = null;

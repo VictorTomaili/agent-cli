@@ -5,9 +5,11 @@
 // returns the exact JSON envelope `agent-cli brief` emits. No emit/log/
 // process.exit/network/writes — the caller owns all of that.
 
+import fs from "node:fs";
 import { pretty, MASTER_FILE } from "./util.js";
 import { hasAgentCliBlock } from "./blocks.js";
 import { isSkillAvailable, legacySkillFields } from "./skill.js";
+import { shareHealth, SHARE_SOURCES } from "./share.js";
 import { buildActions, suggestedStrings, computeEtag } from "./actions.js";
 
 /**
@@ -49,6 +51,39 @@ export function buildBriefPayload(s, { forTask = null, version } = {}) {
 				"/",
 			)} — run \`agent-cli skill migrate --apply\` (Agent Skills spec upgrade; dry-run without --apply)`,
 		);
+
+	// Cross-tool sharing (manage once, use everywhere): enabled, share-capable
+	// tools whose agents/skills dir is not linked to the single source.
+	{
+		const live = (d) => {
+			try {
+				return fs.readdirSync(d).some((n) => !n.startsWith("."));
+			} catch {
+				return false;
+			}
+		};
+		const unlinked = shareHealth(s.cfg, { installed: s.installed ?? [] }).filter(
+			(h) =>
+				h.state !== "linked" &&
+				live(h.kind === "agents" ? SHARE_SOURCES.agents : SHARE_SOURCES.skills),
+		);
+		if (unlinked.length) {
+			const byKind = [...new Set(unlinked.map((u) => u.kind))].sort();
+			warnings.push(
+				`${unlinked.length} share link(s) missing (${byKind
+					.map(
+						(k) =>
+							`${k}: ${unlinked
+								.filter((u) => u.kind === k)
+								.map((u) => u.id)
+								.join(", ")}`,
+					)
+					.join("; ")}) — run \`agent-cli link ${byKind.join(
+					"\` and \`agent-cli link ",
+				)}\` (manage once, use everywhere)`,
+			);
+		}
+	}
 
 	return {
 		tool: "agent-cli",

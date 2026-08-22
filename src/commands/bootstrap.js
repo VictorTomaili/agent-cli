@@ -198,6 +198,26 @@ export function registerBootstrapCommands(
 				deploy.push({ id, name: t.name, ...r });
 			}
 			result.steps.deploy = deploy;
+
+			// 6b. cross-tool share links (manage once, use everywhere): link every
+			// enabled, share-capable tool's agents/skills dir to the single sources.
+			// Non-destructive — native dirs are left alone and reported (the user can
+			// `link agents|skills --force` to adopt them with a backup).
+			try {
+				const share = await import("../share.js");
+				const shareOut = {};
+				for (const kind of share.SHARE_KINDS) {
+					const results = share.linkShared(kind, cfg.global, { force: false });
+					shareOut[kind] = {
+						linked: results.filter((r) => r.linked && !r.unchanged).length,
+						alreadyLinked: results.filter((r) => r.unchanged).length,
+						blocked: results.filter((r) => r.blocked).length,
+					};
+				}
+				result.steps.shareLinks = shareOut;
+			} catch (e) {
+				result.steps.shareLinks = { error: e.message };
+			}
 			result.config = { global: cfg.global, project: cfg.project };
 
 			// 7. auto-install SessionStart brief hooks for enabled targets (best-effort).
@@ -250,7 +270,9 @@ export function registerBootstrapCommands(
 						byAlias.set(u.model, arr);
 					}
 					for (const [alias, personas] of byAlias) {
-						const hint = String(alias).replace(/-model$/, "").toLowerCase();
+						const hint = String(alias)
+							.replace(/-model$/, "")
+							.toLowerCase();
 						let category = models.CATEGORIES.includes(hint) ? hint : null;
 						if (!category) category = "smart"; // fallback
 						const picked = models.pickForCategory(category);

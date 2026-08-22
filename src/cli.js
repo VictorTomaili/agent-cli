@@ -24,6 +24,7 @@ import {
 } from "./util.js";
 import { envelope, serializeEnvelope, EXIT } from "./envelope.js";
 import { TARGETS, getTarget, targetsWithScope, pathFor } from "./targets.js";
+import { linkShared, unlinkShared } from "./share.js";
 import {
 	loadConfig,
 	saveConfig,
@@ -349,6 +350,8 @@ registerLinkCommands(program, {
 	ensureMaster,
 	ensureMasterPointer,
 	isJson: () => JSON_MODE,
+	linkShared,
+	unlinkShared,
 });
 registerStatusCommand(program, {
 	emit,
@@ -557,6 +560,7 @@ registerSessionCoreCommands(program, {
 	readMaster,
 	VERSION,
 	PKG_NAME,
+	detectInstalled,
 });
 registerBootstrapCommands(program, {
 	emit,

@@ -143,7 +143,9 @@ export async function brainWrite({
 			{ code: "INVALID_ARGUMENT" },
 		);
 	}
-	const targetPath = identityFilePath(kind, scope, cwd);
+	// IDENTITY_FILES keys kinds in lowercase; the wire contract is uppercase
+	// (ALLOWED_KINDS above), so normalize for the lib lookup only.
+	const targetPath = identityFilePath(kind.toLowerCase(), scope, cwd);
 	if (!targetPath) {
 		return err(
 			"brain_write",

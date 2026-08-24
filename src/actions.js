@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import { pretty, AGENTS_DIR, MASTER_FILE, exists, readFile } from "./util.js";
+import { pretty, AGENTS_DIR, MASTER_FILE, exists } from "./util.js";
 import { loadConfig } from "./config.js";
 import { readMaster } from "./store.js";
 import { hasAgentCliBlock } from "./blocks.js";
@@ -24,6 +24,7 @@ import {
 	nextGapSuggestion,
 	findUnresolvedModels,
 } from "./agents-lib.js";
+import { readCoreLessons } from "./lessons-lib.js";
 
 const SELF = fileURLToPath(import.meta.url);
 const CLI_DIR = path.resolve(path.dirname(SELF), "cli.js");
@@ -122,7 +123,7 @@ export async function collectState(opts = {}) {
 				filled: !(spect.missingFiles || []).includes(file),
 				gaps: (spect.missingFiles || []).includes(file) ? ["missing"] : null,
 			});
-	const { listLessons, coreFile } = await import("./lessons-lib.js");
+	const { listLessons } = await import("./lessons-lib.js");
 	const lessonsIndex = (await listLessons({ includeProject: true, cwd }))
 		.map((l) => ({
 			path: l.path,
@@ -132,27 +133,9 @@ export async function collectState(opts = {}) {
 		}))
 		.sort((a, b) => a.path.localeCompare(b.path));
 	const inboxCount = (consG.metrics.inbox || 0) + (consP.metrics.inbox || 0);
-	let coreContent = null;
-	let coreScope = null;
-	for (const scope of ["project", "global"]) {
-		try {
-			const md = await readFile(coreFile(scope, cwd));
-			const idx = md.indexOf("## Core");
-			if (idx >= 0) {
-				const cleaned = md
-					.slice(idx + "## Core".length)
-					.replace(/<!--[\s\S]*?-->/g, "")
-					.trim();
-				if (cleaned) {
-					coreContent = cleaned;
-					coreScope = scope;
-					break;
-				}
-			}
-		} catch {
-			/* no core */
-		}
-	}
+	const core = await readCoreLessons({ cwd });
+	const coreContent = core.content;
+	const coreScope = core.exists ? core.scope : null;
 	const unresolvedModels = await findUnresolvedModels(cwd);
 	const sessionMod = await import("./session.js");
 	const session = sessionMod.currentSession();

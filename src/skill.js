@@ -8,7 +8,11 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { HOME, exists, ensureDir, writeFile } from "./util.js";
 import { VERSION as SKILL_VERSION } from "./skills/lib/version.js";
-import { listStore } from "./skills/lib/store.js";
+import {
+	listStore,
+	readSkill,
+	sanitizeSkillName,
+} from "./skills/lib/store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const SKILL_ROOT = path.resolve(__dirname, "skills");
@@ -132,3 +136,47 @@ export const PATHS = {
 	SUBMODULE_ROOT,
 	SUBMODULE_CLI,
 };
+
+/**
+ * List installed skills in the integrated backend. Returns the slim shape
+ * the MCP `brain://skills` resource needs (T6.1.1): `{ name, version, source,
+ * scope }` per skill. `source` is always "integrated" (single backend); `scope`
+ * is always "global" — the skills store has no project scope today. Sorted by
+ * `name` to match `listStore()`'s order.
+ */
+export function listInstalledSkills() {
+	return listStore().map((s) => ({
+		name: s.name,
+		version: s.version || null,
+		source: "integrated",
+		scope: "global",
+	}));
+}
+
+/**
+ * Get one installed skill by name. Refuses invalid names via the same
+ * path-traversal guard the write path uses (`sanitizeSkillName`); returns
+ * `{ ok: false, reason: ... }` for any failure so the SDK caller can surface
+ * a structured error instead of an exception. On success returns the skill's
+ * frontmatter as `manifest`, plus `body`, `path`, and the same
+ * `name/version/source/scope` envelope as `listInstalledSkills`.
+ */
+export function getInstalledSkill(name) {
+	if (typeof name !== "string" || !name.trim())
+		return { ok: false, reason: "skill name required" };
+	if (!sanitizeSkillName(name))
+		return { ok: false, reason: "invalid skill name" };
+	const entry = listStore().find((s) => s.name === name);
+	const skill = readSkill(name);
+	if (!skill || !entry) return { ok: false, reason: "skill not installed" };
+	return {
+		name: entry.name,
+		version: entry.version || null,
+		source: "integrated",
+		scope: "global",
+		path: skill.path,
+		manifest: skill.data,
+		body: skill.body,
+		parseError: skill.parseError || null,
+	};
+}

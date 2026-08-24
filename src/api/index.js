@@ -7,8 +7,9 @@
 // Scope: read-only. Mutating commands are intentionally NOT exposed.
 
 import path from "node:path";
+import fsp from "node:fs/promises";
 import { createRequire } from "node:module";
-import { pretty, HOME, AGENTS_DIR, MASTER_FILE } from "../util.js";
+import { pretty, HOME, AGENTS_DIR, MASTER_FILE, readFile } from "../util.js";
 import {
 	loadConfig,
 	isGlobalEnabled,
@@ -20,12 +21,22 @@ import { hasAgentCliBlock } from "../blocks.js";
 import { TARGETS, pathFor } from "../targets.js";
 import { detectInstalled } from "../detect.js";
 import { classify } from "../pointer.js";
-import { isSkillAvailable } from "../skill.js";
-import { identityInventory } from "../agents-lib.js";
-import { listLessons, inboxLessons, coreFile } from "../lessons-lib.js";
+import {
+	isSkillAvailable,
+	listInstalledSkills,
+	getInstalledSkill,
+} from "../skill.js";
+import { identityInventory, parseFrontmatter } from "../agents-lib.js";
+import {
+	listLessons,
+	inboxLessons,
+	coreFile,
+	readCoreLessons,
+} from "../lessons-lib.js";
 import { inspectSpect } from "../spect.js";
 import { listSnapshots, snapshot } from "../snapshot.js";
 import { getAliases, getAlias } from "../models.js";
+import { currentSession } from "../session.js";
 
 const PKG_VERSION = createRequire(import.meta.url)(
 	"../../package.json",
@@ -40,10 +51,14 @@ function masterPaths(scope = "global", cwd = process.cwd()) {
 	return { masterAbs: MASTER_FILE, masterTilde: pretty(MASTER_FILE) };
 }
 
-/** `agent-cli status` payload. */
-export async function status({ all = false, cwd = process.cwd() } = {}) {
+/**
+ * Collect the targets[] payload (same shape `status()` surfaces) and apply the
+ * visibility filter. Single source of truth so the new `targets()` SDK
+ * producer and `status()` cannot drift. Pure read: loads config, calls
+ * detectInstalled() + classify() — no writes, no fs mutations.
+ */
+async function collectTargetsPayload({ all = true } = {}) {
 	const cfg = await loadConfig();
-	const masterContent = await readMaster();
 	const targets = [];
 	for (const t of TARGETS) {
 		const installed = (await detectInstalled()).includes(t.id);
@@ -68,6 +83,15 @@ export async function status({ all = false, cwd = process.cwd() } = {}) {
 					t.projectEnabled ||
 					(t.global && t.global.state !== "pointer"),
 			);
+	return { targets: visibleTargets, targetCount: targets.length, all };
+}
+
+/** `agent-cli status` payload. */
+export async function status({ all = false, cwd = process.cwd() } = {}) {
+	const cfg = await loadConfig();
+	const masterContent = await readMaster();
+	const targetsPayload = await collectTargetsPayload({ all });
+	const visibleTargets = targetsPayload.targets;
 	return {
 		master: {
 			path: MASTER_FILE,
@@ -86,8 +110,8 @@ export async function status({ all = false, cwd = process.cwd() } = {}) {
 			backend: "integrated",
 		},
 		targets: visibleTargets,
-		targetCount: targets.length,
-		all,
+		targetCount: targetsPayload.targetCount,
+		all: targetsPayload.all,
 		targetsSummary: {
 			pointer: visibleTargets.filter((t) => t.global?.state === "pointer").length,
 			missing: visibleTargets.filter((t) => t.global?.state === "missing").length,
@@ -261,3 +285,151 @@ export async function search(
 export { masterPaths };
 
 export { HOME, AGENTS_DIR, MASTER_FILE };
+
+// --- T6.1.1 read SDK producers (Phase 6.1) -----------------------------------
+// Consumers: src/serve.js resources/list + resources/read handlers (T6.1.2).
+// Read-only — no fs writes. Import-boundary: this file is a consumer of lib,
+// not the reverse (only serve.js may import api/**).
+
+/**
+ * Closed kind set for the brain file SDK producer (per MASTER-PLAN §10.2 /
+ * meeting A2). UPPER-CASE on purpose: the canonical `brain://files/SOUL.md`
+ * URIs use the same case as the on-disk filenames, and `AGENTS.md` is
+ * deliberately excluded (NG6 — AGENTS.md is the master, never a brain_write
+ * target, and never a brain_file read target either).
+ */
+export const BRAIN_FILE_KINDS = Object.freeze([
+	"SOUL",
+	"IDENTITY",
+	"USER",
+	"LESSONS",
+	"ENVIRONMENTS",
+	"MODELS",
+]);
+
+/** Resolve the on-disk path for a brain-file kind under the chosen scope. */
+function brainFilePath(kind, scope, cwd) {
+	const base =
+		scope === "project" ? path.join(cwd, ".agents") : path.join(HOME, ".agents");
+	return path.join(base, `${kind}.md`);
+}
+
+/**
+ * Read one of the six Phase 6 brain files and return the metadata-shaped
+ * payload contract (A3). Returns `{ exists: false, ... }` when the file is
+ * missing, and `{ exists: false, symlink: true, ... }` when the path is a
+ * symlink or junction (A8 — closes the secrets-leak vector where a symlinked
+ * `SOUL.md` would otherwise be followed into `~/.agents/secrets/*`). On
+ * `exists: false` or `symlink: true` the `content` field is OMITTED so the
+ * symlinked target cannot leak through any consumer of this payload.
+ *
+ * Scope: accepts both `global` (default) and `project`. The serve.js wire-up
+ * restricts the v0.8.0 resource URIs to global per the open follow-up in the
+ * Phase 6 spec (project-scoped reads are not exposed in v0.8.0), but this
+ * SDK function itself honours both scopes.
+ *
+ * Invalid `kind` throws a structured error
+ * `{ code: "INVALID_KIND", kind, allowed: [...BRAIN_FILE_KINDS] }` — never
+ * returns a payload for an unknown kind.
+ */
+export async function brainFile(kind, { scope = "global", cwd = process.cwd() } = {}) {
+	if (!BRAIN_FILE_KINDS.includes(kind)) {
+		const err = new Error(`invalid brain kind: ${kind}`);
+		err.code = "INVALID_KIND";
+		err.kind = kind;
+		err.allowed = [...BRAIN_FILE_KINDS];
+		throw err;
+	}
+	const filePath = brainFilePath(kind, scope, cwd);
+	const uri = `brain://files/${kind}.md`;
+	const basePayload = {
+		uri,
+		kind,
+		scope,
+		exists: false,
+		symlink: false,
+		schemaVersion: null,
+		lastModified: null,
+		size: null,
+	};
+
+	// lstat FIRST — do not stat (stat would follow the link).
+	let st;
+	try {
+		st = await fsp.lstat(filePath);
+	} catch (e) {
+		if (e?.code === "ENOENT") return basePayload; // missing — content omitted
+		throw e;
+	}
+
+	// A8: symlink/junction refusal — refuse BEFORE reading the target.
+	if (st.isSymbolicLink()) {
+		return { ...basePayload, exists: false, symlink: true };
+	}
+
+	// Non-regular (socket, fifo, device) — also refuse, no usable content.
+	if (!st.isFile()) return basePayload;
+
+	const content = await readFile(filePath);
+	const { frontmatter } = parseFrontmatter(content);
+	return {
+		...basePayload,
+		exists: true,
+		symlink: false,
+		schemaVersion: frontmatter.schemaVersion ?? "0",
+		lastModified: st.mtime.toISOString(),
+		size: st.size,
+		content,
+	};
+}
+
+/**
+ * Same `targets[]` payload shape `status()` produces — extracted from
+ * status() so both surfaces stay in lock-step. Read-only; uses the existing
+ * config / detectInstalled / classify primitives.
+ */
+export async function targets({ all = true, cwd = process.cwd() } = {}) {
+	return collectTargetsPayload({ all });
+}
+
+/**
+ * Always-on core lessons — the `## Core` section of `LESSONS.md`. Project
+ * scope preferred; falls back to global. Pure read; never throws on missing
+ * files. Source-of-truth: `readCoreLessons` in `src/lessons-lib.js`
+ * (extracted as part of T6.1.1; `actions.js#collectState` was refactored to
+ * use the same helper so the SDK and the brief cannot drift).
+ */
+export async function lessonsCore({ cwd = process.cwd() } = {}) {
+	return readCoreLessons({ cwd });
+}
+
+/**
+ * Current active session — `src/session.js#currentSession()`. Returns the
+ * session object (with `startedAt`, `cwd`, `repo`, `branch`, `task`,
+ * `lessonsCaptured`) or `null` when no session is active. Synchronous,
+ * matching the source function.
+ */
+export function sessionCurrent() {
+	return currentSession();
+}
+
+/**
+ * Installed-skill list (integrated backend) — `{ name, version, source,
+ * scope }` per skill. Backed by `listInstalledSkills` in `src/skill.js`,
+ * which in turn calls `listStore()` from the skills subsystem (single
+ * sanctioned bridge is `src/skill.js`, per `test/import-boundaries.test.js`).
+ */
+export function skillsList() {
+	return { skills: listInstalledSkills() };
+}
+
+/**
+ * One installed skill by name — `{ name, version, source, scope, manifest,
+ * body, path }` on success; `{ ok: false, reason: "..." }` on any failure
+ * (invalid name = path-traversal attempt; missing skill = not installed).
+ * The `manifest` is the parsed SKILL.md frontmatter (untrusted — same shape
+ * `agent-cli skill show` surfaces).
+ */
+export function skillManifest(name) {
+	return getInstalledSkill(name);
+}

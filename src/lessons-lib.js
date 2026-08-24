@@ -23,6 +23,47 @@ export function coreFile(scope = "global", cwd = process.cwd()) {
 		: path.join(HOME, ".agents", "LESSONS.md");
 }
 
+/**
+ * Read the always-on core lessons — the `## Core` section of `LESSONS.md`.
+ * Project scope is preferred; falls back to global. Pure read; never throws.
+ * Returns `{ scope, path, content, tokens, exists }` where `content` is the
+ * cleaned section text (HTML comments stripped, trimmed) or `null` when no
+ * core is found in either scope. Used by the MCP `brain://lessons/core`
+ * resource (Phase 6 T6.1.1) and by `actions.js#collectState` (was inline).
+ */
+export async function readCoreLessons({ cwd = process.cwd() } = {}) {
+	for (const scope of ["project", "global"]) {
+		try {
+			const fp = coreFile(scope, cwd);
+			const md = await readFile(fp);
+			const idx = md.indexOf("## Core");
+			if (idx < 0) continue;
+			const cleaned = md
+				.slice(idx + "## Core".length)
+				.replace(/<!--[\s\S]*?-->/g, "")
+				.trim();
+			if (cleaned) {
+				return {
+					scope,
+					path: fp,
+					content: cleaned,
+					tokens: Math.ceil(cleaned.length / 4),
+					exists: true,
+				};
+			}
+		} catch {
+			/* no LESSONS.md in this scope — try the next one */
+		}
+	}
+	return {
+		scope: "global",
+		path: coreFile("global", cwd),
+		content: null,
+		tokens: 0,
+		exists: false,
+	};
+}
+
 export function parseFM(content) {
 	const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
 	if (!m) return { fm: {}, body: content };

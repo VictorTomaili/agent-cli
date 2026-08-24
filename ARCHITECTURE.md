@@ -163,18 +163,29 @@ guards on install and read, bounded reads, pinned npx fetch).
 
 ## MCP server (`src/serve.js`)
 
-Zero-dependency JSON-RPC 2.0 stdio server (`agent-cli serve`). Wraps the read-only
-`src/api/index.js` SDK as MCP tools (`brief`, `doctor`, `search`, `snapshot`, `status`,
-`spect_status`) for any MCP host (Claude Desktop, Cursor, VS Code, …) to call directly
-instead of shelling out. See ROADMAP Phase 6 for planned expansion (write-capable tools,
-resources, evaluate/delegate).
+Zero-dependency JSON-RPC 2.0 stdio server (`agent-cli serve`). Exposes `src/api/index.js`
+to any MCP host (Claude Desktop, Cursor, VS Code, …) as tools, resources, and prompts:
+11 resources (10 concrete URIs plus the `brain://skills/{name}` URI template), 3 prompts
+(`session-start`, `instructions`, `brief-plan`), 6 read tools (`brief`, `doctor`, `search`,
+`snapshot`, `status`, `spect_status`), and 10 write tools (T6.2.5) that are capability-gated.
+
+The `initialize` response always reports `READ_CAPABILITIES` and conditionally
+`WRITE_CAPABILITY` (`experimental.agentCli.writeTools`) when the host offers it (A16). Write
+tools are further gated on `serverInitialized` — refused before `initialize` (A19) — and on
+`writeCapabilityOffered` (A16). `resources/subscribe` accepts only `brain://brief` and
+`brain://session/current`; delivery is stateless and message-driven — no timers or watchers,
+each inbound message is the poll tick (A18). Resource/write payloads are redacted for least
+disclosure (A15) and brain-file reads cap content at 64 KiB (T6.1.6).
 
 ## Programmatic API (`src/api/index.js`)
 
-The same read-only core the CLI exposes, callable in-process — no `process.exit`, no
-network calls. Every function returns the same `data` shape the CLI's `--json` mode emits.
-Used by `serve.js`, tests, and anything embedding `agent` as a library rather than shelling
-out to it.
+The SDK split (T6.2.1): `src/api/index.js` is the read surface and re-export hub;
+`src/api/write.js` is the explicit write half; `src/api/envelope.js` is the shared envelope
+(`ok`/`err`). `index.js`'s own functions remain the read-only core the CLI exposes, callable
+in-process — no `process.exit`, no network calls, and every one returns the same `data`
+shape the CLI's `--json` mode emits. `src/api/write.js` adds the write tools re-exported
+through `index.js`, so a single `import * as sdk` sees both halves. Used by `serve.js`,
+tests, and anything embedding `agent` as a library rather than shelling out to it.
 
 ## Cross-cutting invariants (do not weaken these)
 
@@ -182,6 +193,14 @@ out to it.
   fsync before rename, rename-over-existing (works on POSIX and Windows).
 - **Config writes are locked**: cross-process file lock + read-merge-write CAS in
   `config.js`, so concurrent `agent` invocations don't clobber each other.
+- **Cross-process operation lock for compound mutations**: any write path that mutates more
+  than one brain file, or needs cross-process serialization, must acquire
+  `operation-lock.js`'s `withOperationLock` before mutating — bounded acquisition (default
+  5s) and structured refusal (`OPERATION_BUSY`) on timeout. Distinct from `config.js`'s
+  `withConfigLock` (config.json only); the conflict matrix lives at the top of
+  `src/operation-lock.js` (snapshot conflicts with
+  brain_write/lesson_capture/lesson_consolidate/restore; consolidate conflicts with
+  lesson_capture and brain_write LESSONS).
 - **Path containment**: any write/delete driven by untrusted input (skill names, staged
   update paths, archetype imports) goes through `resolveContained` and symlink/junction
   checks before touching disk.

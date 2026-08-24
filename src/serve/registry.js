@@ -70,7 +70,16 @@ export const SUBSCRIBABLE = new Set([
 	"brain://session/current",
 ]);
 
-/** Authoritative v0.8.1 write-tool inventory (MASTER-PLAN §10.3): exactly 8 tools. `snapshot_now`, `lesson_consolidate`, and `restore` remain conditional (B1/B2 refactors) or deferred (`restore` → v0.8.2). */
+/** Authoritative v0.8.1 write-tool inventory (MASTER-PLAN §10.3): 10 tools.
+ *  The 8 core tools + 2 conditional tools (`snapshot_now`, `lesson_consolidate`)
+ *  whose inclusion depends on the B1 / B2 refactors landing:
+ *    - `snapshot_now`     ships because src/snapshot.js was refactored under
+ *                         withOperationLock + symlink-safe traversal + secret
+ *                         exclusion (T6.2.4a, commit cff9869).
+ *    - `lesson_consolidate` ships because src/consolidate.js was refactored
+ *                         under util.writeFileSync + sanitized errors +
+ *                         shared lock (T6.2.4b, commit f1bb25f).
+ *  `restore` remains deferred to v0.8.2 (master-plan §10.3 C1). */
 export const WRITE_TOOLS = new Set([
 	"brain_write",
 	"lesson_capture",
@@ -80,4 +89,6 @@ export const WRITE_TOOLS = new Set([
 	"unlink",
 	"memory_upgrade_prepare",
 	"memory_upgrade_apply",
+	"snapshot_now",
+	"lesson_consolidate",
 ]);

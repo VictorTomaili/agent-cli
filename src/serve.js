@@ -15,6 +15,7 @@ import * as sdk from "./api/index.js";
 import {
 	READ_CAPABILITIES,
 	RESOURCE_DESCRIPTORS,
+	PROMPT_DESCRIPTORS,
 	SUBSCRIBABLE,
 } from "./serve/registry.js";
 
@@ -136,6 +137,65 @@ function produce(uri, args) {
 	if (m) return sdk.skillManifest(m[1]);
 	return null;
 }
+
+// --- Phase 6 prompt wiring (T6.3.2) -----------------------------------------
+//
+// PROMPT_DESCRIPTORS is the registry's single source of truth (T6.0.1) — it
+// already names each prompt, links it to its canonical CLI command via the
+// internal `uri` field, and carries the human description. The MCP wire shape
+// wants `{ name, description, arguments }`; the `uri` field is internal to the
+// registry (CLI-command pointer, not an MCP wire detail) and is intentionally
+// dropped from the wire shape.
+
+const PROMPT_ARGUMENTS = Object.freeze({
+	"session-start": [{ name: "for", description: "task-aware retrieval", required: false }],
+	"instructions":  [],
+	"brief-plan":    [{ name: "for", description: "task-aware retrieval", required: false }],
+});
+
+function listPrompts() {
+	return PROMPT_DESCRIPTORS.map((d) => {
+		const arguments_ = PROMPT_ARGUMENTS[d.name] || [];
+		return { name: d.name, description: d.description, arguments: arguments_ };
+	});
+}
+
+// --- PRODUCERS_PROMPTS (prompt name → MCP messages array) -------------------
+//
+// Each producer returns the MCP messages shape:
+//   { description, messages: [{ role: "user", content: { type: "text",
+//     text: ... } }] }
+// session-start and instructions return the SDK producer's Markdown string
+// verbatim; brief-plan returns a JSON-stringified structured payload so MCP
+// hosts can JSON.parse it client-side. The SDK already does `if (task)`
+// semantics, so an undefined `args.for` means "no task filter".
+
+const PRODUCERS_PROMPTS = {
+	"session-start": async (args) => ({
+		description: "Dynamic session-start prompt tailored to your installed tools and pending actions.",
+		messages: [{
+			role: "user",
+			content: { type: "text", text: await sdk.sessionStartPrompt({ for: args.for }) },
+		}],
+	}),
+	"instructions": async () => ({
+		description: "Canonical agent-cli instructions for AI agents.",
+		messages: [{
+			role: "user",
+			content: { type: "text", text: await sdk.instructionsPrompt() },
+		}],
+	}),
+	"brief-plan": async (args) => {
+		const plan = await sdk.briefPlanPrompt({ for: args.for });
+		return {
+			description: "Planning-mode brief (equivalent of `agent-cli --json brief --plan`).",
+			messages: [{
+				role: "user",
+				content: { type: "text", text: JSON.stringify(plan, null, 2) },
+			}],
+		};
+	},
+};
 
 // --- A15 least-disclosure helper ---------------------------------------------
 //
@@ -382,6 +442,46 @@ export async function handleMessage(msg) {
 			/* leave lastEtagByUri untouched; next tick will catch any change */
 		}
 		return { id, result: {} };
+	}
+
+	// --- prompts/list -----------------------------------------------------
+	if (method === "prompts/list") {
+		return { id, result: { prompts: listPrompts() } };
+	}
+
+	// --- prompts/get ------------------------------------------------------
+	if (method === "prompts/get") {
+		const name = params && params.name;
+		const args = (params && params.arguments) || {};
+		const producer = PRODUCERS_PROMPTS[name];
+		if (!producer) {
+			return {
+				id,
+				error: { code: -32602, message: "unknown prompt: " + name },
+			};
+		}
+		// Validate required arguments against the metadata advertised in
+		// PROMPT_ARGUMENTS. None of the v0.8.0 prompts have a required arg,
+		// but the check is here so future prompts can mark `required: true`
+		// and the error surface stays consistent.
+		const requiredArgs = PROMPT_ARGUMENTS[name] || [];
+		for (const arg of requiredArgs) {
+			if (arg.required && (args[arg.name] === undefined || args[arg.name] === null || args[arg.name] === "")) {
+				return {
+					id,
+					error: { code: -32602, message: "missing required argument: " + arg.name },
+				};
+			}
+		}
+		try {
+			const result = await producer(args);
+			return { id, result };
+		} catch (e) {
+			return {
+				id,
+				error: { code: -32602, message: "prompt producer failed: " + ((e && e.message) || name) },
+			};
+		}
 	}
 
 	return { id, error: { code: -32601, message: "method not found: " + method } };

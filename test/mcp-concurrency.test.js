@@ -23,12 +23,16 @@
 //       omits it and tools/call restore returns -32602 unknown tool.
 //
 // Isolation: AGENT_CLI_HOME set to a fresh mkdtemp dir BEFORE the async
-// serve.js import; AGENT_OFFLINE=1 + AGENT_CLI_NO_UPDATE_CHECK=1. All project-
-// scoped writes are redirected via a `cwd` arg rooted under TMP_HOME so a
-// lesson_capture leg can never touch the real repo's `.agents`. Per-test
-// beforeEach resets the module-global session state via serve.resetSession().
-// Every test wipes the brain target + lock dir first. No spawned children in
-// this file; each test runs the real handleMessage in-process.
+// serve.js import; AGENT_OFFLINE=1 + AGENT_CLI_NO_UPDATE_CHECK=1. A17
+// (T6.2.7 F1): project scope ALWAYS resolves against the server's launch cwd
+// (LAUNCH_CWD), NEVER a caller-supplied `cwd` arg — so the project legs are
+// isolated by chdir-ing the server into a project dir under TMP_HOME BEFORE
+// the serve.js import (write.js captures LAUNCH_CWD at module load). A host
+// `cwd` arg is deliberately passed as a decoy and asserted to be ignored.
+// Per-test beforeEach resets the module-global session state via
+// serve.resetSession(). Every test wipes the brain target + lock dir first.
+// No spawned children in this file; each test runs the real handleMessage
+// in-process.
 
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -52,8 +56,17 @@ process.env.AGENT_OFFLINE = "1";
 process.env.AGENT_CLI_NO_UPDATE_CHECK = "1";
 const TMP_HOME = mkdtempSync(path.join(tmpdir(), "agent-mcp-conc-"));
 process.env.AGENT_CLI_HOME = TMP_HOME;
-// Project-scope writes are rooted here so no leg touches the real repo.
+// A17 (T6.2.7 F1): project-scope writes must resolve under the server's
+// launch cwd (LAUNCH_CWD), so launch the server from a project dir inside
+// TMP_HOME — never the real repo. chdir BEFORE the serve.js import because
+// write.js captures LAUNCH_CWD at module load.
 const PROJECT_CWD = path.join(TMP_HOME, "proj");
+mkdirSync(PROJECT_CWD, { recursive: true });
+process.chdir(PROJECT_CWD);
+
+// Host-supplied decoy `cwd` — A17 requires it be IGNORED for path resolution,
+// so it must never appear in any resolved destination.
+const A17_DECOY_CWD = "/tmp/a17-evil-cwd";
 
 const serve = await import("../src/serve.js");
 
@@ -154,7 +167,7 @@ test("R2: brain_write racing lesson_capture converges (operation lock serializes
 	const BRAIN_CONTENT = "brain-race-" + "zz".repeat(100);
 	const [rw, rc] = await Promise.all([
 		callTool("brain_write", { kind: "SOUL", content: BRAIN_CONTENT, applyChanges: true }),
-		callTool("lesson_capture", { topic: "race-cap", cwd: PROJECT_CWD }),
+		callTool("lesson_capture", { topic: "race-cap", cwd: A17_DECOY_CWD }),
 	]);
 
 	const ew = envelope(rw);
@@ -177,6 +190,16 @@ test("R2: brain_write racing lesson_capture converges (operation lock serializes
 	assert.ok(
 		!existsSync(path.join(REPO_ROOT, ".agents", "lessons", ".inbox", "race-cap.md")),
 		"project-scope capture must NOT leak into the real repo",
+	);
+	// A17 (T6.2.7 F1): the project-scope capture must resolve under LAUNCH_CWD
+	// (the server launch dir == PROJECT_CWD here), never the host-supplied arg.
+	assert.ok(
+		existsSync(path.join(PROJECT_CWD, ".agents", "lessons", ".inbox", "race-cap.md")),
+		"project-scope capture must resolve under LAUNCH_CWD (the server launch dir)",
+	);
+	assert.ok(
+		!existsSync(path.join(A17_DECOY_CWD, ".agents", "lessons", ".inbox", "race-cap.md")),
+		"host-supplied cwd must be ignored (A17); the evasive path is never written",
 	);
 	// Both legs released their locks.
 	assert.ok(!existsSync(path.join(LOCK_DIR, "snapshot.lock")), "snapshot.lock released");
@@ -248,7 +271,7 @@ test("R4: consolidate racing lesson_capture is serialized by the consolidate loc
 
 	const [rc, rcap] = await Promise.all([
 		callTool("lesson_consolidate", { scope: "global" }), // default dry-run
-		callTool("lesson_capture", { topic: "consolidate-race", cwd: PROJECT_CWD }),
+		callTool("lesson_capture", { topic: "consolidate-race", cwd: A17_DECOY_CWD }),
 	]);
 
 	const ec = envelope(rc);
@@ -273,6 +296,16 @@ test("R4: consolidate racing lesson_capture is serialized by the consolidate loc
 	assert.ok(
 		!existsSync(path.join(REPO_ROOT, ".agents", "lessons", ".inbox", "consolidate-race.md")),
 		"project-scope capture must NOT leak into the real repo",
+	);
+	// A17 (T6.2.7 F1): project-scope capture resolves under LAUNCH_CWD, not the
+	// host-supplied decoy cwd.
+	assert.ok(
+		existsSync(path.join(PROJECT_CWD, ".agents", "lessons", ".inbox", "consolidate-race.md")),
+		"project-scope capture must resolve under LAUNCH_CWD (the server launch dir)",
+	);
+	assert.ok(
+		!existsSync(path.join(A17_DECOY_CWD, ".agents", "lessons", ".inbox", "consolidate-race.md")),
+		"host-supplied cwd must be ignored (A17); the evasive path is never written",
 	);
 	assert.ok(!existsSync(path.join(LOCK_DIR, "consolidate.lock")), "consolidate.lock released");
 	assert.ok(!existsSync(path.join(LOCK_DIR, "snapshot.lock")), "snapshot.lock released");

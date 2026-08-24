@@ -266,6 +266,40 @@ test("brain_write IDENTITY + project scope rejects with ok:false code=SCOPE_INVA
 });
 
 // ---------------------------------------------------------------------------
+// A17 (T6.2.7 F1) — a host-supplied `cwd` is ignored; project scope resolves
+// under the server launch dir (LAUNCH_CWD), never the caller-supplied path.
+// ---------------------------------------------------------------------------
+
+test("brain_write ignores a host-supplied cwd; project scope resolves under the launch dir", async () => {
+	await runInit();
+	// Dry-run so nothing is written to disk (a real write would otherwise
+	// land in the repo's `.agents` when the suite runs from the repo root).
+	const decoy = "/etc";
+	const parsed = envelope(
+		await callTool("brain_write", {
+			kind: "SOUL",
+			scope: "project",
+			content: "# a17",
+			applyChanges: false,
+			cwd: decoy,
+		}),
+	);
+	assert.equal(parsed.ok, true);
+	assert.equal(parsed.command, "brain_write");
+	assert.equal(parsed.apiVersion, "2.0.0");
+	assert.equal(parsed.data.scope, "project");
+	assert.ok(
+		typeof parsed.data.path === "string" && parsed.data.path.endsWith(".agents/SOUL.md"),
+		`project scope must resolve to <.agents>/SOUL.md; got ${JSON.stringify(parsed.data.path)}`,
+	);
+	assert.ok(
+		typeof parsed.data.path === "string" && !parsed.data.path.includes(decoy),
+		`host-supplied cwd must be ignored (A17); path must not contain "${decoy}"`,
+	);
+	assert.ok(!existsSync(SOUL_PATH), "A17 dry-run must not write a brain file");
+});
+
+// ---------------------------------------------------------------------------
 // Dry-run defaults (master-plan §1 decision 4)
 // ---------------------------------------------------------------------------
 

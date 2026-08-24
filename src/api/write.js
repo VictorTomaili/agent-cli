@@ -30,10 +30,12 @@
 //   4. File writes use `util.writeFile` (atomic-rename), never raw
 //      `fs.writeFileSync`. Config reads/writes go through `config.js`'s
 //      locked helpers (atomicEnable*/atomicDisable*, withConfigLock).
-//   5. The cwd argument is captured at MODULE LOAD time — the server's launch
-//      cwd is the trust boundary (A17 + master-plan §10.1 Item 1). Callers
-//      cannot smuggle in a host-controlled path; the `cwd` arg is ignored for
-//      scope resolution and only retained for diagnostic echoing.
+//   5. A17 trust boundary: the server's launch cwd (LAUNCH_CWD) is the ONLY
+//      legitimate project root. NO exported write function accepts a `cwd`
+//      argument; project-scope path resolution always uses LAUNCH_CWD. If a
+//      caller still supplies a `cwd` key it is ignored during destructuring
+//      and never reaches path resolution, so a host cannot select the
+//      destination directory (T6.2.7 F1).
 //   6. `applyChanges` is opt-in for destructive tools: `link` defaults
 //      `applyChanges: true` (immediate; CLI parity), `memory_upgrade_apply`
 //      defaults `applyChanges: false` (preview). Truthy strings fail closed
@@ -66,10 +68,12 @@ import {
 import { snapshot } from "../snapshot.js";
 import { consolidate } from "../consolidate.js";
 
-// Server-launch cwd is the trust boundary (A17). Captured at module load so
-// callers cannot smuggle in a project root via the `cwd` argument; the arg
-// is still accepted (callers don't have to special-case us) but only the
-// launch-time cwd is consulted for path resolution.
+// Server-launch cwd is the SOLE project root (A17 trust boundary). Captured at
+// module load. No exported write function accepts a `cwd` argument — project
+// scope always resolves against LAUNCH_CWD, never a caller-supplied value. A
+// host injecting a `cwd` key into an MCP arguments object has no effect: the
+// key is dropped during destructuring and never reaches identityFilePath /
+// lessonsRoot / coreFile / identityBase. (T6.2.7 F1.)
 const LAUNCH_CWD = process.cwd();
 
 /**
@@ -113,7 +117,6 @@ export async function brainWrite({
 	content,
 	scope = "global",
 	applyChanges = true,
-	cwd = LAUNCH_CWD,
 } = {}) {
 	if (typeof kind !== "string" || !ALLOWED_KINDS.includes(kind)) {
 		return err(
@@ -145,7 +148,7 @@ export async function brainWrite({
 	}
 	// IDENTITY_FILES keys kinds in lowercase; the wire contract is uppercase
 	// (ALLOWED_KINDS above), so normalize for the lib lookup only.
-	const targetPath = identityFilePath(kind.toLowerCase(), scope, cwd);
+	const targetPath = identityFilePath(kind.toLowerCase(), scope, LAUNCH_CWD);
 	if (!targetPath) {
 		return err(
 			"brain_write",
@@ -190,7 +193,6 @@ export async function brainWrite({
 export async function lessonCapture({
 	topic,
 	body = null,
-	cwd = LAUNCH_CWD,
 } = {}) {
 	if (typeof topic !== "string" || !topic.trim()) {
 		return err(
@@ -207,7 +209,7 @@ export async function lessonCapture({
 				const r = await addInboxCapture(topic, {
 					body,
 					scope,
-					cwd,
+					cwd: LAUNCH_CWD,
 				});
 				results.push({ scope, file: r.file, ok: r.ok });
 			}
@@ -229,7 +231,6 @@ export async function lessonCapture({
 export async function targetEnable({
 	id,
 	scope = "global",
-	cwd = LAUNCH_CWD,
 } = {}) {
 	if (typeof id !== "string" || !id.trim()) {
 		return err(
@@ -277,7 +278,7 @@ export async function targetEnable({
 			const cfg =
 				scope === "global"
 					? atomicEnableGlobal(id)
-					: atomicEnableProjectTarget(cwd, id);
+					: atomicEnableProjectTarget(LAUNCH_CWD, id);
 			return ok("target_enable", {
 				id,
 				scope,
@@ -298,7 +299,6 @@ export async function targetEnable({
 export async function targetDisable({
 	id,
 	scope = "global",
-	cwd = LAUNCH_CWD,
 } = {}) {
 	if (typeof id !== "string" || !id.trim()) {
 		return err(
@@ -344,7 +344,7 @@ export async function targetDisable({
 			const cfg =
 				scope === "global"
 					? atomicDisableGlobal(id)
-					: atomicDisableProjectTarget(cwd, id);
+					: atomicDisableProjectTarget(LAUNCH_CWD, id);
 			return ok("target_disable", {
 				id,
 				scope,
@@ -378,7 +378,6 @@ export async function link({
 	scope = "global",
 	force = false,
 	applyChanges = true,
-	cwd = LAUNCH_CWD,
 } = {}) {
 	if (typeof id !== "string" || !id.trim()) {
 		return err("link", "id is required", { code: "INVALID_ARGUMENT" });
@@ -443,7 +442,6 @@ export async function unlink({
 	id,
 	scope = "global",
 	preserve = false,
-	cwd = LAUNCH_CWD,
 } = {}) {
 	if (typeof id !== "string" || !id.trim()) {
 		return err("unlink", "id is required", { code: "INVALID_ARGUMENT" });
@@ -492,7 +490,6 @@ export async function unlink({
 export async function memoryUpgradePrepare({
 	id,
 	scope = "global",
-	cwd = LAUNCH_CWD,
 } = {}) {
 	if (typeof id !== "string" || !id.trim()) {
 		return err(
@@ -508,7 +505,7 @@ export async function memoryUpgradePrepare({
 			{ code: "SCOPE_INVALID" },
 		);
 	}
-	const r = await prepareMigration(id, { scope, cwd });
+	const r = await prepareMigration(id, { scope, cwd: LAUNCH_CWD });
 	if (!r.ok) {
 		return err("memory_upgrade_prepare", r.reason, {
 			code: r.noop ? "NOOP" : "PREPARE_FAILED",
@@ -544,7 +541,6 @@ export async function memoryUpgradeApply({
 	id,
 	scope = "global",
 	applyChanges = false,
-	cwd = LAUNCH_CWD,
 } = {}) {
 	if (typeof id !== "string" || !id.trim()) {
 		return err(
@@ -568,7 +564,7 @@ export async function memoryUpgradeApply({
 			reason: "applyChanges must be exactly true (preview by default)",
 		});
 	}
-	const r = await markApplied(id, { scope, cwd });
+	const r = await markApplied(id, { scope, cwd: LAUNCH_CWD });
 	if (!r.ok) {
 		return err("memory_upgrade_apply", r.reason, {
 			code: r.noop ? "NOOP" : "APPLY_FAILED",
@@ -616,7 +612,6 @@ export async function snapshotNowWrite({
 export async function lessonConsolidate({
 	scope = "global",
 	applyChanges = false,
-	cwd = LAUNCH_CWD,
 	promoteThreshold,
 } = {}) {
 	if (scope !== "global" && scope !== "project") {
@@ -629,7 +624,7 @@ export async function lessonConsolidate({
 	const dryRun = !isApplyChangesTrue(applyChanges);
 	const r = await consolidate({
 		scope,
-		cwd,
+		cwd: LAUNCH_CWD,
 		dryRun,
 		promoteThreshold,
 		surface: "mcp",

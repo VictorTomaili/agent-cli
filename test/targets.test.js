@@ -70,6 +70,44 @@ test("we cover the major agents", () => {
 	}
 });
 
+test("deepseek target is registered with the DSH-canonical paths", () => {
+	const deepseek = getTarget("deepseek");
+	assert.ok(deepseek, "deepseek target must be registered");
+	assert.equal(deepseek.name, "DeepSeek Harness");
+	// DSH agent-instructions: $DSH_HOME/AGENTS.md (default ~/.dsh/AGENTS.md).
+	assert.equal(pathFor(deepseek, "global"), ".dsh/AGENTS.md");
+	// DSH project walk: AGENTS.md in cwd (also CLAUDE.md, but pathFor returns
+	// the primary candidate — `link agents|skills` covers CLAUDE.md separately
+	// because DSH reads both).
+	assert.equal(pathFor(deepseek, "project"), "AGENTS.md");
+	assert.equal(deepseek.detect, ".dsh");
+	assert.deepEqual(scopesFor(deepseek).sort(), ["global", "project"]);
+});
+
+test("deepseek has no SessionStart hooks config (DSH is plugin-based)", () => {
+	const deepseek = getTarget("deepseek");
+	// DSH's own base bundle ships no native SessionStart; the Codex/Claude
+	// bridges target the claude/codex JSON files (already handled). The
+	// pointer stub IS the integration — DSH's agent-instructions loader
+	// picks the master up on the first agent/pre-step. We document that in
+	// the target's `note` rather than fabricating a configFile that doesn't
+	// exist in DSH's deployment.
+	assert.equal(deepseek.hooks, undefined, "deepseek must not declare hooks");
+	assert.match(deepseek.note, /SessionStart/);
+	assert.match(deepseek.note, /no native/i);
+});
+
+test("deepseek exposes DSH's skills share dir and omits agents", () => {
+	const deepseek = getTarget("deepseek");
+	// skill-filesystem user-dsh = ~/.dsh/skills (rank 400).
+	// No `share.agents` — DSH sub-agents are runtime Agent objects, not
+	// on-disk persona files; there is no DSH-native directory to link.
+	// Linking the source dir `~/.agents/agents` to itself would also be a
+	// self-loop that the share layer would refuse as native-content.
+	assert.equal(deepseek.share.skills, ".dsh/skills");
+	assert.equal(deepseek.share.agents, undefined);
+});
+
 test("getTarget returns null for an unknown id", () => {
 	assert.equal(getTarget("nope-not-a-target"), null);
 });

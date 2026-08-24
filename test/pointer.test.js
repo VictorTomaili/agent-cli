@@ -395,3 +395,67 @@ test("unlinkTarget preserves the windsurf legacy alias when requested", async ()
 	await fs.rm(main, { force: true });
 	await fs.rm(legacy, { force: true });
 });
+
+test("deepseek global pointer is written to ~/.dsh/AGENTS.md with the right sentinel", async () => {
+	const deepseek = targets.getTarget("deepseek");
+	const p = pointer.targetPath(deepseek, "global");
+	// Make sure the previous run of any other test didn't leave a stub behind.
+	await fs.rm(p, { force: true });
+
+	const linked = await pointer.linkTarget(deepseek, "global", {
+		masterAbs: MASTER_ABS,
+		masterTilde: "~/.agents/AGENTS.md",
+	});
+	assert.equal(linked.linked, true);
+	assert.equal(linked.path, p);
+
+	const onDisk = await fs.readFile(p, "utf8");
+	assert.ok(onDisk.includes(pointer.POINTER_MARK));
+	assert.ok(onDisk.includes("<!-- target: deepseek -->"));
+	assert.ok(onDisk.includes("<!-- scope: global -->"));
+	// DSH reads this exact path (agent-instructions config.ts:
+	// `join($DSH_HOME, 'AGENTS.md')`, default $DSH_HOME = ~/.dsh).
+	assert.ok(onDisk.includes("<!-- master-abs:"));
+	assert.ok(onDisk.includes(MASTER_ABS));
+
+	const cls = await pointer.classify(deepseek, "global");
+	assert.equal(cls.state, "pointer");
+
+	// Idempotent re-link.
+	const again = await pointer.linkTarget(deepseek, "global", {
+		masterAbs: MASTER_ABS,
+		masterTilde: "~/.agents/AGENTS.md",
+	});
+	assert.equal(again.unchanged, true);
+
+	// Clean up so other tests aren't affected.
+	const u = await pointer.unlinkTarget(deepseek, "global");
+	assert.equal(u.unlinked, true);
+});
+
+test("deepseek project pointer is written at <cwd>/AGENTS.md and points at the project master", async () => {
+	const deepseek = targets.getTarget("deepseek");
+	const projTmp = await fs.mkdtemp(path.join(tmpdir(), "agent-dsh-proj-"));
+	const projMaster = path.join(projTmp, ".agents", "AGENTS.md");
+	const prev = process.cwd();
+	process.chdir(projTmp);
+	try {
+		const projectTarget = path.join(projTmp, "AGENTS.md");
+		await fs.rm(projectTarget, { force: true });
+
+		const linked = await pointer.linkTarget(deepseek, "project", {
+			masterAbs: projMaster,
+			masterTilde: "~/.agents/AGENTS.md",
+		});
+		assert.equal(linked.linked, true);
+		const body = await fs.readFile(projectTarget, "utf8");
+		assert.ok(body.includes("<!-- target: deepseek -->"));
+		assert.ok(body.includes("<!-- scope: project -->"));
+		// project pointer must redirect to the project master, NOT the global one.
+		assert.ok(body.includes(projMaster));
+		assert.ok(!body.includes(MASTER_ABS));
+	} finally {
+		process.chdir(prev);
+		await fs.rm(projTmp, { recursive: true, force: true });
+	}
+});

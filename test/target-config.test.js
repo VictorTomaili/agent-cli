@@ -38,6 +38,7 @@ function cleanProj(dir) {
 		".github",
 		".codex",
 		".pi",
+		".dsh",
 	]) {
 		rmSync(path.join(dir, rel), { recursive: true, force: true });
 	}

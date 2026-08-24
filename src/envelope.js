@@ -35,11 +35,15 @@ export function stripAnsiDeep(v) {
 /**
  * Build the envelope. `data` is the command-specific payload; `error` (when
  * present) is a human-readable failure message carried at the top level and
- * drives `ok:false`.
+ * drives `ok:false`. `updateNotice` (optional) is the npm-update advisory
+ * computed by the preAction hook and attached verbatim — it surfaces a new
+ * agent-cli version when installed < latest, and is omitted entirely when
+ * installed == latest, the cache is unknown, or the user opted out.
  */
-export function envelope({ command, data = {}, error } = {}) {
+export function envelope({ command, data = {}, error, updateNotice } = {}) {
 	const out = { ok: !error, command, apiVersion: API_VERSION, data };
 	if (error != null) out.error = error;
+	if (updateNotice != null) out.updateNotice = updateNotice;
 	return out;
 }
 

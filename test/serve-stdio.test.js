@@ -334,3 +334,80 @@ test("stdio parity: prompts/get brief-plan text matches `agent-cli --json brief 
 	// wireText === cliPlanJson: byte-for-byte parity. (No-op — the assert.fail
 	// above is the only way this assertion path runs today.)
 });
+
+// ---------------------------------------------------------------------------
+// T6.2.6 — write-capability wire parity (spawned stdio, MASTER-PLAN §1 dec 10).
+//
+// In-process handleMessage tests (test/mcp-write.test.js) are necessary but not
+// sufficient: the WRITE wire path must be exercised through a real stdin/stdout
+// pipe to detect serializer drift. This spawns `agent-cli serve`, initializes
+// with the write capability, drives tools/list (16 tools) + one brain_write
+// dry-run, and asserts the JSON-RPC responses are well-formed and the write
+// envelope carries apiVersion "2.0.0". The whole session stays off the real
+// home (fresh AGENT_CLI_HOME) and off the network.
+// ---------------------------------------------------------------------------
+
+test("stdio write-capability: tools/list exposes 16 tools + brain_write dry-run envelope (T6.2.6)", async () => {
+	const home = freshHome();
+	const { child, lines, exited } = startServe(home);
+	let listResp;
+	let brainResp;
+	try {
+		// Offer the write capability (A16) — exact boolean true.
+		sendMessage(child, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "initialize",
+			params: { capabilities: { experimental: { agentCli: { writeTools: true } } } },
+		});
+		sendMessage(child, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+		sendMessage(child, {
+			jsonrpc: "2.0",
+			id: 3,
+			method: "tools/call",
+			params: {
+				name: "brain_write",
+				arguments: { kind: "SOUL", content: "wire content", applyChanges: false },
+			},
+		});
+		child.stdin.end();
+		const { code, stderr } = await exited;
+		assert.equal(code, 0, `serve exited code=${code}; stderr=${stderr}`);
+
+		listResp = findResponse(lines, 2);
+		brainResp = findResponse(lines, 3);
+		assert.ok(listResp && listResp.result, `no tools/list response; lines=${JSON.stringify(lines)}`);
+		assert.ok(brainResp && brainResp.result, `no brain_write response; lines=${JSON.stringify(lines)}`);
+	} finally {
+		reap(child);
+	}
+
+	// tools/list → 16 well-formed tools (6 read + 10 write). This asserts the
+	// whole write inventory crossed the real wire, not just the in-process path.
+	const tools = listResp.result.tools;
+	assert.ok(Array.isArray(tools), "tools/list must return a tools array");
+	assert.equal(tools.length, 16, `expected 16 tools, got ${tools.length}`);
+	const names = tools.map((t) => t.name);
+	for (const n of [
+		"brain_write", "lesson_capture", "target_enable", "target_disable",
+		"link", "unlink", "memory_upgrade_prepare", "memory_upgrade_apply",
+		"snapshot_now", "lesson_consolidate",
+	]) {
+		assert.ok(names.includes(n), `missing write tool ${n} on the wire`);
+	}
+	for (const n of ["brief", "doctor", "search", "snapshot", "status", "spect_status"]) {
+		assert.ok(names.includes(n), `missing read tool ${n} on the wire`);
+	}
+	assert.ok(!names.includes("restore"), "restore must NOT cross the wire in v0.8.1");
+	// Every advertised tool carries an inputSchema (wire-shape contract).
+	for (const t of tools) assert.ok(t.inputSchema, `missing inputSchema for ${t.name}`);
+
+	// brain_write dry-run envelope carries the contract shape + apiVersion 2.0.0.
+	assert.equal(brainResp.result.content[0].type, "text");
+	const parsed = JSON.parse(brainResp.result.content[0].text);
+	assert.equal(typeof parsed.ok, "boolean");
+	assert.equal(parsed.command, "brain_write");
+	assert.equal(parsed.apiVersion, "2.0.0");
+	assert.equal(parsed.data.dryRun, true, "applyChanges:false must stay a dry run on the wire");
+	assert.ok(!brainResp.result.isError, "a dry-run brain_write must not be surfaced as an error");
+});

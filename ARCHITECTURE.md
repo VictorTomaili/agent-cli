@@ -102,6 +102,7 @@ first when touching one.
 | `store.js` | the master file itself: seed, read, write, managed-block refresh |
 | `blocks.js` | the managed instruction block markers inside the master |
 | `pointer.js` | generate/write/classify pointer stubs (`pointer` / `native` / `missing` / `stale`) |
+| `managed-resource.js` | shared state machine + backup-path helper for `pointer.js` / `share.js` / `hooks.js` — single source of truth for the missing/ours/stale/native → link/unlink decision table |
 | `targets.js` | registry of the 16 known coding tools: paths, detection markers, hook config, content transforms |
 | `detect.js` | best-effort "is this tool installed" check |
 | `seed.js` | shipped default content (`seed/`) + staged-update stage/diff/apply/clear |

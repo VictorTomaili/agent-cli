@@ -171,7 +171,7 @@ export async function memoryMaintain({ scope = "all", cwd = process.cwd() } = {}
 		const cons = assess({ scope: s, cwd });
 		if (cons.recommend) {
 			const conMod = await import("./consolidate.js");
-			const r = conMod.consolidate({ scope: s, cwd });
+			const r = await conMod.consolidate({ scope: s, cwd });
 			consolidated.push({ scope: s, ...(r.stats || {}) });
 		}
 	}

@@ -48,7 +48,7 @@ test("consolidate two-pass grace: promote recurring, prune singleton", async () 
 	});
 
 	// pass 1: promote recurring, mark singleton
-	const p1 = consolidate({ scope: "project", cwd });
+	const p1 = await consolidate({ scope: "project", cwd });
 	assert.equal(p1.stats.promoted, 1);
 	assert.equal(p1.stats.marked, 1);
 	let items = (await listLessons({ includeProject: true, cwd })).filter(
@@ -58,7 +58,7 @@ test("consolidate two-pass grace: promote recurring, prune singleton", async () 
 	assert.ok(items.find((i) => i.path === "solo/once" && i.marked));
 
 	// pass 2: prune marked singleton
-	const p2 = consolidate({ scope: "project", cwd });
+	const p2 = await consolidate({ scope: "project", cwd });
 	assert.equal(p2.stats.deleted, 1);
 	items = (await listLessons({ includeProject: true, cwd })).filter(
 		(i) => i.scope === "project",
@@ -80,9 +80,9 @@ test("assess reflects promotable count", async () => {
 	assert.ok(a.metrics.valueOpportunity > 0);
 });
 
-test("consolidate with no lessons dir is a healthy no-op", () => {
+test("consolidate with no lessons dir is a healthy no-op", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con4-"));
-	const r = consolidate({ scope: "project", cwd });
+	const r = await consolidate({ scope: "project", cwd });
 	assert.equal(r.ok, true);
 	assert.equal(r.nothingToDo, true);
 	assert.equal(r.reason, "no lessons dir");
@@ -92,7 +92,7 @@ test("consolidate dry-run does NOT mutate files or write core", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con5-"));
 	await addLesson("git/r", { scope: "project", cwd, body: "- **Lesson:** r" });
 	await addLesson("git/r", { scope: "project", cwd });
-	const r = consolidate({ scope: "project", cwd, dryRun: true });
+	const r = await consolidate({ scope: "project", cwd, dryRun: true });
 	assert.equal(r.stats.promoted, 1);
 	const items = (await listLessons({ includeProject: true, cwd })).filter(
 		(i) => i.scope === "project",
@@ -110,7 +110,7 @@ test("consolidate honors a custom promoteThreshold", async () => {
 		body: "- **Lesson:** t",
 	});
 	await addLesson("git/three", { scope: "project", cwd });
-	const r = consolidate({ scope: "project", cwd, promoteThreshold: 3 });
+	const r = await consolidate({ scope: "project", cwd, promoteThreshold: 3 });
 	assert.equal(r.stats.promoted, 0);
 	assert.equal(r.stats.marked, 1);
 });
@@ -132,7 +132,7 @@ test("consolidate promotes recurring lessons into the pointer index", async () =
 		body: "- **Lesson:** promoted body",
 	});
 	await addLesson("git/rec", { scope: "project", cwd });
-	consolidate({ scope: "project", cwd });
+	await consolidate({ scope: "project", cwd });
 	const core = readFileSync(coreFile("project", cwd), "utf8");
 	assert.ok(core.includes("## Core"));
 	assert.ok(core.includes("promoted body"));
@@ -148,7 +148,7 @@ test("consolidate promotes recurring lessons into the pointer index", async () =
 test("consolidate: a marked lesson reaching the threshold is promoted, not deleted", async () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "agent-con-order-"));
 	await addLesson("git/x", { scope: "project", cwd, body: "- **Lesson:** x" });
-	consolidate({ scope: "project", cwd }); // pass 1: occ=1 -> marked
+	await consolidate({ scope: "project", cwd }); // pass 1: occ=1 -> marked
 	await addLesson("git/x", { scope: "project", cwd }); // occ=2, clears mark
 	const fp = path.join(cwd, ".agents", "lessons", "git", "x.md");
 	const fm = parseFM(readFileSync(fp, "utf8")).fm;
@@ -156,7 +156,7 @@ test("consolidate: a marked lesson reaching the threshold is promoted, not delet
 		fp,
 		`---\noccurrences: ${fm.occurrences}\nfirstSeen: ${fm.firstSeen}\nlastSeen: ${fm.lastSeen}\nmarked: true\n---\n- **Lesson:** x`,
 	);
-	const r = consolidate({ scope: "project", cwd });
+	const r = await consolidate({ scope: "project", cwd });
 	assert.equal(r.stats.promoted, 1);
 	assert.equal(r.stats.deleted, 0);
 });
@@ -171,11 +171,11 @@ test("consolidate backs up the previous core before overwriting (project)", asyn
 	await addLesson("git/rec", { scope: "project", cwd });
 	// first run: writes the core; P0-5 tx snapshot creates the backups dir
 	// even on the first mutation (a restore point must exist BEFORE writes).
-	consolidate({ scope: "project", cwd });
+	await consolidate({ scope: "project", cwd });
 	const backupsDir = path.join(cwd, ".agents", "backups");
 	assert.equal(existsSync(backupsDir), true);
 	// second run: must also copy the existing core as a LESSONS-*.md backup
-	const r = consolidate({ scope: "project", cwd });
+	const r = await consolidate({ scope: "project", cwd });
 	assert.equal(r.ok, true);
 	assert.ok(existsSync(backupsDir));
 	const backups = readdirSync(backupsDir).filter((n) => n.endsWith(".md"));
@@ -190,10 +190,10 @@ test("consolidate backs up the previous core under the global backups dir", asyn
 		body: "- **Lesson:** global backup",
 	});
 	await addLesson("git/rec", { scope: "global" });
-	consolidate({ scope: "global" }); // first run: writes the core (+ P0-5 tx snapshot dir)
+	await consolidate({ scope: "global" }); // first run: writes the core (+ P0-5 tx snapshot dir)
 	const backupsDir = path.join(HOME_TMP, ".agents", "backups");
 	assert.equal(existsSync(backupsDir), true);
-	const r = consolidate({ scope: "global" }); // second run: backs up the existing core
+	const r = await consolidate({ scope: "global" }); // second run: backs up the existing core
 	assert.equal(r.ok, true);
 	assert.ok(existsSync(backupsDir));
 	assert.ok(readdirSync(backupsDir).some((n) => n.endsWith(".md")));
@@ -244,25 +244,29 @@ test("P0-5: consolidate snapshots the lessons dir before mutating (tx backup)", 
 		cwd,
 		body: "- **Lesson:** tx restore point",
 	});
-	const r = consolidate({ scope: "project", cwd });
+	const r = await consolidate({ scope: "project", cwd });
 	assert.equal(r.ok, true);
 	assert.ok(r.txBackup, "expected txBackup path in the result");
 	// the tx backup must contain the original lesson file (pre-mutation)
 	const backupFile = path.join(r.txBackup, "git", "rec.md");
 	assert.ok(existsSync(backupFile), "tx backup should preserve the lesson file");
 	assert.match(readFileSync(backupFile, "utf8"), /tx restore point/);
-	// a failed tx snapshot aborts consolidation instead of mutating unbacked
+	// a failed tx snapshot aborts consolidation instead of mutating unbacked.
+	// The backup is now built per-file via util.writeFileSync under a
+	// mkdtempSync ancestor (no fs.cpSync). Trigger the failure by sabotaging
+	// mkdtempSync — that's the first fs op in the new tx pipeline.
 	const fsMod = await import("node:fs");
-	const origCpSync = fsMod.default.cpSync;
-	fsMod.default.cpSync = () => {
+	const origMkdtempSync = fsMod.default.mkdtempSync;
+	fsMod.default.mkdtempSync = () => {
 		throw new Error("disk full");
 	};
 	try {
-		const fail = consolidate({ scope: "project", cwd });
+		const fail = await consolidate({ scope: "project", cwd });
 		assert.equal(fail.ok, false);
 		assert.match(fail.reason, /transaction backup failed/);
+		assert.equal(fail.code, "BACKUP_FAILED");
 	} finally {
-		fsMod.default.cpSync = origCpSync;
+		fsMod.default.mkdtempSync = origMkdtempSync;
 	}
 });
 
@@ -276,8 +280,8 @@ test("repeated consolidation does not duplicate a promoted lesson's pointer", as
 		body: "Atomic commits keep history readable.",
 	});
 	await addLesson("git/rec", { scope: "project", cwd });
-	consolidate({ scope: "project", cwd }); // promote → write pointer
-	consolidate({ scope: "project", cwd }); // must re-read and keep exactly one pointer
+	await consolidate({ scope: "project", cwd }); // promote → write pointer
+	await consolidate({ scope: "project", cwd }); // must re-read and keep exactly one pointer
 	const core = readFileSync(coreFile("project", cwd), "utf8");
 	assert.match(core, /Atomic commits keep history readable/);
 	assert.equal((core.match(/lessons\/git\/rec\.md/g) || []).length, 1);
@@ -287,7 +291,7 @@ test("repeated consolidation does not duplicate a promoted lesson's pointer", as
 		corePath,
 		readFileSync(corePath, "utf8") + "\n- A user-authored note\n",
 	);
-	consolidate({ scope: "project", cwd });
+	await consolidate({ scope: "project", cwd });
 	const after = readFileSync(corePath, "utf8");
 	assert.ok(after.includes("- A user-authored note"));
 	assert.equal((after.match(/lessons\/git\/rec\.md/g) || []).length, 1);

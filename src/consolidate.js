@@ -2,10 +2,38 @@
 // promotes recurring lessons to the always-on core, prunes single-occurrence-unrepeated
 // lessons after a two-pass grace (mark → delete if still unrepeated). Works on global or
 // project scope. The agent decides paths/topics; this only counts & moves.
+//
+// Cross-cutting invariants this module honors (see ARCHITECTURE.md):
+//   - Atomic writes: every file written by this module goes through util.writeFileSync
+//     (exclusive-create → fsync → rename-over-existing). No raw fs.writeFileSync /
+//     fs.copyFileSync for lesson-dir content.
+//   - Cross-process operation lock: consolidate() is wrapped in
+//     withOperationLock("consolidate", ...) so the conflict matrix in operation-lock.js
+//     (consolidate conflicts with lesson_capture and brain_write LESSONS kind) serializes
+//     concurrent compound mutations. planConsolidation() and applyPlanAction() are NOT
+//     locked: pure-read and single-action paths.
+//   - Sanitized errors (A15 least-disclosure): MCP-shaped callers (opts.surface === "mcp")
+//     never receive error.message / error.stack — only the stable { ok:false, code,
+//     reason, scope } envelope. Internal CLI callers default to "internal" and get a
+//     `detail` field carrying error.message for human-readable output.
+//   - Symlink-safe traversal: walkSync refuses any directory entry whose
+//     isSymbolicLink() is true. A malicious `lessons/foo -> /etc/passwd` symlink
+//     cannot leak into the consolidation surface (read or write).
+//   - Contained paths: lesson paths come exclusively through lessons-lib.js#lessonsRoot /
+//     coreFile / resolveLessonFile, which already enforce the HOME / cwd root bound.
+//     consolidate() never constructs a path under a caller-controlled component.
+//   - Transactional backup (P0-5): before any mutation, the entire lessons dir is
+//     snapshotted into ~/.agents/backups/consolidate-tx-<scope>-<...> via
+//     util.writeFileSync per file (no fs.cpSync). The staging dir lives under a
+//     mkdtempSync ancestor so a collision cannot merge into a half-written backup.
+//     Staging is verified (count match, non-empty) before being renamed into the
+//     final backups location.
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { ensureDir, HOME } from "./util.js";
+import { HOME, writeFileSync } from "./util.js";
+import { withOperationLock } from "./operation-lock.js";
 import { lessonsRoot, coreFile, parseFM, buildFM } from "./lessons-lib.js";
 
 const BACKUP_DIR_GLOBAL = path.join(HOME, ".agents", "backups");
@@ -35,15 +63,14 @@ function loadConsolidateConfig() {
 function clamp(x, lo = 0, hi = 1) {
 	return Math.max(lo, Math.min(hi, x));
 }
-function scopeBase(scope, cwd) {
-	return scope === "project" ? cwd : HOME;
-}
-function stateFile(scope, cwd) {
-	return path.join(scopeBase(scope, cwd), ".agents", ".consolidate-state.json");
-}
 function readLastRun(scope, cwd) {
+	const sp = path.join(
+		scope === "project" ? cwd : HOME,
+		".agents",
+		".consolidate-state.json",
+	);
 	try {
-		const s = JSON.parse(fs.readFileSync(stateFile(scope, cwd), "utf8"));
+		const s = JSON.parse(fs.readFileSync(sp, "utf8"));
 		return s.lastRun ? new Date(s.lastRun) : null;
 	} catch {
 		return null;
@@ -53,7 +80,46 @@ function approxTokens(s) {
 	return Math.round((s || "").length / 4);
 }
 
-/** Hybrid consolidation score (E): max(cost-pressure, value-opportunity) → 0..100. */
+/**
+ * Build a failure envelope. `code` is the stable, machine-readable identifier; `reason`
+ * is the short human-readable summary. `detail` (error.message) is only attached when
+ * the caller's `surface` is "internal" — MCP-shaped callers must never receive it.
+ */
+function fail(scope, surface, code, reason, error) {
+	const out = { ok: false, code, reason, scope };
+	if (error && surface !== "mcp") {
+		out.detail = error && error.message ? error.message : String(error);
+	}
+	return out;
+}
+
+/**
+ * Recursively list .md files in a lessons dir (relative POSIX paths not needed —
+ * callers want absolute paths). Symlink entries are explicitly refused: a malicious
+ * `lessons/foo -> /etc/passwd` must not leak into the consolidation surface. The
+ * `e.isDirectory()` check is safe after the symlink skip because Dirent reports the
+ * symlink itself (not the target) when readdir is called with withFileTypes:true.
+ */
+function walkSync(dir) {
+	const out = [];
+	let entries = [];
+	try {
+		entries = fs.readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return out;
+	}
+	for (const e of entries) {
+		if (e.name.startsWith(".")) continue;
+		if (e.isSymbolicLink()) continue; // symlink refusal
+		const p = path.join(dir, e.name);
+		if (e.isDirectory()) out.push(...walkSync(p));
+		else if (e.name.endsWith(".md")) out.push(p);
+	}
+	return out;
+}
+
+/**
+ * Hybrid consolidation score (E): max(cost-pressure, value-opportunity) → 0..100. */
 export function assess({ scope = "global", cwd = process.cwd() } = {}) {
 	const cfg = loadConsolidateConfig();
 	const dir = lessonsRoot(scope, cwd);
@@ -187,54 +253,83 @@ function hasPointer(entries, rel) {
 	return false;
 }
 
-function walkSync(dir) {
-	const out = [];
-	let entries = [];
+/**
+ * P0-5: copy the whole lessons dir into backups as a transaction snapshot, via
+ * util.writeFileSync per file (no fs.cpSync). The staging dir lives under a
+ * mkdtempSync ancestor so a collision cannot merge into a half-written backup.
+ * On verify failure (count mismatch, empty source, or any write error) the
+ * staging dir is removed and the error re-thrown — caller must abort.
+ */
+function snapshotLessonsDir(srcDir, backupDir, scope) {
+	const staging = fs.mkdtempSync(
+		path.join(os.tmpdir(), `consolidate-tx-${scope}-`),
+	);
+	const cleanup = () => {
+		try {
+			fs.rmSync(staging, { recursive: true, force: true });
+		} catch {
+			/* best-effort */
+		}
+	};
 	try {
-		entries = fs.readdirSync(dir, { withFileTypes: true });
-	} catch {
-		return out;
+		const srcFiles = walkSync(srcDir); // already skips symlinks
+		if (srcFiles.length === 0) {
+			// Empty lessons dir is a healthy no-op; no backup to keep.
+			cleanup();
+			return null;
+		}
+		for (const fp of srcFiles) {
+			const rel = path
+				.relative(srcDir, fp)
+				.split(path.sep)
+				.join("/");
+			const dst = path.join(staging, rel);
+			writeFileSync(dst, fs.readFileSync(fp));
+		}
+		const stagedFiles = walkSync(staging);
+		if (stagedFiles.length !== srcFiles.length) {
+			throw new Error(
+				`staged file count mismatch: source=${srcFiles.length} staged=${stagedFiles.length}`,
+			);
+		}
+		fs.mkdirSync(backupDir, { recursive: true });
+		// mkdtempSync's basename is already unique; place it directly under
+		// backupDir. rename-over-existing is atomic on POSIX and replaces the
+		// target on Windows. A vanishingly rare collision (lock failure case)
+		// would surface as EEXIST — treat it as a backup failure, do not retry.
+		const finalDir = path.join(backupDir, path.basename(staging));
+		fs.renameSync(staging, finalDir);
+		return finalDir;
+	} catch (e) {
+		cleanup();
+		throw e;
 	}
-	for (const e of entries) {
-		if (e.name.startsWith(".")) continue;
-		const p = path.join(dir, e.name);
-		if (e.isDirectory()) out.push(...walkSync(p));
-		else if (e.name.endsWith(".md")) out.push(p);
-	}
-	return out;
 }
 
-/** P0-5: copy the whole lessons dir into backups as a transaction snapshot.
- *  Throws on failure so the caller aborts instead of mutating unbacked. */
-function snapshotLessonsDir(dir, backupDir, scope) {
-	fs.mkdirSync(backupDir, { recursive: true });
-	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-	const dst = path.join(backupDir, `consolidate-tx-${scope}-${stamp}`);
-	fs.cpSync(dir, dst, { recursive: true });
-	return dst;
-}
-
+/**
+ * Copy the previous core file (if any) into backups/LESSONS-<ts>.md BEFORE
+ * overwriting it. Uses util.writeFileSync per file instead of fs.copyFileSync
+ * — same atomic-rename guarantee, no raw fs.copyFileSync for lesson-dir
+ * content. No-op when the core doesn't exist yet (first consolidation).
+ */
 function ensureBackup(file, scope, cwd) {
 	if (!fs.existsSync(file)) return; // nothing to back up on the first consolidation
 	const dir =
 		scope === "project"
 			? path.join(cwd, ".agents", "backups")
 			: BACKUP_DIR_GLOBAL;
-	// mkdirSync (recursive) BEFORE the synchronous copy: ensureDir is async and
-	// was never awaited, so on a fresh home the backups dir did not exist and
-	// copyFileSync silently failed — a "successful" consolidation had NO backup.
 	fs.mkdirSync(dir, { recursive: true });
-	fs.copyFileSync(
-		file,
+	writeFileSync(
 		path.join(
 			dir,
 			`LESSONS-${new Date().toISOString().replace(/[:.]/g, "-")}.md`,
 		),
+		fs.readFileSync(file),
 	);
 }
 
 function writeCore(file, entries, scope) {
-	ensureDir(path.dirname(file));
+	fs.mkdirSync(path.dirname(file), { recursive: true });
 	const body = entries.length
 		? entries.join("\n\n")
 		: "<!-- promoted by consolidation -->";
@@ -245,17 +340,36 @@ function writeCore(file, entries, scope) {
 > Most important, high-signal lessons — loaded every session. Consolidation promotes recurring lessons here from ${loc}.
 
 ## Core
-${body}
+ ${body}
 `;
-	fs.writeFileSync(file, out, "utf8");
+	writeFileSync(file, out);
 }
 
-export function consolidate({
+/**
+ * Run a full consolidation pass: transactional backup → per-file promote / mark /
+ * delete → core write → state-file write. Wrapped in withOperationLock("consolidate",
+ * ...) so the conflict matrix serializes against lesson_capture and brain_write
+ * (LESSONS kind). planConsolidation / applyPlanAction are NOT locked — pure-read
+ * and single-action respectively.
+ *
+ * @param opts.surface  "internal" (default; includes error.message in `detail`)
+ *                      or "mcp" (omits error.message / stack — A15).
+ */
+export async function consolidate({
 	scope = "global",
 	cwd = process.cwd(),
 	dryRun = false,
 	promoteThreshold,
+	surface = "internal",
 } = {}) {
+	return withOperationLock(
+		"consolidate",
+		() => doConsolidate({ scope, cwd, dryRun, promoteThreshold, surface }),
+		{ operation: `consolidate:${scope}`, timeoutMs: 5000 },
+	);
+}
+
+function doConsolidate({ scope, cwd, dryRun, promoteThreshold, surface }) {
 	const cfg = loadConsolidateConfig();
 	const pt = promoteThreshold ?? cfg.promoteThreshold;
 	const dir = lessonsRoot(scope, cwd);
@@ -271,7 +385,6 @@ export function consolidate({
 			dir,
 		};
 
-
 	const files = walkSync(dir);
 	let promoted = 0;
 	let deleted = 0;
@@ -281,7 +394,8 @@ export function consolidate({
 
 	// P0-5: transactional safety — snapshot the ENTIRE lessons dir BEFORE any
 	// mutation, so an interrupted consolidation never loses lessons. If the
-	// snapshot fails we abort: mutating without a restore point is worse.
+	// snapshot fails (creation OR verification) we abort: mutating without a
+	// restore point is worse.
 	const backupDir =
 		scope === "project"
 			? path.join(cwd, ".agents", "backups")
@@ -291,12 +405,26 @@ export function consolidate({
 		try {
 			txDir = snapshotLessonsDir(dir, backupDir, scope);
 		} catch (error) {
-			return {
-				ok: false,
-				reason: `transaction backup failed: ${error && error.message ? error.message : error}`,
+			if (
+				error &&
+				typeof error.message === "string" &&
+				error.message.includes("staged file count mismatch")
+			) {
+				return fail(
+					scope,
+					surface,
+					"BACKUP_VERIFY_FAILED",
+					"transaction backup verify failed",
+					error,
+				);
+			}
+			return fail(
 				scope,
-				dir,
-			};
+				surface,
+				"BACKUP_FAILED",
+				"transaction backup failed",
+				error,
+			);
 		}
 	}
 
@@ -320,13 +448,7 @@ export function consolidate({
 				const pointer = `- ${summary} — \`lessons/${rel}\``;
 				if (!hasPointer(core, rel)) core.push(pointer);
 				const nfm = { ...fm, promoted: "true", marked: "false" };
-				fs.writeFileSync(
-					fp,
-					`---\n${Object.entries(nfm)
-						.map(([k, v]) => `${k}: ${v}`)
-						.join("\n")}\n---\n${body}`,
-					"utf8",
-				);
+				writeFileSync(fp, `${buildFM(nfm)}${body}`);
 			}
 		} else if (isMarked) {
 			deleted++; // grace expired, still single-occurrence → prune
@@ -336,13 +458,7 @@ export function consolidate({
 			kept++;
 			if (!dryRun) {
 				const nfm = { ...fm, marked: "true" };
-				fs.writeFileSync(
-					fp,
-					`---\n${Object.entries(nfm)
-						.map(([k, v]) => `${k}: ${v}`)
-						.join("\n")}\n---\n${body}`,
-					"utf8",
-				);
+				writeFileSync(fp, `${buildFM(nfm)}${body}`);
 			}
 		}
 	}
@@ -351,19 +467,20 @@ export function consolidate({
 		try {
 			ensureBackup(corePath, scope, cwd);
 		} catch (error) {
-			return {
-				ok: false,
-				reason: `backup failed: ${error && error.message ? error.message : error}`,
-			};
+			return fail(scope, surface, "BACKUP_FAILED", "backup failed", error);
 		}
 		writeCore(corePath, core, scope);
 		try {
-			fs.writeFileSync(
-				stateFile(scope, cwd),
+			writeFileSync(
+				path.join(
+					scope === "project" ? cwd : HOME,
+					".agents",
+					".consolidate-state.json",
+				),
 				JSON.stringify({ lastRun: new Date().toISOString() }, null, 2),
 			);
 		} catch {
-			/* ignore */
+			/* ignore — bookkeeping is non-critical */
 		}
 	}
 	return {
@@ -383,7 +500,10 @@ export function consolidate({
 	};
 }
 
-/** Per-file consolidation plan (no writes) with stable plan-action ids. */
+/**
+ * Per-file consolidation plan (no writes) with stable plan-action ids.
+ * Pure read; NOT wrapped in withOperationLock — the caller serializes if needed.
+ */
 export function planConsolidation({
 	scope = "global",
 	cwd = process.cwd(),
@@ -428,24 +548,55 @@ export function planConsolidation({
 	return { ok: true, scope, promoteThreshold: pt, actions };
 }
 
-/** Apply ONE planned action by id (targeted; mirrors the full consolidation rules). */
-export function applyPlanAction(scope, cwd, planId) {
+/**
+ * Apply ONE planned action by id (targeted; mirrors the full consolidation rules).
+ * Single-action; NOT wrapped in withOperationLock — callers serialize if needed.
+ * Writes still go through util.writeFileSync (atomic-rename), so the partial-write
+ * guarantee holds even without the lock.
+ */
+export function applyPlanAction(
+	scope,
+	cwd,
+	planId,
+	{ surface = "internal" } = {},
+) {
 	const plan = planConsolidation({ scope, cwd });
 	const action = plan.actions.find((a) => a.id === planId);
-	if (!action) return { ok: false, reason: `no such plan action: ${planId}` };
-	if (action.action === "keep") return { ok: true, applied: action, changed: false };
+	if (!action) {
+		// planId is caller-controlled; surface="mcp" must not receive it.
+		const detail = surface === "mcp" ? undefined : String(planId);
+		const out = fail(
+			scope,
+			surface,
+			"NO_SUCH_PLAN_ACTION",
+			"no such plan action",
+			detail ? new Error(`plan id: ${detail}`) : undefined,
+		);
+		return out;
+	}
+	if (action.action === "keep")
+		return { ok: true, applied: action, changed: false };
 	const raw = fs.readFileSync(action.path, "utf8");
 	const { fm, body } = parseFM(raw);
 	if (action.action === "promote") {
 		const core = [...readCore(coreFile(scope, cwd))];
 		if (!hasPointer(core, action.rel)) {
-			const summary = (body.trim().split(/\r?\n/)[0] || path.basename(action.rel, ".md")).replace(/^[-*]\s+/, "");
+			const summary = (
+				body.trim().split(/\r?\n/)[0] ||
+				path.basename(action.rel, ".md")
+			).replace(/^[-*]\s+/, "");
 			core.push(`- ${summary} — \`lessons/${action.rel}\``);
 		}
 		writeCore(coreFile(scope, cwd), core, scope);
-		fs.writeFileSync(action.path, buildFM({ ...fm, promoted: "true", marked: "false" }) + body, "utf8");
+		writeFileSync(
+			action.path,
+			buildFM({ ...fm, promoted: "true", marked: "false" }) + body,
+		);
 	} else if (action.action === "mark") {
-		fs.writeFileSync(action.path, buildFM({ ...fm, marked: "true" }) + body, "utf8");
+		writeFileSync(
+			action.path,
+			buildFM({ ...fm, marked: "true" }) + body,
+		);
 	} else if (action.action === "delete") {
 		fs.unlinkSync(action.path);
 	}

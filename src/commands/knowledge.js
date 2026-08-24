@@ -324,7 +324,7 @@ export function registerKnowledgeCommands(
 			}
 			const pre =
 				!opts.dryRun && !opts.check ? await preSnapshot("consolidate") : null;
-			const r = con.consolidate({
+			const r = await con.consolidate({
 				scope,
 				cwd,
 				dryRun: !!opts.dryRun,

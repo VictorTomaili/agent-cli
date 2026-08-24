@@ -56,11 +56,18 @@ const ENTRY_POINT = "cli.js";
 const SKILLS_BRIDGES = new Set(["skill.js", "blocks.js"]);
 const API_CONSUMERS = new Set(["serve.js"]);
 
+// The api/ subtree (index.js + write.js, per Phase 6 T6.2.1 SDK split) is
+// its own layer — lib files must not import it, and api files import from
+// each other freely. Exclude the whole subtree from the lib walk, not just
+// index.js (the pre-T6.2.1 single-file shape).
+const isApiFile = (f) =>
+	path.relative(SRC, f).split(path.sep).join("/").startsWith("api/");
+
 const libFiles = allFiles.filter(
 	(f) =>
 		!commandFiles.includes(f) &&
 		!skillsFiles.includes(f) &&
-		!f.endsWith(`${path.sep}api${path.sep}index.js`) &&
+		!isApiFile(f) &&
 		path.relative(SRC, f) !== ENTRY_POINT,
 );
 

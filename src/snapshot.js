@@ -45,7 +45,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { HOME, ensureDir, writeFileSync } from "./util.js";
+import { HOME, writeFileSync } from "./util.js";
 import { withOperationLock } from "./operation-lock.js";
 
 const BRAIN = path.join(HOME, ".agents");
@@ -159,7 +159,7 @@ export function listSnapshots() {
 }
 
 function doSnapshot() {
-	ensureDir(SNAP_DIR);
+	fs.mkdirSync(SNAP_DIR, { recursive: true });
 	const name = uniqueName(ts());
 	const dst = path.join(SNAP_DIR, name);
 	copyDirSync(BRAIN, dst, { skipNames: RESERVED_BRAIN_DIRS });
@@ -395,7 +395,7 @@ function doRestore(name) {
 	// 1. Stage the pre-restore backup of the current brain (P0-4). uniqueName
 	//    on SNAP_DIR: a second restore in the same millisecond must NOT merge
 	//    into the first pre-restore backup.
-	ensureDir(SNAP_DIR);
+	fs.mkdirSync(SNAP_DIR, { recursive: true });
 	const pre = path.join(SNAP_DIR, uniqueName(`pre-restore-${ts()}`));
 	copyDirSync(BRAIN, pre, { skipNames: RESERVED_BRAIN_DIRS });
 
@@ -423,7 +423,7 @@ function doRestore(name) {
 	// 3. Assemble the restored tree in a sibling staging dir. Suffix until
 	//    the staging name is free (a previous failed restore may have left
 	//    one behind — never write through it).
-	ensureDir(STAGING_ROOT);
+	fs.mkdirSync(STAGING_ROOT, { recursive: true });
 	const staging = path.join(STAGING_ROOT, uniqueName(name, STAGING_ROOT));
 	copyDirSync(src, staging, {
 		skipNames: new Set([".snapshot.json"]),
@@ -440,7 +440,7 @@ function doRestore(name) {
 		});
 		for (const [rel, srcFile] of Object.entries(stagedFiles)) {
 			const dst = path.join(BRAIN, ...rel.split("/"));
-			ensureDir(path.dirname(dst));
+			fs.mkdirSync(path.dirname(dst), { recursive: true });
 			const content = fs.readFileSync(srcFile);
 			writeFileSync(dst, content);
 		}

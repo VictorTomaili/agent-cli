@@ -11,21 +11,20 @@
 // INSTANTLY: a persona or skill added to the source appears in every
 // linked tool with no re-run.
 //
-// Skills also link a hub: ~/.agents/skills → the store. pi natively
-// reads ~/.agents/skills (and projects' .agents/skills), so the hub
-// gives pi zero-config access to the whole store — and kills the
-// historical seed-copy/store duplication.
+// State-machine ownership lives in src/managed-resource.js — this file
+// stays focused on the I/O (symlinks on disk) and the per-share-kind
+// orchestration. The cardinal invariants it relies on:
 //
-// Contract mirrors pointer.js: link refuses to replace native
-// (non-link) content unless force; force backs the native dir up
-// (rename, never delete) before linking; unlink only ever removes a
-// link that verifiably points at OUR source.
+//   - link refuses to replace native (non-link) content unless force
+//   - force backs the native dir up (rename, never delete) before linking
+//   - unlink only ever removes a link that verifiably points at OUR source
 
 import fs from "node:fs";
 import path from "node:path";
 import { HOME } from "./util.js";
 import { TARGETS } from "./targets.js";
 import { PATHS as SKILL_PATHS } from "./skill.js";
+import { STATES, planLink, planUnlink, backupPath } from "./managed-resource.js";
 
 /** The single sources (agents dir, skill store). */
 export const SHARE_SOURCES = {
@@ -71,10 +70,27 @@ export function isOurLink(dst, srcAbs) {
 	}
 }
 
-/** Home-relative share dirs a target reads (see targets.js `share`). */
+/** Home-relative share dirs a target reads (see targets.js `share`).
+ *  Returns null when the target does not declare this kind, OR when the
+ *  declared path would escape HOME via `..` traversal or absolute path —
+ *  share is a hand-edited field in src/targets/<id>.js, so this is the
+ *  containment boundary that keeps a buggy descriptor from symlinking
+ *  anything outside HOME. */
 export function sharePathFor(target, kind) {
 	const rel = target?.share?.[kind];
-	return rel ? path.join(HOME, rel) : null;
+	if (!rel) return null;
+	if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes("..")) return null;
+	const resolved = path.join(HOME, rel);
+	// Defense in depth: even if the descriptor is path.join-clean, ensure the
+	// final result still lives under HOME (catches edge cases on Windows
+	// where path.sep differs and on symlinked HOME setups).
+	if (
+		resolved !== HOME &&
+		!resolved.startsWith(HOME + path.sep)
+	) {
+		return null;
+	}
+	return resolved;
 }
 
 /** All targets that declare a share dir for `kind`. */
@@ -84,20 +100,37 @@ export function targetsWithShare(kind) {
 
 /**
  * Classify one share link point. Returns { state, path }:
- *   linked  — our symlink/junction → the source
+ *   linked  — our symlink/junction → the source (mirrors managed-resource's "ours")
  *   native  — exists but is NOT our link (real dir/file/symlink elsewhere)
  *   missing — nothing there
+ *
+ * `linked` is the share.js vocabulary (the consumer-facing term). The lib uses
+ * the more general "ours" elsewhere; we keep "linked" here for backward compat
+ * (this function is consumed by doctor/brief/shareHealth).
  */
 export function classifyShare(dst, srcAbs) {
+	let st;
 	try {
-		fs.lstatSync(dst);
+		st = fs.lstatSync(dst);
 	} catch {
 		return { state: "missing", path: dst };
 	}
-	return {
-		state: isOurLink(dst, srcAbs) ? "linked" : "native",
-		path: dst,
-	};
+	// A symlink that points at our source → "linked" (managed-resource's "ours").
+	// Any other lstat result (real dir, foreign symlink) → "native".
+	if (st.isSymbolicLink() && isOurLink(dst, srcAbs)) {
+		return { state: "linked", path: dst };
+	}
+	return { state: "native", path: dst };
+}
+
+/**
+ * Map classifyShare()'s consumer-vocabulary state to the managed-resource
+ * lib's general state names. share.js keeps "linked"/"native"/"missing" in
+ * its public surface for compatibility; this mapper is the bridge.
+ */
+function shareStateToGeneral(s) {
+	if (s === "linked") return STATES.OURS;
+	return s; // "native" | "missing" pass through
 }
 
 /**
@@ -114,18 +147,22 @@ export function classifyShare(dst, srcAbs) {
  */
 export function linkShareDir(dst, srcAbs, { force = false } = {}) {
 	const cls = classifyShare(dst, srcAbs);
-	if (cls.state === "linked")
+	const general = shareStateToGeneral(cls.state);
+	const action = planLink(general, force);
+	if (action === "noop") {
 		return { path: dst, linked: true, unchanged: true };
-	if (cls.state === "native" && !force)
+	}
+	if (action === "block") {
 		return {
 			path: dst,
 			blocked: "native-content",
 			hint:
 				"move its contents into the shared source (or re-run with --force to back it up and link)",
 		};
+	}
 	let backup = null;
-	if (cls.state === "native") {
-		backup = `${dst}.agent-cli-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+	if (general === STATES.NATIVE) {
+		backup = backupPath(dst);
 		fs.renameSync(dst, backup);
 	}
 	fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -138,12 +175,37 @@ export function linkShareDir(dst, srcAbs, { force = false } = {}) {
 /**
  * Remove a share link — ONLY when it verifiably points at our source.
  * Native content and foreign links are never touched.
+ *
+ * The unlink path uses `fs.unlinkSync` (not `fs.rmSync({recursive:true})`):
+ * the only correct target is our own symlink, which is always unlinkable
+ * with unlinkSync. If something other than our link is at `dst` (a real
+ * directory, a foreign symlink, …) unlinkSync fails with EISDIR/EPERM
+ * instead of recursively deleting a directory the user did not intend to
+ * surrender. The classify check is re-validated immediately before the
+ * unlink to close the TOCTOU window between classify and the syscall.
  */
 export function unlinkShareDir(dst, srcAbs) {
 	const cls = classifyShare(dst, srcAbs);
-	if (cls.state === "missing") return { path: dst, missing: true };
-	if (cls.state === "native") return { path: dst, skipped: "native-content" };
-	fs.rmSync(dst, { recursive: true, force: true });
+	const general = shareStateToGeneral(cls.state);
+	const action = planUnlink(general);
+	if (action === "noop") return { path: dst, missing: true };
+	if (action === "block") return { path: dst, skipped: "native-content" };
+	// Re-check immediately before the destructive syscall. If something at
+	// dst changed between the first classify and now, abort — better to
+	// surface the error than silently rm what isn't ours.
+	if (!isOurLink(dst, srcAbs)) {
+		return {
+			path: dst,
+			skipped: "race-detected",
+			hint: "path changed during unlink; retry to confirm the current state",
+		};
+	}
+	try {
+		fs.unlinkSync(dst);
+	} catch (err) {
+		if (err.code === "ENOENT") return { path: dst, missing: true };
+		throw err;
+	}
 	return { path: dst, unlinked: true };
 }
 

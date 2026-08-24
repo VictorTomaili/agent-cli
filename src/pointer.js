@@ -13,6 +13,7 @@ import {
 } from "./util.js";
 import { pathFor, scopesFor, adaptContent } from "./targets.js";
 import { resolveScope } from "./util.js";
+import { backupPath } from "./managed-resource.js";
 
 export const POINTER_MARK = "<!-- agent-cli-pointer -->";
 
@@ -253,8 +254,12 @@ function expectedCtx() {
 
 /**
  * Write a pointer stub for a target/scope (and its legacy alias, if any). If a
- * file has native (non-pointer) content, refuse unless `force` — caller should
- * `pull` it into the master first.
+ * file has native (non-pointer) content, refuse unless `force` — when `force`
+ * IS passed, the existing native file is first copied to
+ * `<p>.agent-cli-backup-<iso>` so the user can recover their prose. The
+ * preferred recovery path is still `agent-cli pull <id>` (adopts into the
+ * master); `force` is for the repair path when the user explicitly chose to
+ * discard the native content.
  */
 export async function linkTarget(
 	target,
@@ -275,10 +280,19 @@ export async function linkTarget(
 	const desired = pointerContent(target, scope, { masterAbs, masterTilde });
 	const existing = await readIfExists(p);
 	let main;
+	let backup = null;
 	if (existing !== null) {
 		const existingState = pointerState(existing, target, scope, desired);
 		if (existingState === "native" && !force) {
 			return { target, scope, path: p, blocked: "native-content", hint: "pull" };
+		}
+		if (existingState === "native" && force) {
+			// Force-rewriting native content: copy the existing file to a
+			// backup path first so the user can recover. Without this, the
+			// subsequent writeFile would atomically replace the user's prose
+			// with the stub and lose the original permanently.
+			backup = backupPath(p);
+			await writeFile(backup, existing);
 		}
 		if (
 			normalizeEndings(existing).trim() === normalizeEndings(desired).trim()
@@ -291,17 +305,25 @@ export async function linkTarget(
 		main = { linked: true };
 	}
 	const legacy = await linkLegacy(target, scope, desired, force);
-	return { target, scope, path: p, ...main, ...(legacy ? { legacy } : {}) };
+	const out = { target, scope, path: p, ...main };
+	if (backup) out.backup = backup;
+	if (legacy) out.legacy = legacy;
+	return out;
 }
 
 async function linkLegacy(target, scope, desired, force) {
 	const p = legacyAliasPath(target, scope);
 	if (!p) return null;
 	const existing = await readIfExists(p);
+	let backup = null;
 	if (existing !== null) {
 		const existingState = pointerState(existing, target, scope, desired);
 		if (existingState === "native" && !force) {
 			return { path: p, blocked: "native-content", hint: "pull" };
+		}
+		if (existingState === "native" && force) {
+			backup = backupPath(p);
+			await writeFile(backup, existing);
 		}
 		if (
 			normalizeEndings(existing).trim() === normalizeEndings(desired).trim()
@@ -310,7 +332,9 @@ async function linkLegacy(target, scope, desired, force) {
 		}
 	}
 	await writeFile(p, desired);
-	return { path: p, linked: true };
+	const out = { path: p, linked: true };
+	if (backup) out.backup = backup;
+	return out;
 }
 
 /** Remove a pointer stub (only deletes files that ARE pointers). */

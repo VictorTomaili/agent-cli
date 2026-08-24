@@ -94,6 +94,13 @@ import { registerEvaluateCommands } from "./commands/evaluate.js";
 import { registerMemoryUpgradeCommands } from "./commands/memory-upgrade.js";
 import { registerInstructionsCommand, suggestCommand } from "./commands/instructions.js";
 import { registerPromptCommand } from "./commands/prompt.js";
+// Static import (not dynamic): the preAction hook awaits this module on every
+// command, and commands like `help`/`doctor` call process.exit() right after.
+// A dynamic import() leaves the module-loader async handle closing at exit,
+// which intermittently crashes Node on Windows with the libuv
+// "UV_HANDLE_CLOSING" assertion. Resolving it at load time (before the event
+// loop runs) removes that race entirely.
+import { resolveUpdateNotice, updateCheckEnabled } from "./update-notice.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
@@ -679,9 +686,6 @@ program
 		// consumers see it in the envelope's top-level updateNotice field;
 		// humans get a one-line stderr print.
 		try {
-			const { resolveUpdateNotice, updateCheckEnabled } = await import(
-				"./update-notice.js"
-			);
 			if (!updateCheckEnabled()) return;
 			const cfg = await loadConfig();
 			const force = process.argv.includes("--update-check");

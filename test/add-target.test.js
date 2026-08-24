@@ -13,9 +13,13 @@ import {
 } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
+// fileURLToPath (not new URL(...).pathname) — the latter keeps a leading
+// slash on Windows (/D:/...) which path.join turns into D:\D:\... doubling
+// the drive. fileURLToPath decodes the URL into a proper platform path.
 const SCRIPT = path.join(
-	path.dirname(new URL(import.meta.url).pathname),
+	path.dirname(fileURLToPath(import.meta.url)),
 	"..",
 	"scripts",
 	"add-target.js",

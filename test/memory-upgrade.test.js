@@ -273,17 +273,21 @@ test("DEFECT-4: buildPlan uses the requested scope for the reported file path", 
 	try {
 		const planGlobal = lib.buildPlan(0, { scope: "global", cwd: TMP });
 		const planProject = lib.buildPlan(0, { scope: "project", cwd: projTmp });
+		// Normalize separators so the assertions hold on Windows (paths use \).
+		const norm = (p) => String(p).replace(/\\/g, "/");
+		const globalFile = norm(planGlobal.applicable[0].file);
+		const projectFile = norm(planProject.applicable[0].file);
 		assert.ok(
-			planGlobal.applicable[0].file &&
-				planGlobal.applicable[0].file.includes(".agents/IDENTITY.md") &&
-				!planGlobal.applicable[0].file.includes(projTmp),
-			"global plan points at global IDENTITY.md",
+			globalFile &&
+				globalFile.includes(".agents/IDENTITY.md") &&
+				!globalFile.includes(norm(projTmp)),
+			`global plan points at global IDENTITY.md, got: ${globalFile}`,
 		);
 		assert.ok(
-			planProject.applicable[0].file &&
-				planProject.applicable[0].file.startsWith(projTmp) &&
-				planProject.applicable[0].file.endsWith(".agents/IDENTITY.md"),
-			"project plan points at project IDENTITY.md",
+			projectFile &&
+				projectFile.startsWith(norm(projTmp)) &&
+				projectFile.endsWith(".agents/IDENTITY.md"),
+			`project plan points at project IDENTITY.md, got: ${projectFile}`,
 		);
 	} finally {
 		await import("node:fs/promises").then((m) =>

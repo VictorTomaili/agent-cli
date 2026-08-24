@@ -250,15 +250,16 @@ test("stdio parity: prompts/get instructions text matches `agent-cli --json inst
 // ---------------------------------------------------------------------------
 // prompts/get brief-plan  ↔  agent-cli --json brief --plan --for "phase-6-mcp"
 //
-// Byte-for-byte comparison: the wire returns
-// `JSON.stringify(briefPlanPrompt({for}), null, 2)` from
-// src/api/index.js#briefPlanPrompt — a slim payload of {tool, version,
-// schemaVersion, for, suggestedActions, actions, pending}. The CLI's
-// `brief --plan` returns the FULL buildBriefPayload envelope (master,
-// drift, consolidation, lessons, …) via brief-report.js#buildBriefPayload.
-// These shapes are NOT identical by design; this test documents the
-// divergence as a finding the way the test framework expects: it fails
-// with a clear, actionable message rather than papering over the drift.
+// Byte-for-byte comparison. The wire returns
+// `JSON.stringify(sdk.briefPlanPrompt({for}), null, 2)`, which now delegates
+// to the SAME buildBriefPayload envelope the CLI `brief --plan` produces
+// (src/brief-report.js#buildBriefPayload, via the CLI command in
+// src/commands/session-core.js). Both sides share the `collectState` +
+// `searchAll` + `buildBriefPayload` pipeline, so the wire text must equal
+// `JSON.stringify(cli.data, null, 2)` byte-for-byte. This assertion is the
+// load-bearing guard: if the wire and CLI ever drift again, the diff below
+// reports the exact field (key-set or value) that diverged instead of
+// papering over it.
 // ---------------------------------------------------------------------------
 
 test("stdio parity: prompts/get brief-plan text matches `agent-cli --json brief --plan --for`", async () => {
@@ -301,10 +302,9 @@ test("stdio parity: prompts/get brief-plan text matches `agent-cli --json brief 
 		`agent-cli --json brief --plan --for failed (exit ${r.status}): ${r.stderr}`,
 	);
 
-	// Strip the CLI's envelope and compare against the wire text. The wire
-	// payload is JSON.stringify(briefPlanPrompt, null, 2) — i.e. JSON.parse-able
-	// already. The CLI's data payload is the same JSON object after a second
-	// JSON.stringify(..., null, 2) round-trip.
+	// Strip the CLI's envelope and compare against the wire text. Both sides
+	// are `JSON.stringify(buildBriefPayload, null, 2)` — JSON.parse-able, and
+	// the CLI's data payload is the same object after its own JSON round-trip.
 	const cliEnv = JSON.parse(r.stdout);
 	assert.ok(cliEnv && cliEnv.data, `CLI brief envelope missing data: ${r.stdout.slice(0, 400)}`);
 	const cliPlanJson = JSON.stringify(cliEnv.data, null, 2);
@@ -331,8 +331,8 @@ test("stdio parity: prompts/get brief-plan text matches `agent-cli --json brief 
 				`closing T6.3.3.`,
 		);
 	}
-	// wireText === cliPlanJson: byte-for-byte parity. (No-op — the assert.fail
-	// above is the only way this assertion path runs today.)
+	// wireText === cliPlanJson: byte-for-byte parity. The assert.fail above is
+	// now a defensive guard — it fires only if the wire and CLI drift again.
 });
 
 // ---------------------------------------------------------------------------

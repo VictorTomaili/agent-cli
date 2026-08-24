@@ -504,11 +504,15 @@ export async function instructionsPrompt() {
 
 /**
  * Planning-mode brief — equivalent of `agent-cli --json brief --plan
- * [--for "<task>"]`. Returns the structured envelope (`tool`, `version`,
- * `schemaVersion`, `for`, `suggestedActions`, `actions`, `pending`) the
- * MCP `prompts/get` handler will surface in T6.3.2. Delegates to the same
- * `collectState` + `buildActions` + `suggestedStrings` pipeline the `brief`
- * SDK producer already uses, so the three surfaces cannot drift.
+ * [--for "<task>"]`. Returns the FULL `buildBriefPayload` envelope
+ * (`tool`, `version`, `schemaVersion`, `health`, `warnings`, `blockers`,
+ * `etag`, `actions`, `forTask`, `master`, `enabledGlobal`, `installed`,
+ * `pointerTargets`, `drift`, `skill`, `suggestedActions`, `consolidation`,
+ * `update`, `onboarding`, `sessionStart`, `session`, `lessons`,
+ * `modelAliases`, `project`) — the exact shape `agent-cli brief` emits, so
+ * the MCP `prompts/get` wire cannot drift from the CLI. Delegates to the
+ * same `collectState` + `searchAll` + `buildBriefPayload` pipeline the CLI
+ * `brief --plan --for` command (`src/commands/session-core.js`) uses.
  */
 export async function briefPlanPrompt({ for: task } = {}) {
 	const actMod = await import("../actions.js");
@@ -517,17 +521,16 @@ export async function briefPlanPrompt({ for: task } = {}) {
 		offline: true,
 		pkgName: "@victortomaili/agent-cli",
 	});
-	const actions = actMod.buildActions(state);
-	const suggested = actMod.suggestedStrings(actions);
-	return {
-		tool: "agent-cli",
-		version: PKG_VERSION,
-		schemaVersion: "1.1.0",
-		for: task || null,
-		suggestedActions: suggested,
-		actions,
-		pending: actions.filter((a) => a.severity !== "info"),
-	};
+	// `--for`: task-aware retrieval, identical to the CLI brief command (which
+	// builds `forTask = { query, hits }` with up to 5 hits). Omitted when null.
+	let forTask = null;
+	if (task) {
+		const searchMod = await import("../search.js");
+		const sr = await searchMod.searchAll(task, { project: true });
+		forTask = { query: task, hits: sr.results.slice(0, 5) };
+	}
+	const { buildBriefPayload } = await import("../brief-report.js");
+	return buildBriefPayload(state, { forTask, version: PKG_VERSION });
 }
 
 // --- Phase 6.2 write SDK (T6.2.1) ---------------------------------------------

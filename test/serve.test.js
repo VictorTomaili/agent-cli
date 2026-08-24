@@ -400,10 +400,21 @@ test("prompts/get brief-plan JSON-stringifies a structured payload (with `for` a
 		},
 		"brief-plan text is not valid JSON",
 	);
+	// brief-plan now delegates to buildBriefPayload (the CLI's brief --plan
+	// envelope), so the `for` argument surfaces as `forTask = { query, hits }`
+	// instead of a top-level `for` string field.
+	assert.ok(
+		parsed.forTask,
+		`brief-plan payload must include forTask; got keys ${Object.keys(parsed).join(", ")}`,
+	);
 	assert.equal(
-		parsed.for,
+		parsed.forTask.query,
 		"phase-6-mcp",
-		`brief-plan payload must echo the for argument; got ${JSON.stringify(parsed.for)}`,
+		`brief-plan forTask.query must echo the for argument; got ${JSON.stringify(parsed.forTask)}`,
+	);
+	assert.ok(
+		Array.isArray(parsed.forTask.hits),
+		`brief-plan forTask.hits must be an array; got ${JSON.stringify(parsed.forTask.hits)}`,
 	);
 });
 

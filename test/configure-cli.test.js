@@ -51,6 +51,7 @@ function run(args, { envHome, cwd, env: extraEnv } = {}) {
 	Object.assign(env, extraEnv || {});
 	const home = envHome || mkdtempSync(path.join(tmpdir(), "agent-cfgcli-"));
 	env.AGENT_CLI_HOME = home;
+	env.AGENT_OFFLINE = "1";
 	const r = spawnSync(process.execPath, [CLI, ...args], {
 		encoding: "utf8",
 		env,

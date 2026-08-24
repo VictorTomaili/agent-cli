@@ -108,7 +108,7 @@ function runCli(args, env) {
 	const r = spawnSync(process.execPath, [CLI, ...args], {
 		encoding: "utf8",
 		cwd: TMP,
-		env: { ...process.env, ...env },
+		env: { ...process.env, AGENT_OFFLINE: "1", ...env },
 	});
 	return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }

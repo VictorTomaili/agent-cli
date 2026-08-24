@@ -19,7 +19,7 @@ import path from "node:path";
 const CLI = path.resolve("src/cli.js");
 
 function run(args, { envHome, cwd } = {}) {
-	const env = { ...process.env };
+	const env = { ...process.env, AGENT_OFFLINE: "1" };
 	const home = envHome || mkdtempSync(path.join(tmpdir(), "agent-cli-"));
 	env.AGENT_CLI_HOME = home;
 	const r = spawnSync(process.execPath, [CLI, ...args], {
@@ -1671,7 +1671,7 @@ test("init migration strips a stray pointer header prepended onto the old master
 test("P0-3: 6 concurrent 'target enable' processes all succeed without data loss", async () => {
 	const home = run(["init"]).home;
 	const ids = ["claude", "codex", "pi", "gemini", "qwen", "cline"];
-	const env = { ...process.env, AGENT_CLI_HOME: home };
+	const env = { ...process.env, AGENT_CLI_HOME: home, AGENT_OFFLINE: "1" };
 	const runOne = (id) =>
 		new Promise((resolve) => {
 			const child = spawn(process.execPath, [CLI, "target", "enable", id, "-g"], {

@@ -13,7 +13,7 @@ const CLI = path.resolve("src/cli.js");
 function run(args) {
 	const r = spawnSync(process.execPath, [CLI, ...args], {
 		encoding: "utf8",
-		env: { ...process.env },
+		env: { ...process.env, AGENT_OFFLINE: "1" },
 	});
 	assert.equal(r.status, 0, `${args.join(" ")} failed: ${r.stderr}`);
 	return r.stdout;

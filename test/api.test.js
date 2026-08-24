@@ -19,7 +19,7 @@ const HOME = process.env.AGENT_CLI_HOME;
 function cliData(args) {
 	const r = spawnSync(process.execPath, [CLI, ...args], {
 		encoding: "utf8",
-		env: { ...process.env },
+		env: { ...process.env, AGENT_OFFLINE: "1" },
 		cwd: HOME,
 	});
 	assert.ok(
@@ -32,7 +32,7 @@ function cliData(args) {
 function initHome() {
 	const r = spawnSync(process.execPath, [CLI, "init"], {
 		encoding: "utf8",
-		env: { ...process.env },
+		env: { ...process.env, AGENT_OFFLINE: "1" },
 		cwd: HOME,
 	});
 	assert.equal(r.status, 0, `init failed: ${r.stderr}`);

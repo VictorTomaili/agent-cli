@@ -13,7 +13,7 @@ const TMP = mkdtempSync(path.join(tmpdir(), "agent-modelscli-"));
 function run(args, { home = TMP, cwd = process.cwd() } = {}) {
 	const r = spawnSync(process.execPath, [CLI, ...args], {
 		encoding: "utf8",
-		env: { ...process.env, AGENT_CLI_HOME: home },
+		env: { ...process.env, AGENT_CLI_HOME: home, AGENT_OFFLINE: "1" },
 		cwd,
 	});
 	let parsed = null;

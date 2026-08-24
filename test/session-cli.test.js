@@ -21,7 +21,7 @@ function home() {
 function run(args, envHome) {
 	const r = spawnSync(process.execPath, [CLI, ...args], {
 		encoding: "utf8",
-		env: { ...process.env, AGENT_CLI_HOME: envHome },
+		env: { ...process.env, AGENT_CLI_HOME: envHome, AGENT_OFFLINE: "1" },
 	});
 	let parsed = null;
 	try {

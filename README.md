@@ -157,6 +157,41 @@ The CLI also **suggests the closest match** when you mistype a command — e.g.
 `agent-cli statuz` prints `Unknown command: statuz — Did you mean: \`agent-cli status\`,
 \`agent-cli stats\`?` so an LLM (or a user) can self-correct without re-reading `--help`.
 
+## MCP (Model Context Protocol)
+
+`agent-cli serve` starts the MCP server over stdio and can be attached to any
+MCP host — Claude Desktop, VS Code, Cursor, or any other. It speaks JSON-RPC
+2.0, newline-delimited, with no run-time dependencies.
+
+Host config syntax varies, but the per-server shape is the same: a `command`
+plus `args`. The canonical example (Claude Desktop's
+`claude_desktop_config.json`, or the VS Code `vscode-mcp` server entry) is:
+
+```json
+{
+  "mcpServers": {
+    "agent-cli": {
+      "command": "agent-cli",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+The VS Code `vscode-mcp` style uses the same `command`/`args` shape under a
+`servers` key in `.vscode/mcp.json`; check your host's docs for the exact key.
+
+v0.8.0 exposes the read side: 6 read-only tools (`brief`, `doctor`, `search`,
+`snapshot`, `status`, `spect_status`), plus resources (`brain://*` — brain
+files, skills, targets, lessons, current session) and prompts
+(`prompt://session-start`, `prompt://instructions`, `prompt://brief-plan`).
+Write tools arrive in v0.8.1 and are capability-gated: a client opts in by
+offering `capabilities.experimental.agentCli.writeTools` during `initialize`.
+
+See **[docs/contract.md](docs/contract.md)** for the full MCP surface — the
+`initialize` capabilities, the 11 resource URIs + payload contract, the
+subscription delivery contract, and the tool list.
+
 ## Project-driven documentation
 
 - The spec-driven workflow (`agent-cli spect ...`) has its own guide at

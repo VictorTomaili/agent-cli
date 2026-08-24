@@ -173,11 +173,156 @@ it. Schemas are generated from the runtime, not maintained by hand.
 - **Env overrides**: `AGENT_CLI_HOME` (override HOME), `AGENT_OFFLINE=1`
   (skip network), `AGENT_CLI_NO_UPDATE_CHECK=1` (skip npm-version check),
   `DSH_HOME` (deepseek target — currently unused, see target).
-- **MCP server**: `agent-cli serve` exposes a JSON-RPC 2.0 stdio endpoint
-  wrapping the read-only SDK (`src/api/index.js`). Tool list:
-  `brief`, `doctor`, `search`, `snapshot`, `status`, `spect_status`.
+- **MCP server**: `agent-cli serve` exposes a JSON-RPC 2.0 stdio MCP server
+  wrapping the SDK (`src/api/index.js`). For the full `initialize`
+  capabilities, resources, prompts, and tools, see **MCP surface** below.
 - **File watching**: `agent-cli watch` polls configured paths and emits
   `agent-cli --json` envelopes on change.
+
+## MCP surface
+
+`agent-cli serve` is a minimal Model Context Protocol (MCP) server over stdio:
+JSON-RPC 2.0, newline-delimited on stdin/stdout, no dependencies. It wraps the
+SDK (`src/api/index.js`) so an MCP host (Claude Desktop, VS Code, Cursor, etc.)
+can call the CLI's read tools and read/subscribe to resources without shelling
+out. `SERVER_NAME` is `agent-cli`, `SERVER_VERSION` is `2.0.0`, and
+`PROTOCOL_VERSION` is `2025-06-18`. The surface is versioned: v0.8.0 is
+read-only; writes arrive in v0.8.1 (see the capability gating below).
+
+### `initialize` capabilities
+
+The `initialize` response advertises the server's capabilities. v0.8.0 is
+read-only and always sends `READ_CAPABILITIES`:
+
+```json
+{
+  "capabilities": {
+    "tools": { "listChanged": false },
+    "resources": { "subscribe": true }
+  }
+}
+```
+
+- `tools.listChanged: false` — the tool list is static per connection; the
+  server never changes it mid-session.
+- `resources.subscribe: true` — the server supports `resources/subscribe` for
+  the two subscribable URIs below.
+
+v0.8.1 introduces writes, and the write capability is **opt-in** (A16): the
+server adds `WRITE_CAPABILITY` to the response only when the client offers it
+during `initialize` by setting `capabilities.experimental.agentCli.writeTools`
+to the exact boolean `true` (truthy strings fail closed):
+
+```json
+{
+  "capabilities": {
+    "experimental": { "agentCli": { "writeTools": true } }
+  }
+}
+```
+
+So the v0.8.0 server never advertises a write surface it does not ship, and a
+v0.8.1 server never silently drops the declaration.
+
+### `resources/list`
+
+`resources/list` returns 11 resource descriptors — 10 concrete URIs plus one
+RFC 6570 URI template. All payloads are `application/json`:
+
+| URI | name | kind |
+| --- | --- | --- |
+| `brain://files/SOUL.md` | Soul profile | soul |
+| `brain://files/IDENTITY.md` | Identity | identity |
+| `brain://files/USER.md` | User profile | user |
+| `brain://files/LESSONS.md` | Lessons | lessons |
+| `brain://files/ENVIRONMENTS.md` | Environments | environments |
+| `brain://files/MODELS.md` | Models | models |
+| `brain://skills/{name}` | Skill manifest | skill |
+| `brain://targets` | Enabled targets | targets |
+| `brain://lessons/inbox` | Lessons inbox | lessons-inbox |
+| `brain://lessons/core` | Lessons core | lessons-core |
+| `brain://session/current` | Current session | session |
+
+`brain://skills/{name}` is the URI template; the `{name}` placeholder resolves
+at read time to an installed-skill name. `brain://brief` is deliberately
+**absent** from this list — it is subscribe-only (see below) and no
+`resources/read brain://brief` ever succeeds.
+
+### `resources/read` payload contract
+
+`resources/read` returns the metadata-shaped payload contract (A3):
+
+```json
+{
+  "uri": "brain://files/SOUL.md",
+  "kind": "soul",
+  "scope": "global",
+  "schemaVersion": "1.2.0",
+  "lastModified": "2026-08-24T12:34:56.789Z",
+  "size": 4200,
+  "content": "# SOUL ...",
+  "exists": true,
+  "symlink": false
+}
+```
+
+Contractual guarantees:
+
+- `schemaVersion`, `lastModified`, `size`, `content`, `exists` are the stable
+  A3 fields consumers rely on. `uri`, `kind`, `scope`, and `symlink` are also
+  always present.
+- `exists: false` (file missing) or `symlink: true` (path is a symlink or
+  junction, refused per A8 so a symlinked file cannot leak
+  `~/.agents/secrets/*`) → the `content` field is **omitted**. Never treat a
+  missing or symlinked resource as having content.
+- Content respects a **64 KiB cap** (T6.1.6): if the on-disk file exceeds it,
+  `content` is truncated and the payload adds `{ truncated: true,
+  originalSize }` so the host can detect truncation and re-fetch the full file
+  via the CLI. `size` always reports the on-disk file size, not the truncated
+  payload.
+- v0.8.0 exposes resources under the `global` scope; project-scoped reads are
+  not wired (a Phase 6 follow-up).
+
+### `resources/subscribe` (A18)
+
+`resources/subscribe` accepts exactly two URIs:
+
+- `brain://brief` — subscribe-only; **not** readable via `resources/read`
+- `brain://session/current` — also readable
+
+Delivery is **stateless and message-driven** (A18): the server keeps no timer
+and no file watcher. On each inbound request or ping it recomputes a sha1
+fingerprint of the current value of every subscribed URI and emits a
+`notifications/resources/updated` notification for any URI whose fingerprint
+changed since the prior check — but never a synthetic update in the same turn
+as the subscribe. A reconnect resets the subscribed set and the prior
+fingerprint, and must pass through `initialize` again. There is no pushed,
+async event stream that runs outside a request.
+
+### `prompts/list` + `prompts/get`
+
+`prompts/list` returns 3 prompt descriptors; each maps one-to-one to a CLI
+command, and `prompts/get` returns the canonical prompt text. No v0.8.0 prompt
+requires an argument; `session-start` and `brief-plan` accept an optional `for`
+(task-aware retrieval), `instructions` takes none.
+
+| name | URI | returns |
+| --- | --- | --- |
+| `session-start` | `prompt://session-start` | Equivalent of `agent-cli prompt [--for "<task>"]` — the dynamic, state-aware system-prompt recommendation |
+| `instructions` | `prompt://instructions` | Equivalent of `agent-cli instructions` — the static long-form reference guide |
+| `brief-plan` | `prompt://brief-plan` | Equivalent of `agent-cli --json brief --plan` — the ordered action list with safe-to-automate flags |
+
+### `tools/list` + `tools/call`
+
+v0.8.0 exposes **6 read-only tools** (A16): `brief`, `doctor`, `search`,
+`snapshot`, `status`, and `spect_status`. Write tools are a **v0.8.1**
+addition, gated by `capabilities.experimental.agentCli.writeTools` (the opt-in
+above) — a v0.8.0 host never sees them, and a v0.8.1 host sees them only after
+the handshake offers the capability. `tools.listChanged: false` means the tool
+set is stable across the connection.
+
+> Note: this section describes the MCP framing only. For the JSON envelope /
+> exit-code contract of the underlying commands, see the rest of this document.
 
 ## Guarantees for AI agents
 

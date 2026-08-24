@@ -164,7 +164,7 @@ function lcsDiff(a, b) {
  */
 export async function memoryMaintain({ scope = "all", cwd = process.cwd() } = {}) {
 	const scopes = scope === "all" ? ["global", "project"] : [scope];
-	const snap = snapshot();
+	const snap = await snapshot();
 	const inbox = (await inboxLessons({ includeProject: true, cwd })).length;
 	const consolidated = [];
 	for (const s of scopes) {

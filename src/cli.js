@@ -242,7 +242,7 @@ async function stripSkillBlockFromMaster() {
 async function preSnapshot(_label = "pre-mutation") {
 	try {
 		const { snapshot } = await import("./snapshot.js");
-		const r = snapshot();
+		const r = await snapshot();
 		return r.name;
 	} catch {
 		return null;

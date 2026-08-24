@@ -96,7 +96,7 @@ export function registerMemoryOpsCommands(
 			const target = name || list.find((n) => !n.startsWith("pre-restore-")) || list[0];
 			if (!target) fail("No snapshot to restore.");
 			const pre = await preSnapshot("restore");
-			const r = restore(target);
+			const r = await restore(target);
 			let relinked = 0;
 			if (r.ok && opts.relink) {
 				const cfg = await loadConfig();

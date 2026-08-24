@@ -253,7 +253,7 @@ export function snapshotsList() {
 	return listSnapshots();
 }
 
-export function snapshotNow() {
+export async function snapshotNow() {
 	return snapshot();
 }
 

@@ -234,7 +234,7 @@ export function registerSessionCommands(
 			};
 			// 4. snapshot
 			const { snapshot: snap } = await import("../snapshot.js");
-			steps.snapshot = snap().name;
+			steps.snapshot = (await snap()).name;
 			// 5. readiness
 			const doctorMod = await import("../actions.js");
 			const s = await doctorMod.collectState({ offline: true });

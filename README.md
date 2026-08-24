@@ -161,11 +161,19 @@ The CLI also **suggests the closest match** when you mistype a command — e.g.
 
 - The spec-driven workflow (`agent-cli spect ...`) has its own guide at
   [`.spect/README.md`](.spect/README.md).
-- The bundled sub-agent personas — the **dev-team** roster (`orchestrator-agent`,
-  `cto-agent`, `dev-agent` ×3 slots, `devops-agent`, `qa-agent`, `security-agent`) — live in
-  [`seed/agents/`](seed/agents/) and are documented inline in each file's frontmatter. The
-  skill that turns them into a working delegation flow lives in
-  [`seed/skills/dev-team/`](seed/skills/dev-team/) (`SKILL.md`/`ROLES.md`/`WORKFLOW.md`);
+- The bundled **dev-team** skill turns the main agent of any agentic CLI host into the
+  **orchestrator-agent** of a virtual software company: 14 on-demand role personas across
+  Product & Design (`product-manager`, `product-owner`, `business-analyst`, `ux-ui-designer`),
+  Engineering & Architecture (`software-architect`, `tech-lead`, `frontend-dev`, `backend-dev`,
+  `fullstack-dev`, `ai-ml-engineer`), Operations & Quality (`qa-engineer`, `devops-engineer`),
+  and Management (`project-manager`, `scrum-master`) — plus the fixed `orchestrator-agent`.
+  The protocol is host-agnostic and agentic: backlog item → every relevant role writes its own
+  perspective (round 1) → perspectives are shared across a second turn (round 2) → the
+  orchestrator synthesizes a master plan → decomposes it into a dependency-aware task DAG
+  (blocking/parallel, per-task tool + model/thinking config) → dispatches and validates
+  execution → delivers and supports the product. Role personas live in
+  [`seed/agents/`](seed/agents/) (each passes `agent-cli agents validate`); the protocol lives
+  in [`seed/skills/dev-team/`](seed/skills/dev-team/) (`SKILL.md`/`ROLES.md`/`WORKFLOW.md`);
   both deploy into `~/.agents/` on `agent-cli init`.
 
 ## Adding a new AI coding tool

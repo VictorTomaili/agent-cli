@@ -40,7 +40,7 @@ export function registerUpdateCommands(
 		.option("--no-network", "alias for --offline")
 		.option(
 			"--file <rel>",
-			"restrict diff to one staged file (relative, e.g. agents/dev-agent.md)",
+			"restrict diff to one staged file (relative, e.g. agents/fullstack-dev.md)",
 		)
 		.action(async (action, version, opts) => {
 			const seed = await import("../seed.js");

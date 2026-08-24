@@ -1,100 +1,176 @@
-# dev-team — Work Cycle (Agile Delivery Process)
+# dev-team — Work Protocol (Agentic Collaboration Cycle)
 
-Referenced from `SKILL.md`. This defines **how** a request moves from "the user asked
-for it" to "done and validated" — which stage it passes through, who owns each stage,
-and what "done" means before it moves on. Role capabilities live in `ROLES.md`;
-routing lives in `SKILL.md`; this file is the process that connects them.
+Referenced from `SKILL.md`. This defines **how** a request moves from "the client
+asked for it" to "delivered, validated, and owned" — which stage, who runs it, and
+what "done" means before moving on. Unlike a scripted pipeline, **the orchestrator
+runs every stage conversationally** using the host's native sub-agent mechanisms;
+this document is the playbook, not an engine.
 
 ## Two lanes — don't run every request through the full cycle
 
 | Lane | When to use | What it skips |
 | --- | --- | --- |
-| **Fast Lane** | Single-role, low-risk, no escalation condition triggered (e.g. a one-line bug fix, a log lookup, a doc tweak) | Planning, cross-role review, retro — goes straight from Intake → Execution → Validation → Report |
-| **Full Cycle** | Multi-role work, anything touching code/infra/data/access beyond the trivial, anything that could hit an "Escalate to human" condition | Nothing — every stage below applies |
+| **Fast Lane** | Single-role, low-risk, no escalation condition triggered (one-line bug fix, log lookup, doc tweak) | Backlog round, perspective/sharing rounds, cross-role review — goes straight from Intake → Execution (single role) → Validation → Report |
+| **Full Cycle** | Multi-role work; anything touching code/infra/data/access beyond the trivial; anything that could hit an "Escalate to human" condition | Nothing — every stage below applies |
 
-`orchestrator-agent` decides the lane at Intake and says so explicitly. When unsure,
+The orchestrator decides the lane at Intake and **says so explicitly**. When unsure,
 default to Full Cycle — skipping a gate is cheap to avoid, expensive to undo.
 
-**Even in Fast Lane, the orchestrator's final validation (stage 8) is never skipped** —
-that's the mandate: no sub-agent result is accepted on trust.
+**Even in Fast Lane, the orchestrator's final validation is never skipped** — that
+is the mandate: no sub-agent result is accepted on trust.
 
 ## The cycle
 
 ```mermaid
 flowchart LR
-    A["1. Intake & Triage"] --> B["2. Refinement"]
-    B --> C["3. Planning"]
-    C --> D["4. Execution"]
-    D --> E["5. Review"]
-    E --> F["6. Security & Risk Gate"]
-    F --> G{"Escalation\ntriggered?"}
-    G -- yes --> H["Meeting with the user"]
-    H --> D
-    G -- no --> I["7. Delivery"]
-    I --> J["8. Validation"]
-    J --> K["9. Report & Retro"]
+    A["1. Intake & Backlog"] --> B["2. Perspectives (round 1)"]
+    B --> C["3. Sharing (round 2)"]
+    C --> D["4. Master Plan"]
+    D --> E["5. Task DAG"]
+    E --> F["6. Execution"]
+    F --> G["7. Integration & Validation"]
+    G --> H["8. Delivery & Support"]
+    G -. rework .-> F
+    C -. escalate .-> A
 ```
 
-### 1. Intake & Triage
+### 1. Intake & Backlog
 
-- **Owner:** `orchestrator-agent`
-- **Does:** Reads the user's request, matches it to role(s) in `ROLES.md`, picks the lane, splits cross-cutting work. A request outside software development doesn't get forced onto the closest role — it goes back to the user (see `SKILL.md` routing table).
-- **Exit criteria:** Every subtask has exactly one owning role and a lane assigned.
+- **Owner:** `orchestrator-agent` routes; the matching role writes the backlog entry.
+- **Does:** The orchestrator reads the request, picks the lane, and routes it to the
+  correct role to **write the backlog item first**: product-manager (features/goals),
+  business-analyst (requirements research), product-owner (prioritization),
+  software-architect (architecture/tech-debt). The role returns a structured backlog
+  entry: problem, users, success metrics, scope, product-level acceptance criteria.
+- **Exit criteria:** A backlog item with measurable acceptance criteria that the
+  validation stage can check against. The orchestrator confirms it with the client
+  only when scope or success metrics are genuinely ambiguous.
 
-### 2. Refinement
+### 2. Perspectives — round 1 (independent)
 
-- **Owner:** `orchestrator-agent`
-- **Consulted:** `cto-agent` for anything architecturally loaded.
-- **Does:** Turns the raw request into a concrete spec — acceptance criteria, scope boundaries, what "done" looks like. These acceptance criteria are also what stage 8's validation will check against, so write them measurably. Skipped in Fast Lane (the request IS the spec).
-- **Exit criteria:** A one-paragraph spec the executing agent(s) can work from without re-asking the user.
+- **Owner:** `orchestrator-agent` dispatches; every relevant role contributes.
+- **Does:** The orchestrator sends the backlog item to **each relevant role in
+  parallel** — read-only, independent, no cross-talk. Each writes its own
+  perspective: what it would do, what it worries about, what it would change, what
+  it needs from other roles. This is the divergence step: the team thinks
+  separately before it thinks together.
+- **Exit criteria:** One perspective per activated role, each naming its key
+  concern and its recommended approach.
 
-### 3. Planning
+### 3. Sharing — round 2 (collaborative)
 
-- **Owner:** `cto-agent`
-- **Does:** Breaks the spec into an ordered task list: which `dev-agent` slot(s), what runs in parallel vs. sequentially, whether `devops-agent`/`security-agent` involvement is needed, and which execution mechanism and tool each block uses — sub-agent dispatch, workflow script, or an accepted external agent CLI — chosen by the orchestrator per `SKILL.md`'s mandate.
-- **Exit criteria:** Every task has an assigned slot, a declared position in the sequence, and a named execution mechanism + tool.
+- **Owner:** `orchestrator-agent`.
+- **Does:** The orchestrator sends **every agent all other perspectives** and asks
+  for a second turn: build on, challenge, or synthesize the others' ideas, and
+  name what evidence moved them. Roles may converge, form coalitions, defend a
+  minority position, or surface a conflict — the orchestrator records the outcome
+  (converged / diverged / unresolved). Unresolved conflicts that change scope or
+  approach go to the client at this point, not silently.
+- **Exit criteria:** Every role has reacted to its peers; the shared insight is
+  explicit; remaining disagreements are named.
 
-### 4. Execution
+### 4. Master Plan
 
-- **Owner:** the assigned executor slot(s) — `dev-agent-N`, `devops-agent`, whichever the plan named — running on whichever accepted tool the orchestrator dispatched them through.
-- **Does:** The actual work, per that role's card in `ROLES.md`. The orchestrator dispatches and monitors; it does not implement.
-- **Exit criteria:** Deliverable exists (PR, config, test suite, report) and is self-checked against the Refinement spec.
+- **Owner:** `orchestrator-agent` synthesizes; `software-architect` for
+  architecture, `product-owner` for scope, `project-manager` for schedule (large
+  work only).
+- **Does:** The orchestrator turns the shared insight into the master plan:
+  approach, architecture (ADR if warranted), scope decisions, risks, and the
+  **acceptance gates** the team will build against.
+- **Exit criteria:** One master plan everyone can see, with named gates and named
+  risks. The orchestrator states it in the conversation so every later task prompt
+  can reference it.
 
-### 5. Review
+### 5. Task DAG
 
-- **Owner:** the natural peer — a second `dev-agent` slot or `cto-agent` for code, `qa-agent` for anything needing test coverage.
-- **Does:** Checks the deliverable against the spec and the quality bar — not a rubber stamp. Sends it back to stage 4 with concrete feedback if it doesn't hold up. The reviewer must not be the slot that authored the work.
-- **Exit criteria:** Reviewer explicitly signs off; feedback loop closed.
+- **Owner:** `orchestrator-agent` (decomposition may consult `software-architect`).
+- **Does:** The orchestrator decomposes the master plan into tasks and declares:
+  - **owner role** per task (single owner — no shared ownership),
+  - **dependencies**: which tasks block which (blocks / blocked-by),
+  - **parallel set**: which tasks are independent and may run concurrently,
+  - **execution tool**: native sub-agent, background agent, workflow script, or
+    accepted external CLI — per task, per host capability,
+  - **checkout strategy**: shared checkout (single writer at a time; reads may
+    overlap) vs worktree isolation (parallel writers on conflicting files),
+  - **model/thinking config**: per the policy below.
+- **Exit criteria:** Every task has an owner, declared dependencies, a parallel
+  position, a tool, a checkout strategy, and a model config. Cycles are forbidden —
+  if task A blocks B and B blocks A, the orchestrator splits or merges until the
+  graph is acyclic.
 
-### 6. Security & Risk Gate
+### 6. Execution
 
-- **Owner:** `security-agent` — **mandatory for anything touching code, infrastructure, data, or access control; skipped only for pure documentation/analysis work that touches none of those.**
-- **Does:** Runs its standard checks from `ROLES.md` (SAST/DAST, dependency scan, access/secrets review, compliance as relevant). Runs continuously in the background per its cross-audit authority, but must explicitly clear before stage 7 for anything in scope.
-- **Refute pass — mandatory for every fix made in response to a security finding.** The fix goes to an agent that did **not** write it (`qa-agent`, or a `dev-agent` slot other than the one that fixed it), prompted to **break** it rather than review it, and pointed at the running system — the wire, the socket, the rendered screen — not only at the source. A refutation is closed by replaying its exact payload against the new code, never by argument. If fixer and refuter disagree, a third agent gets both artefacts and decides: majority rules, and a tie leaves the finding **open**.
-- **Exit criteria:** No open critical finding, or findings triaged and accepted knowingly — **and every fix has survived a refute pass.** "Reviewed and looks correct" does not clear this gate.
+- **Owner:** the assigned role slot(s); `orchestrator-agent` monitors.
+- **Does:** Dispatch in dependency order: independent tasks go out in parallel;
+  dependent tasks start the moment their blockers report done. The orchestrator
+  collects results, feeds them to dependent tasks, and re-dispatches failures with
+  concrete feedback. **Single-writer rule:** with a shared checkout, exactly one
+  write-enabled agent at a time; reads overlap freely. Use worktrees (or separate
+  checkouts) when parallel writers would touch the same files.
+- **Exit criteria:** Every task reports done with evidence (diff, tests run,
+  verification), or is blocked with a reason the orchestrator resolves (re-dispatch,
+  split, or escalate).
 
-### Escalation checkpoint (not a numbered stage — can fire from any stage above)
+### 7. Integration & Validation
 
-- **Owner:** `orchestrator-agent`
-- **Does:** The moment any role's "Escalate to human" condition (per `ROLES.md`) is hit at any stage, work pauses right there and the orchestrator opens a short meeting with the user via the **session's ask-user mechanism** — situation, options, recommendation. On resolution, work resumes at the stage it paused in, not from the top. This also covers the orchestrator's own triggers: first use of a not-yet-accepted agent tool, and tool switches with cost implications.
+- **Owner:** `qa-engineer` (gate + security) and `orchestrator-agent` (final).
+- **Does:**
+  - **Gate-first where feasible:** for features, QA writes the acceptance gate
+    (tests/checks from the acceptance criteria) **before** building starts, proves
+    it starts red, and the team builds until it goes green.
+  - **Regression + security cross-cut:** `qa-engineer` runs regression, dependency
+    scans, secrets/access review, and refutes any security fix (an agent that did
+    not write it tries to break it; a tie keeps the finding open).
+  - **Final validation (never skipped):** the orchestrator checks the integrated
+    result against the acceptance criteria, reads the actual diff, and confirms the
+    executors' claims match reality. Failed validation sends work back to stage 6
+    with concrete findings.
+- **Exit criteria:** Every acceptance criterion verified with evidence; no open
+  critical finding; the orchestrator's verdict is explicit (PASS / FAIL / PASS-WITH-NOTES).
 
-### 7. Delivery
+### 8. Delivery & Support
 
-- **Owner:** `devops-agent` for deploys; otherwise the owning executor ships its own deliverable.
-- **Exit criteria:** Deliverable is in its final destination, not just "ready."
+- **Owner:** `orchestrator-agent`; `devops-engineer` for deploys.
+- **Does:** Deliverable reaches its final destination (merge, deploy, publish).
+  The orchestrator reports one consolidated result: what was done, by which
+  role/agent/tool, how it was validated, what needs the client's decision. The team
+  **owns the product from here**: bugs, support questions, and follow-on work
+  re-enter the cycle at stage 1, and the orchestrator keeps the task tracker live so
+  ownership is always answerable. For Full Cycle work, append a one-line retro note
+  to the running in-session retro log.
+- **Exit criteria:** The client has a clear single answer to "is it done and what
+  happened", and the follow-up channel (bug/support → backlog) is acknowledged.
 
-### 8. Validation
+## Model & thinking policy
 
-- **Owner:** split in two, both mandatory:
-  - `qa-agent` — engineering verification: tests pass, the change works in the real environment (UI/frontend changes verified in a real browser, not just a green build).
-  - `orchestrator-agent` — **final validation, the mandate's step**: checks the delivered result against the Refinement acceptance criteria, reads the actual diff, confirms the executor's claims match reality. This applies in **both lanes** and is never delegated away — it's the quality gate the user holds the orchestrator accountable for.
-- **Exit criteria:** Confirmed working / confirmed matches spec — not assumed. Failed validation sends the work back to stage 4 with the orchestrator's concrete findings.
+The orchestrator picks each role's model and thinking level **per task**, weighing:
 
-### 9. Report & Retro
+1. **Complexity** — planning/architecture/security analysis → strongest available
+   model, extended thinking. Mechanical refactors, test updates, tracking →
+   cheapest adequate model, minimal thinking.
+2. **Cost budget** — the client's stated budget caps the mix; the orchestrator
+   tracks cumulative cost per session and downgrades tiers when a task doesn't need
+   the top tier.
+3. **Parallelism** — N parallel agents at top tier cost N×; parallelize with
+   workhorse tiers and reserve the top tier for the bottlenecks (architecture,
+   integration, validation).
+4. **Provider caps** — when a provider is capped/degraded, reroute that task to an
+   accepted alternative and note the switch in the report.
 
-- **Owner:** `orchestrator-agent`
-- **Does:** One consolidated report to the user: what was done, by which agent/tool (including any usage-limit switches made mid-task), how it was validated, what needs the user's decision. For Full Cycle work, also a one-line retro note appended to the running in-session retro log — raw material for the Self-Improvement Loop.
-- **Exit criteria:** The user has a clear, single answer to "is it done and what happened."
+Defaults per role live in `ROLES.md` (smart/coding/fast tiers). On hosts with model
+aliases (agent-cli: `agent-cli models set <alias> <provider/model>`), express the
+tier as an alias; otherwise express intent in the dispatch prompt ("strongest
+reasoning model, extended thinking" / "fast cheap model, minimal thinking").
+
+## Escalation checkpoint (not a numbered stage — can fire from any stage)
+
+- **Owner:** `orchestrator-agent`.
+- **Does:** The moment any role's escalation condition (per `ROLES.md`) is hit, work
+  pauses right there and the orchestrator opens a short meeting with the client via
+  the host's ask-user mechanism — situation, options, recommendation. On
+  resolution, work resumes at the stage it paused in, not from the top. This also
+  covers the orchestrator's own triggers: first use of a not-yet-accepted tool, and
+  tool switches with cost implications.
 
 ## Self-Improvement Loop
 
@@ -103,55 +179,58 @@ never as a side effect of normal work.
 
 ```mermaid
 flowchart LR
-    T["Trigger"] --> P["cto-agent: process review"]
+    T["Trigger"] --> P["scrum-master: process review"]
     T --> S["orchestrator-agent: tooling & strategy review"]
     P --> D["orchestrator-agent: drafts smallest concrete change"]
     S --> D
-    D --> M["Meeting with the user"]
-    M -- approved --> C["orchestrator commits to\nROLES.md / WORKFLOW.md / SKILL.md\n(or builds the hook/tool/extension)"]
+    D --> M["Meeting with the client"]
+    M -- approved --> C["orchestrator commits to ROLES.md / WORKFLOW.md / SKILL.md (or builds the hook/tool/extension)"]
     M -- rejected --> X["Discarded, logged as 'considered, declined'"]
 ```
 
 **Trigger** — the orchestrator starts this loop when either holds:
 
-- The in-session retro log has accumulated **5 or more entries** since the last loop ran, or
-- The user explicitly asks ("how's the team doing", "review the org", "can we improve this process").
-
-It never runs mid-task, and one bad retro is noise — a pattern across several is signal.
+- The in-session retro log has accumulated **5 or more entries** since the last
+  loop ran, or
+- The client explicitly asks ("how's the team doing", "review the org", "can we
+  improve this process").
 
 **Review (two lenses on the same retro log):**
 
-- `cto-agent` — process lens: stages that stall or get skipped, redundant reviews, slot-count mismatches.
-- `orchestrator-agent` — tooling & strategy lens: dispatch mechanisms underused, providers repeatedly capped, quality escapes that a new hook/tool/extension or workflow script would prevent, roster-vs-demand mismatches.
+- `scrum-master` — process lens: rounds that stall (perspectives never shared, a
+  role's voice missing), redundant reviews, slot-count mismatches.
+- `orchestrator-agent` — tooling & strategy lens: dispatch mechanisms underused,
+  providers repeatedly capped, quality escapes that a new hook/tool/extension would
+  prevent, roster-vs-demand mismatches, model-tier choices that wasted cost.
 
 **Draft** — the orchestrator drafts the smallest concrete change that addresses the
-findings: a workflow adjustment, a slot-count change, a new hook/tool/extension, a
-changed escalation threshold. Prefers extending what exists over adding new moving parts.
+findings: a workflow adjustment, a new role card, a changed model-tier default, a
+new hook/tool/extension, a changed escalation threshold. Prefers extending what
+exists over adding new moving parts.
 
-**Approve** — presented to the user as a short before/after diff via the **session's ask-user mechanism**.
-Nothing is written until the user approves. If declined, logged as "considered,
-declined" so the same idea isn't re-proposed without new evidence.
+**Approve** — presented to the client as a short before/after diff via the host's
+ask-user mechanism. Nothing is written until the client approves. If declined,
+logged as "considered, declined" so the same idea isn't re-proposed without new
+evidence.
 
 **Commit** — only on approval, the orchestrator makes the edit (or builds the tool)
-and confirms back to the user in one line what changed.
+and confirms back to the client in one line what changed.
 
 ## RACI at a glance
 
 | Stage | Responsible | Consulted | Informed |
 | --- | --- | --- | --- |
-| Intake & Triage | orchestrator-agent | — | user |
-| Refinement | orchestrator-agent | cto-agent | executor slots |
-| Planning | cto-agent | orchestrator-agent | executor slots |
-| Execution | assigned slot(s) | — | orchestrator-agent |
-| Review | peer slot / cto-agent / qa-agent | — | executor |
-| Security & Risk Gate | security-agent | qa-agent (refute pass) | cto-agent |
-| Escalation checkpoint | orchestrator-agent | role that triggered it | user (decision-maker) |
-| Delivery | devops-agent / owning executor | — | orchestrator-agent |
-| Validation | qa-agent + orchestrator-agent | — | user |
-| Report & Retro | orchestrator-agent | — | user |
+| Intake & Backlog | orchestrator + routed role (PM/BA/PO/architect) | — | client |
+| Perspectives (round 1) | orchestrator dispatches; all relevant roles | — | — |
+| Sharing (round 2) | orchestrator; all relevant roles react | — | client (only on unresolved scope conflicts) |
+| Master Plan | orchestrator | software-architect, product-owner, project-manager | all roles |
+| Task DAG | orchestrator | software-architect | project-manager |
+| Execution | assigned slots | tech-lead (referee) | orchestrator |
+| Integration & Validation | qa-engineer + orchestrator | security cross-cut | client |
+| Delivery & Support | orchestrator; devops-engineer for deploys | — | client |
 
 ## Status visibility
 
-For any Full Cycle item, the orchestrator keeps a live task-tracker entry per
-stage so the user can ask "where are we" mid-cycle and get the current stage, owner, and
-blocker (if any) instantly.
+For any Full Cycle item, the orchestrator keeps a live task-tracker entry per stage
+so the client can ask "where are we" mid-cycle and get the current stage, owner,
+blocker (if any), and model tier per active task instantly.

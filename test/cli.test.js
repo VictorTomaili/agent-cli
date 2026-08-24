@@ -618,14 +618,14 @@ test("update diff shows staged-vs-live changes", () => {
 	).data.staged[0].version;
 	// mutate the live file so the diff is non-empty
 	writeFileSync(
-		path.join(home, ".agents", "agents", "dev-agent.md"),
+		path.join(home, ".agents", "agents", "fullstack-dev.md"),
 		"# changed by user\n",
 	);
 	const r = run(["update", "diff", ver, "--json"], { envHome: home });
 	ok(r);
 	const j = parseJson(r.stdout);
 	assert.equal(j.data.action, "diff");
-	const devAgent = j.data.diffs.find((d) => d.rel.includes("dev-agent.md"));
+	const devAgent = j.data.diffs.find((d) => d.rel.includes("fullstack-dev.md"));
 	assert.ok(devAgent);
 	assert.ok(devAgent.diff.includes("-# changed by user"));
 	assert.ok(devAgent.diff.includes("+")); // staged content appears as additions
@@ -690,12 +690,12 @@ test("update diff reports no differences without dumping files", () => {
 	);
 	const ver = list.data.staged[0].version;
 	const staged = readFileSync(
-		path.join(home, ".agents", `update-${ver}`, "agents", "dev-agent.md"),
+		path.join(home, ".agents", `update-${ver}`, "agents", "fullstack-dev.md"),
 		"utf8",
 	);
-	writeFileSync(path.join(home, ".agents", "agents", "dev-agent.md"), staged);
+	writeFileSync(path.join(home, ".agents", "agents", "fullstack-dev.md"), staged);
 	const j = parseJson(
-		run(["update", "diff", ver, "--file", "agents/dev-agent.md", "--json"], {
+		run(["update", "diff", ver, "--file", "agents/fullstack-dev.md", "--json"], {
 			envHome: home,
 		}).stdout,
 	);

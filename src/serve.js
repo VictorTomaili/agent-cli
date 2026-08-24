@@ -4,24 +4,42 @@
 // `snapshot`, `status`, `spect status` as tools, and read/subscribe to MCP
 // `resources`. JSON-RPC 2.0, newline-delimited on stdin/stdout. No dependencies.
 //
-// Phase 6 read-side surface (v0.8.0): tools/list+call (existing), resources/list,
+// Phase 6 surface (v0.8.0 read-side → v0.8.1 write-side): tools/list+call
+// (existing read tools + write tools gated by T6.2.5), resources/list,
 // resources/read, resources/subscribe, plus message-driven change delivery via
 // notifications/resources/updated (stateless — see MASTER-PLAN §1 decision 5 +
-// A18). Write tools are out of scope until T6.2.5 (v0.8.1).
+// A18). Write tools (T6.2.5) are exposed only after `initialize` establishes
+// `serverInitialized` AND the host offered
+// `capabilities.experimental.agentCli.writeTools === true` (exact boolean).
 
 import { createHash } from "node:crypto";
 import readline from "node:readline";
 import * as sdk from "./api/index.js";
 import {
 	READ_CAPABILITIES,
+	WRITE_CAPABILITY,
 	RESOURCE_DESCRIPTORS,
 	PROMPT_DESCRIPTORS,
 	SUBSCRIBABLE,
+	WRITE_TOOLS,
 } from "./serve/registry.js";
 
 export const SERVER_NAME = "agent-cli";
 export const SERVER_VERSION = "2.0.0";
 export const PROTOCOL_VERSION = "2025-06-18";
+
+// --- Per-session capability state (T6.2.5) ----------------------------------
+//
+// serverInitialized: set to true only when `initialize` was received. Reporters
+//   (tools/list, tools/call) use it to refuse write traffic before the host has
+//   gone through the handshake (A19 — no writes, no crash).
+// writeCapabilityOffered: set only when the host OFFERED write capability in
+//   `initialize` (`capabilities.experimental.agentCli.writeTools === true`,
+//   exact boolean — truthy strings fail closed per MASTER-PLAN §1 decision 4).
+//   Bound per-session (A16); reconnect must re-`initialize` (resetSession()
+//   clears both flags on process respawn/reconnect).
+let serverInitialized = false;
+let writeCapabilityOffered = false;
 
 // Tool → SDK call mapping. Each tool returns a plain object; the MCP layer wraps
 // it in JSON content blocks.
@@ -61,6 +79,161 @@ const TOOLS = [
 		description: "Inspect the project SPECT: requirements, tasks, progress.",
 		inputSchema: { type: "object", properties: {} },
 		call: async () => sdk.spectStatus(),
+	},
+];
+
+// --- Phase 6 write tool definitions (T6.2.5) ----------------------------------
+//
+// The 10 write tools mirror the SDK functions in src/api/write.js, which are
+// re-exported from src/api/index.js — so the single `import * as sdk` in
+// serve.js already sees both the read and write halves. Each `call` dispatches
+// to the SDK function with the raw MCP arguments object; the SDK returns the
+// `{ ok, command, apiVersion, data, ... }` envelope, which tools/call wraps in
+// the MCP wire shape `{ content: [{ type: "text", text: JSON.stringify(...) }],
+// isError: !result.ok }`.
+//
+// WRITE_TOOLS (registry.js) is the authoritative inventory + gate. These defs
+// are only the tool metadata + dispatch — gating on serverInitialized and
+// writeCapabilityOffered happens in tools/call (and tools/list only advertises
+// them when offered).
+
+const WRITE_TOOLS_TOOL_DEFS = [
+	{
+		name: "brain_write",
+		description: "Write content to a brain file (SOUL/IDENTITY/USER/LESSONS/ENVIRONMENTS/MODELS) under a scope.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				kind: {
+					type: "string",
+					enum: ["SOUL", "IDENTITY", "USER", "LESSONS", "ENVIRONMENTS", "MODELS"],
+				},
+				content: { type: "string" },
+				scope: { type: "string", enum: ["global", "project"] },
+				applyChanges: { type: "boolean" },
+			},
+			required: ["kind", "content"],
+		},
+		call: (args) => sdk.brainWrite(args),
+	},
+	{
+		name: "lesson_capture",
+		description: "Append a raw lesson capture to both the project and global inboxes.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				topic: { type: "string" },
+				body: { type: "string" },
+			},
+			required: ["topic"],
+		},
+		call: (args) => sdk.lessonCapture(args),
+	},
+	{
+		name: "target_enable",
+		description: "Enable a target: write the pointer stub and update config via atomic CAS.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				id: { type: "string" },
+				scope: { type: "string", enum: ["global", "project"] },
+			},
+			required: ["id"],
+		},
+		call: (args) => sdk.targetEnable(args),
+	},
+	{
+		name: "target_disable",
+		description: "Disable a target: remove the pointer stub and update config via atomic CAS.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				id: { type: "string" },
+				scope: { type: "string", enum: ["global", "project"] },
+			},
+			required: ["id"],
+		},
+		call: (args) => sdk.targetDisable(args),
+	},
+	{
+		name: "link",
+		description: "Write a pointer stub for a target (backup-first, force opt-in for native content).",
+		inputSchema: {
+			type: "object",
+			properties: {
+				id: { type: "string" },
+				scope: { type: "string", enum: ["global", "project"] },
+				force: { type: "boolean" },
+				applyChanges: { type: "boolean" },
+			},
+			required: ["id"],
+		},
+		call: (args) => sdk.link(args),
+	},
+	{
+		name: "unlink",
+		description: "Remove a pointer stub for a target (pointer-only; refuses native content).",
+		inputSchema: {
+			type: "object",
+			properties: {
+				id: { type: "string" },
+				scope: { type: "string", enum: ["global", "project"] },
+				preserve: { type: "boolean" },
+			},
+			required: ["id"],
+		},
+		call: (args) => sdk.unlink(args),
+	},
+	{
+		name: "memory_upgrade_prepare",
+		description: "Atomic backup of a target file ahead of a memory-schema upgrade.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				id: { type: "string" },
+				scope: { type: "string", enum: ["global", "project"] },
+			},
+			required: ["id"],
+		},
+		call: (args) => sdk.memoryUpgradePrepare(args),
+	},
+	{
+		name: "memory_upgrade_apply",
+		description: "Bump the schema version marker (destructive; opt-in via applyChanges:true).",
+		inputSchema: {
+			type: "object",
+			properties: {
+				id: { type: "string" },
+				scope: { type: "string", enum: ["global", "project"] },
+				applyChanges: { type: "boolean" },
+			},
+			required: ["id"],
+		},
+		call: (args) => sdk.memoryUpgradeApply(args),
+	},
+	{
+		name: "snapshot_now",
+		description: "Take a snapshot of installed skills and brain files.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				applyChanges: { type: "boolean" },
+			},
+		},
+		call: (args) => sdk.snapshotNowWrite(args),
+	},
+	{
+		name: "lesson_consolidate",
+		description: "Promote recurring lessons to core and prune unrepeated ones (dry run by default).",
+		inputSchema: {
+			type: "object",
+			properties: {
+				scope: { type: "string", enum: ["global", "project"] },
+				applyChanges: { type: "boolean" },
+				promoteThreshold: { type: "number" },
+			},
+		},
+		call: (args) => sdk.lessonConsolidate(args),
 	},
 ];
 
@@ -289,6 +462,8 @@ async function pollSubscriptions() {
 export function resetSession() {
 	subscriptions.clear();
 	lastEtagByUri.clear();
+	serverInitialized = false;
+	writeCapabilityOffered = false;
 }
 
 // --- handleMessage -----------------------------------------------------------
@@ -301,11 +476,19 @@ export async function handleMessage(msg) {
 	const { id, method, params } = msg;
 
 	if (method === "initialize") {
+		// A16 per-session capability binding. The write capability is offered
+		// ONLY when the host sends the exact boolean true — truthy strings fail
+		// closed (MASTER-PLAN §1 decision 4).
+		serverInitialized = true;
+		writeCapabilityOffered =
+			params?.capabilities?.experimental?.agentCli?.writeTools === true;
+		const capabilities = { ...READ_CAPABILITIES };
+		if (writeCapabilityOffered) Object.assign(capabilities, WRITE_CAPABILITY);
 		return {
 			id,
 			result: {
 				protocolVersion: PROTOCOL_VERSION,
-				capabilities: READ_CAPABILITIES,
+				capabilities,
 				serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
 			},
 		};
@@ -316,11 +499,74 @@ export async function handleMessage(msg) {
 	if (method === "ping") return { id, result: {} };
 
 	if (method === "tools/list") {
-		return { id, result: { tools: TOOLS.map(({ call, ...t }) => t) } };
+		const tools = TOOLS.map(({ call, ...t }) => t);
+		// Write tools are listed ONLY when the host offered the write capability
+		// during `initialize` (A16 — per-session binding).
+		if (writeCapabilityOffered) {
+			tools.push(...WRITE_TOOLS_TOOL_DEFS.map(({ call, ...t }) => t));
+		}
+		return { id, result: { tools } };
 	}
 	if (method === "tools/call") {
-		const tool = TOOLS.find((t) => t.name === (params && params.name));
-		if (!tool) return { id, error: { code: -32602, message: "unknown tool: " + (params && params.name) } };
+		const toolName = params && params.name;
+		const tool = TOOLS.find((t) => t.name === toolName);
+		if (!tool) {
+			// Write tools are NOT in TOOLS — they're gated separately (T6.2.5).
+			if (WRITE_TOOLS.has(toolName)) {
+				// A19: refuse write traffic before `initialize` — no fs change, no crash.
+				if (!serverInitialized) {
+					return {
+						id,
+						error: {
+							code: -32603,
+							message: "write tool not available: " + toolName,
+							data: { reason: "init_required" },
+						},
+					};
+				}
+				// A16: the host must have offered the write capability.
+				if (!writeCapabilityOffered) {
+					return {
+						id,
+						error: {
+							code: -32603,
+							message: "write tool not available: " + toolName,
+							data: { reason: "write_capability_required" },
+						},
+					};
+				}
+				const writeTool = WRITE_TOOLS_TOOL_DEFS.find((t) => t.name === toolName);
+				try {
+					const result = await writeTool.call((params && params.arguments) || {});
+					return {
+						id,
+						result: {
+							content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+							isError: !result.ok,
+						},
+					};
+				} catch (e) {
+					// A15 least-disclosure: no stack, no raw fs errors — a stable
+					// structured INTERNAL refusal.
+					return {
+						id,
+						result: {
+							content: [{
+								type: "text",
+								text: JSON.stringify({
+									ok: false,
+									command: toolName,
+									error: "internal error",
+									code: "INTERNAL",
+								}, null, 2),
+							}],
+							isError: true,
+						},
+					};
+				}
+			}
+			return { id, error: { code: -32602, message: "unknown tool: " + toolName } };
+		}
 		try {
 			const result = await tool.call((params && params.arguments) || {});
 			return {

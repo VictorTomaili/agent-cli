@@ -91,6 +91,9 @@ import { registerSkillCommands } from "./commands/skill-cmds.js";
 import { registerSessionCoreCommands } from "./commands/session-core.js";
 import { registerBootstrapCommands } from "./commands/bootstrap.js";
 import { registerEvaluateCommands } from "./commands/evaluate.js";
+import { registerMemoryUpgradeCommands } from "./commands/memory-upgrade.js";
+import { registerInstructionsCommand, suggestCommand } from "./commands/instructions.js";
+import { registerPromptCommand } from "./commands/prompt.js";
 
 const PKG = createRequire(import.meta.url)("../package.json");
 const VERSION = PKG.version;
@@ -133,18 +136,26 @@ function silenceInfoLogs() {
 	}
 }
 
+/** Pending npm-update notice, set by the preAction hook (so emit() sees it
+ *  synchronously) and cleared at the start of each command. When non-null
+ *  and JSON_MODE is on, every emitted envelope picks it up as a top-level
+ *  `updateNotice` field so the LLM driving the CLI can react. In human
+ *  mode, the preAction hook prints it directly to stderr instead. */
+let PENDING_UPDATE_NOTICE = null;
+
 /** Serialize a command payload into the versioned envelope on stdout.
  *  A payload with explicit `ok:false` (e.g. update clear, restore, triage)
  *  is emitted as a failure envelope with a top-level `error`. */
 function emit(obj) {
 	if (!JSON_MODE) return obj;
 	const { command, ...rest } = obj;
+	const baseFields = { command, data: rest };
+	if (PENDING_UPDATE_NOTICE) baseFields.updateNotice = PENDING_UPDATE_NOTICE;
 	if (rest.ok === false) {
 		console.log(
 			serializeEnvelope(
 				envelope({
-					command,
-					data: rest,
+					...baseFields,
 					error: rest.error || rest.reason || `command '${command}' failed`,
 				}),
 				{ compact: JSON_COMPACT },
@@ -153,9 +164,7 @@ function emit(obj) {
 		return obj;
 	}
 	console.log(
-		serializeEnvelope(envelope({ command, data: rest }), {
-			compact: JSON_COMPACT,
-		}),
+		serializeEnvelope(envelope(baseFields), { compact: JSON_COMPACT }),
 	);
 	return obj;
 }
@@ -163,19 +172,23 @@ function emit(obj) {
 function fail(message, details = {}) {
 	if (JSON_MODE) {
 		const { command, ...rest } = details;
+		const baseFields = {
+			command: command ?? "error",
+			data: rest,
+		};
+		if (PENDING_UPDATE_NOTICE) baseFields.updateNotice = PENDING_UPDATE_NOTICE;
 		console.log(
 			serializeEnvelope(
-				envelope({
-					command: command ?? "error",
-					data: rest,
-					error: message,
-				}),
+				envelope({ ...baseFields, error: message }),
 				{ compact: JSON_COMPACT },
 			),
 		);
 	} else log.error(message);
 	process.exit(EXIT.ERROR);
 }
+
+// Mark PENDING_UPDATE_NOTICE as used to satisfy no-unused-vars linters.
+void PENDING_UPDATE_NOTICE;
 
 function ctxPaths() {
 	return { masterAbs: MASTER_FILE, masterTilde: masterTilde() };
@@ -274,12 +287,19 @@ registerInfoCommands(program, {
 });
 registerInspectCommands(program, {
 	emit,
+	fail,
 	log,
 	c,
 	pretty,
 	readFile,
 	identityInventory,
 	isJson: () => JSON_MODE,
+	isConfigCorrupt,
+	loadConfig,
+	classify,
+	getTarget,
+	detectInstalled,
+	EXIT,
 });
 registerProtocolCommands(program, {
 	emit,
@@ -395,6 +415,31 @@ registerMemoryStackCommands(program, {
 	pretty,
 	EXIT,
 	isJson: () => JSON_MODE,
+});
+registerMemoryUpgradeCommands(program, {
+	emit,
+	fail,
+	log,
+	c,
+	pretty,
+	isJson: () => JSON_MODE,
+});
+registerInstructionsCommand(program, {
+	emit,
+	log,
+	c,
+	pretty,
+	isJson: () => JSON_MODE,
+	VERSION,
+});
+registerPromptCommand(program, {
+	emit,
+	fail,
+	log,
+	c,
+	pretty,
+	isJson: () => JSON_MODE,
+	VERSION,
 });
 registerIdentityCommands(program, {
 	emit,
@@ -610,13 +655,66 @@ program
 	.option("--compact", "With --json: emit compact (single-line) JSON")
 	.option("-q, --quiet", "Suppress informational output (errors still print)")
 	.option("--silent", "Alias for --quiet")
-	.hook("preAction", (cmd) => {
+	.option(
+		"--no-update-check",
+		"skip the npm-update freshness check (also: AGENT_CLI_NO_UPDATE_CHECK=1)",
+	)
+	.option(
+		"--update-check",
+		"force a fresh npm registry check (bypass daily cache)",
+	)
+	.hook("preAction", async (cmd) => {
 		const o = cmd.optsWithGlobals();
 		JSON_MODE = !!o.json;
 		JSON_COMPACT = !!o.compact;
 		QUIET = !!o.quiet || !!o.silent;
 		if (QUIET) silenceInfoLogs();
 		setExpectedCtx(ctxPaths());
+		// Reset any notice carried over from a prior invocation in this process.
+		PENDING_UPDATE_NOTICE = null;
+		// npm-update notice — non-blocking best-effort. Reads from the daily
+		// cache in config.json; only hits the network when the cache is missing
+		// or stale, capped by a 1.5s timeout. Opts out via --no-update-check,
+		// --offline, AGENT_OFFLINE=1, or AGENT_CLI_NO_UPDATE_CHECK=1. JSON
+		// consumers see it in the envelope's top-level updateNotice field;
+		// humans get a one-line stderr print.
+		try {
+			const { resolveUpdateNotice, updateCheckEnabled } = await import(
+				"./update-notice.js"
+			);
+			if (!updateCheckEnabled()) return;
+			const cfg = await loadConfig();
+			const force = process.argv.includes("--update-check");
+			const offline =
+				process.argv.includes("--offline") ||
+				process.argv.includes("--no-network") ||
+				process.env.AGENT_OFFLINE === "1";
+			const r = await resolveUpdateNotice(cfg, PKG_NAME, VERSION, {
+				force,
+				offline,
+				timeoutMs: 1500,
+			});
+			if (!r.notice) return;
+			if (JSON_MODE) {
+				PENDING_UPDATE_NOTICE = {
+					latest: r.latest,
+					installed: VERSION,
+					message: r.notice,
+					reason: r.reason,
+					checkedAt: r.checkedAt,
+				};
+			} else if (!QUIET) {
+				process.stderr.write(c.yellow("! ") + r.notice + "\n");
+			}
+			// Persist any cache mutation so future runs don't re-fetch.
+			try {
+				await saveConfig(cfg);
+			} catch {
+				/* ignore */
+			}
+		} catch {
+			/* swallow — update notice is advisory */
+		}
 	})
 	// `agent-cli sync auto on`: after any successful (non-exiting) command, best-effort
 	// auto-commit when auto-commit is enabled. process.exit() paths skip this.
@@ -639,8 +737,16 @@ program
 	.action((command) => {
 		if (command) {
 			const target = program.commands.find((c) => c.name() === command);
-			if (!target)
-				fail(`Unknown command: ${command}`, { command: "help", name: command });
+			if (!target) {
+				const allNames = collectCommands().map((c) => c.name.split(" ")[0]);
+				const suggestion = suggestCommand(command, allNames);
+				fail(
+					suggestion
+						? `Unknown command: ${command} — ${suggestion}`
+						: `Unknown command: ${command}`,
+					{ command: "help", name: command, suggestion },
+				);
+			}
 			target.help();
 			process.exit(0); // unreachable if help() throws via exitOverride
 		}
@@ -658,20 +764,30 @@ program.action((opts, cmd) => {
 	// on the program's `.args` (e.g. `agent-cli frobnicate` → args=["frobnicate"]).
 	const operands = (cmd && cmd.args) || [];
 	if (operands.length) {
-		// Unmatched first token → unknown command.
+		// Unmatched first token → unknown command. Suggest closest matches so
+		// the LLM (and the user) can self-correct instead of re-reading --help.
 		const name = String(operands[0]);
+		const allNames = collectCommands().map((c) => c.name.split(" ")[0]);
+		const suggestion = suggestCommand(name, allNames);
+		const baseError = `Unknown command: ${name}`;
+		const errorWithHint = suggestion ? `${baseError}\n${suggestion}` : baseError;
 		if (JSON_MODE)
 			console.log(
 				serializeEnvelope(
 					envelope({
 						command: "error",
-						data: { name },
-						error: `Unknown command: ${name}`,
+						data: { name, suggestion },
+						error: errorWithHint,
 					}),
 					{ compact: JSON_COMPACT },
 				),
 			);
-		else log.error(`Unknown command: ${name} — run \`agent-cli --help\``);
+		else
+			log.error(
+				suggestion
+					? `${baseError} — ${suggestion}`
+					: `${baseError} — run \`agent-cli --help\``,
+			);
 		process.exit(EXIT.ERROR);
 	}
 	if (JSON_MODE) {

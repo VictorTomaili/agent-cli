@@ -372,6 +372,18 @@ export async function brainFile(kind, { scope = "global", cwd = process.cwd() } 
 
 	const content = await readFile(filePath);
 	const { frontmatter } = parseFrontmatter(content);
+
+	// T6.1.6 (meeting D6): bound the wire payload so a grown SOUL.md / LESSONS.md
+	// cannot OOM the host. `size` keeps reporting the on-disk file size
+	// (it's metadata, not the truncated payload size); `originalSize` is the
+	// pre-truncation content length so the host can detect truncation and
+	// re-fetch the full file via the CLI if it needs to. UTF-16 `length` is
+	// char-count, which is byte-identical for the ASCII-only content of the
+	// brain files we ship — non-ASCII content would make `length` <= bytes,
+	// still a safe upper bound.
+	const CONTENT_CAP = 64 * 1024; // 65536 chars
+	const truncated = content.length > CONTENT_CAP;
+	const contentForPayload = truncated ? content.slice(0, CONTENT_CAP) : content;
 	return {
 		...basePayload,
 		exists: true,
@@ -379,7 +391,8 @@ export async function brainFile(kind, { scope = "global", cwd = process.cwd() } 
 		schemaVersion: frontmatter.schemaVersion ?? "0",
 		lastModified: st.mtime.toISOString(),
 		size: st.size,
-		content,
+		content: contentForPayload,
+		...(truncated ? { truncated: true, originalSize: content.length } : {}),
 	};
 }
 

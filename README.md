@@ -160,7 +160,7 @@ The CLI also **suggests the closest match** when you mistype a command — e.g.
 ## Project-driven documentation
 
 - The spec-driven workflow (`agent-cli spect ...`) has its own guide at
-  [`.spect/README.md`](.spect/README.md).
+  [`.spec/README.md`](.spec/README.md).
 - The bundled **dev-team** skill turns the main agent of any agentic CLI host into the
   **orchestrator-agent** of a virtual software company: 14 on-demand role personas across
   Product & Design (`product-manager`, `product-owner`, `business-analyst`, `ux-ui-designer`),

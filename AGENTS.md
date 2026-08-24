@@ -52,12 +52,12 @@ registry yet, so a broken `check`/`test` blocks a real release, not just a PR.
   write/delete driven by untrusted input, pointer-only deletion in `unlink`, secrets never
   synced/snapshotted/searched.
 - **npm publish surface**: only what's listed in `package.json`'s `"files"` array
-  (`src`, `seed`, `README.md`, `LICENSE`) ships in the tarball. `ARCHITECTURE.md`, `.spect/`,
-  and `.spec/` never do — don't assume a new root-level doc is visible to an installed user.
-- **`.spec/` vs `.spect/`** — easy to typo-confuse. `.spect/` is the tracked, shipped-in-git
-  spec-driven-dev workflow the CLI itself implements (`agent-cli spect ...`). `.spec/` is a
-  gitignored, local-only folder for internal planning notes (`PROJECT-ANALYSIS.md`,
-  `ROADMAP.md`) — never commit anything there, and don't recreate those docs at the repo root.
+  (`src`, `seed`, `README.md`, `LICENSE`) ships in the tarball. `ARCHITECTURE.md` and `.spec/`
+  never do — don't assume a new root-level doc is visible to an installed user.
+- **`.spec/`** — single local-only folder for the project's spec-driven-dev workflow AND
+  internal planning notes (`README.md`, `constitution.md`, `specs/`, `plans/`, `tasks/`,
+  `templates/`, `ROADMAP.md`, `findings.md`). Gitignored, never committed, never shipped in
+  the tarball. The CLI's `spect` command points here. Don't recreate these docs at the repo root.
 
 ## Commit messages
 

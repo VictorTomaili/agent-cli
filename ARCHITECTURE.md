@@ -5,9 +5,9 @@ data it owns on disk, and the conventions every new command should follow. Writt
 read by an agent or a human in one pass.
 
 See [`.spec/ROADMAP.md`](.spec/ROADMAP.md) for where this is headed; this file describes what
-exists now. (`.spec/` holds internal planning notes — gitignored, local-only, not part of the
-published package or the public repo history; see `.spect/` instead for the tracked
-spec-driven-dev workflow.)
+exists now. `.spec/` is the single local-only folder for both internal planning notes and the
+spec-driven-dev workflow (`README.md`, `constitution.md`, `specs/`, `plans/`, `tasks/`,
+`templates/`) — gitignored, not part of the published package or the public repo history.
 
 ## Mental model
 
@@ -119,7 +119,7 @@ first when touching one.
 | `snapshot.js` | snapshot/restore the whole brain (recursive copy) |
 | `handoff.js` | delegation artifacts between sub-agents |
 | `search.js` | local retrieval over lessons + master + SPECT docs |
-| `spect.js` | project-local spec-driven-dev workflow (`.spect/`) |
+| `spect.js` | project-local spec-driven-dev workflow (`.spec/`) |
 | `sync.js` | git-backed brain sync |
 | `secrets.js` | AES-256-GCM machine-local secrets, never synced |
 | `automation.js` | scheduled/reactive jobs + git hooks |

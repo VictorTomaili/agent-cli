@@ -433,3 +433,86 @@ export function skillsList() {
 export function skillManifest(name) {
 	return getInstalledSkill(name);
 }
+
+// --- T6.3.1 prompt SDK helpers (Phase 6.3) ------------------------------
+//
+// Each helper delegates to the same path the corresponding CLI command
+// uses, so the SDK and the CLI cannot drift. The MCP prompts/list +
+// prompts/get wire-up lands in T6.3.2 (dev-3).
+
+/**
+ * Dynamic system-prompt recommendation — equivalent of
+ * `agent-cli prompt [--for "<task>"]`. Returns the Markdown body string.
+ * Delegates to `src/prompt-report.js#buildPromptPayload` (the same builder
+ * the CLI command uses), fed from the shared `collectState` snapshot so the
+ * SDK cannot drift from the CLI.
+ *
+ * When `{ for: task }` is supplied, the matching top-5 search hits are
+ * included as `forTaskHits`, biasing the prompt toward relevant
+ * tools/commands and lesson/master excerpts.
+ */
+export async function sessionStartPrompt({ for: task } = {}) {
+	const actMod = await import("../actions.js");
+	const state = await actMod.collectState({
+		cwd: process.cwd(),
+		offline: true,
+		pkgName: "@victortomaili/agent-cli",
+	});
+	let forTaskHits = null;
+	if (task) {
+		const searchMod = await import("../search.js");
+		const sr = await searchMod.searchAll(task, { project: true });
+		forTaskHits = sr.results.slice(0, 5).map((r) => ({
+			path: r.path,
+			title: r.title || null,
+			snippet: r.snippet || null,
+			score: r.score,
+		}));
+	}
+	const promptMod = await import("../prompt-report.js");
+	const payload = promptMod.buildPromptPayload(state, {
+		version: PKG_VERSION,
+		forTask: task || null,
+		forTaskHits,
+	});
+	return payload.content;
+}
+
+/**
+ * Canonical LLM-facing guide — equivalent of `agent-cli instructions`.
+ * Returns the static `INSTRUCTIONS_MARKDOWN` string from `src/instructions.js`
+ * — the same constant the CLI command prints, so the SDK cannot drift from
+ * the CLI.
+ */
+export async function instructionsPrompt() {
+	const instrMod = await import("../instructions.js");
+	return instrMod.INSTRUCTIONS_MARKDOWN;
+}
+
+/**
+ * Planning-mode brief — equivalent of `agent-cli --json brief --plan
+ * [--for "<task>"]`. Returns the structured envelope (`tool`, `version`,
+ * `schemaVersion`, `for`, `suggestedActions`, `actions`, `pending`) the
+ * MCP `prompts/get` handler will surface in T6.3.2. Delegates to the same
+ * `collectState` + `buildActions` + `suggestedStrings` pipeline the `brief`
+ * SDK producer already uses, so the three surfaces cannot drift.
+ */
+export async function briefPlanPrompt({ for: task } = {}) {
+	const actMod = await import("../actions.js");
+	const state = await actMod.collectState({
+		cwd: process.cwd(),
+		offline: true,
+		pkgName: "@victortomaili/agent-cli",
+	});
+	const actions = actMod.buildActions(state);
+	const suggested = actMod.suggestedStrings(actions);
+	return {
+		tool: "agent-cli",
+		version: PKG_VERSION,
+		schemaVersion: "1.1.0",
+		for: task || null,
+		suggestedActions: suggested,
+		actions,
+		pending: actions.filter((a) => a.severity !== "info"),
+	};
+}

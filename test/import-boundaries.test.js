@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -124,4 +124,44 @@ test("sanity: the walk actually found the expected file groups", () => {
 	assert.ok(libFiles.length > 20, "expected the lib layer to have >20 files");
 	assert.ok(commandFiles.length > 10, "expected src/commands/** to have >10 files");
 	assert.ok(skillsFiles.length > 10, "expected src/skills/** to have >10 files");
+});
+
+// --- T6.0.3: src/serve/registry.js purity guard --------------------------------
+// MUTATION-CHECK INVARIANT (qa-agent role card): deleting src/serve/registry.js
+// MUST surface a clear failure here, never a silent pass. Both guards below
+// assert.fail on missing-file so the guard fires whether the file vanishes or
+// drifts out of spec. Per meeting D5: this asserts an EMPTY import set, not a
+// forbidden-list — a future `import { X } from "./util.js"` would not match a
+// forbidden-list but still breaks the contract, so we test the contract.
+const REGISTRY_FILE = path.join(SRC, "serve", "registry.js");
+
+test("T6.0.3 src/serve/registry.js has zero imports", () => {
+	if (!existsSync(REGISTRY_FILE)) {
+		assert.fail("src/serve/registry.js is missing — T6.0.1 not yet landed");
+	}
+	const imports = importsIn(REGISTRY_FILE);
+	assert.deepEqual(
+		imports,
+		[],
+		`registry.js must have zero imports (found: ${JSON.stringify(imports)})`,
+	);
+});
+
+test("T6.0.3 src/serve/registry.js does not import from src/commands/** or src/skills/**", () => {
+	if (!existsSync(REGISTRY_FILE)) {
+		assert.fail("src/serve/registry.js is missing — T6.0.1 not yet landed");
+	}
+	const offenders = [];
+	for (const spec of importsIn(REGISTRY_FILE)) {
+		const resolved = resolveSpec(REGISTRY_FILE, spec);
+		if (!resolved) continue; // bare specifier (node builtin or npm dep) — not a layering concern
+		if (resolved.startsWith("commands/") || resolved.startsWith("skills/")) {
+			offenders.push(`${spec} -> ${resolved}`);
+		}
+	}
+	assert.deepEqual(
+		offenders,
+		[],
+		"registry.js must not import from src/commands/** or src/skills/**",
+	);
 });

@@ -529,3 +529,17 @@ export async function briefPlanPrompt({ for: task } = {}) {
 		pending: actions.filter((a) => a.severity !== "info"),
 	};
 }
+
+// --- Phase 6.2 write SDK (T6.2.1) ---------------------------------------------
+//
+// Per MASTER-PLAN §1 decision 1 the SDK split is explicit: the read-side
+// half above stays documented as "read-only", and the write-side lives in
+// its own file. Re-exporting here means a single `import * as sdk from
+// "./api/index.js"` in src/serve.js still sees both halves — no consumer
+// change required.
+//
+// The 8 functions (brainWrite, lessonCapture, targetEnable, targetDisable,
+// link, unlink, memoryUpgradePrepare, memoryUpgradeApply) map 1:1 to the 8
+// tool names in src/serve/registry.js's WRITE_TOOLS set; T6.2.5 wires
+// serve.js handlers through these exports.
+export * from "./write.js";

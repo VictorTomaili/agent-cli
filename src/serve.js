@@ -268,7 +268,7 @@ const DESCRIPTIONS = Object.freeze({
 	"brain://lessons/core":
 		"Always-on core lessons extracted from LESSONS.md `## Core` section. Project scope preferred; falls back to global.",
 	"brain://session/current":
-		"Current session metadata (startedAt, cwd, repo, branch, task, lessonsCaptured) or null when no session is active. Subscribable.",
+		"Current session metadata (startedAt, repo, branch, task, lessonsCaptured; cwd is redacted for least disclosure) or an empty { exists:false, session:null } payload when no session is active. Subscribable.",
 });
 
 function listResources() {
@@ -373,10 +373,18 @@ const PRODUCERS_PROMPTS = {
 // --- A15 least-disclosure helper ---------------------------------------------
 //
 // Resource text + error payloads must not contain absolute paths, backup
-// contents, stacks, or raw fs errors. Some SDK payloads (skillManifest,
-// lessonsCore, sessionCurrent) include a `path` field that the CLI uses but
-// MCP must redact. We deep-walk the value, dropping any `path` key, so the
-// MCP layer cannot accidentally leak an absolute path through any producer.
+// contents, stacks, or raw fs errors. Several SDK producers return path-bearing
+// fields under keys the CLI uses but that MCP must redact:
+//   - skillManifest `.path`, lessonsCore `.path`   (already stripped)
+//   - sessionCurrent `.cwd`                        (F1: absolute working dir)
+//   - inboxLessons `.file`                         (F2: absolute inbox file)
+// We deep-walk the value, dropping ANY key whose name is a path-bearing key
+// (`path`, `file`, `cwd`, `root`, `dir`, `location`, `absolute`), so the MCP
+// layer cannot leak an absolute path through any producer — even one added
+// later that happens to use one of these key names. The `"path"`-key behavior
+// from before is a subset of this set, so nothing that was stripped regresses.
+
+const PATH_KEYS = new Set(["path", "file", "cwd", "root", "dir", "location", "absolute"]);
 
 function redactPaths(value, seen) {
 	if (value === null || typeof value !== "object") return value;
@@ -385,7 +393,7 @@ function redactPaths(value, seen) {
 	if (Array.isArray(value)) return value.map((v) => redactPaths(v, seen));
 	const out = {};
 	for (const k of Object.keys(value)) {
-		if (k === "path") continue;
+		if (PATH_KEYS.has(k)) continue;
 		out[k] = redactPaths(value[k], seen);
 	}
 	return out;
@@ -630,12 +638,22 @@ export async function handleMessage(msg) {
 			};
 		}
 		if (raw == null) {
+			// F3: a producer MATCHED but returned null — the only concrete
+			// producer that can is `brain://session/current` when no session is
+			// active (sessionCurrent()/readSession() returns null). That is a
+			// VALID resource whose value is empty, not a "no producer" condition,
+			// so the old "invalid skill URI" error was a mislabeled branch. Return
+			// a structured payload so a host can distinguish "empty" from "broken".
+			const clean = redactPaths(
+				{ uri, exists: false, session: null },
+				new WeakSet(),
+			);
 			return {
 				id,
-				error: {
-					code: -32602,
-					message: "invalid skill URI: " + uri,
-					data: { uri, subscribable: [...SUBSCRIBABLE] },
+				result: {
+					contents: [
+						{ uri, mimeType: "application/json", text: JSON.stringify(clean, null, 2) },
+					],
 				},
 			};
 		}

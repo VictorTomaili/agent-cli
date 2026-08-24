@@ -11,7 +11,7 @@
 // T6.3.3 prompt regression tests appended below.
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, cpSync, existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -436,4 +436,104 @@ test("prompts/get without a name returns -32602 (params missing)", async () => {
 		res.error.message.length > 0,
 		"error message must be non-empty",
 	);
+});
+
+// --- T6.1.5 A15 least-disclosure + F3 regression tests (audit follow-up) ------
+//
+// The T6.1.5 read-side audit found F1 (brain://session/current leaks cwd), F2
+// (brain://lessons/inbox leaks file), and F3 (resources/read with no active
+// session mislabels a valid resource). These tests pin the fixed behavior:
+// path-bearing keys are redacted at the MCP boundary, and an empty resource
+// returns a structured payload rather than the misleading "invalid skill URI"
+// error.
+
+// F1: with an active session, brain://session/current must redact `cwd` —
+// no absolute path may cross the wire.
+test("resources/read brain://session/current (active) redacts the absolute cwd path", async () => {
+	await init();
+	const uri = "brain://session/current";
+	const res = await serve.handleMessage({
+		jsonrpc: "2.0",
+		id: 500,
+		method: "resources/read",
+		params: { uri },
+	});
+	assert.ok(res.result, `expected result, got ${JSON.stringify(res)}`);
+	const contents = res.result.contents;
+	assert.ok(Array.isArray(contents) && contents.length === 1);
+	assert.equal(contents[0].mimeType, "application/json");
+	const text = contents[0].text;
+	const parsed = JSON.parse(text);
+	// F1: `cwd` is a path-bearing key and must be dropped, not leaked.
+	assert.equal(parsed.cwd, undefined, "session/current must redact the cwd field");
+	assert.ok(!text.includes(TMP_HOME), `text leaked TMP_HOME: ${text.slice(0, 160)}`);
+	assert.ok(!/\/home\//.test(text), `text leaked a /home/ path: ${text.slice(0, 160)}`);
+	assert.ok(!text.includes("~/.agents"), `text leaked ~/.agents: ${text.slice(0, 160)}`);
+});
+
+// F2: with an inbox capture present, brain://lessons/inbox must redact `file` —
+// no absolute path may cross the wire.
+test("resources/read brain://lessons/inbox redacts the absolute inbox file path", async () => {
+	await init();
+	// Seed an inbox capture so inboxLessons returns a populated array.
+	const inboxDir = path.join(TMP_HOME, ".agents", "lessons", ".inbox");
+	mkdirSync(inboxDir, { recursive: true });
+	writeFileSync(path.join(inboxDir, "note.md"), "some capture\n");
+	try {
+		const uri = "brain://lessons/inbox";
+		const res = await serve.handleMessage({
+			jsonrpc: "2.0",
+			id: 501,
+			method: "resources/read",
+			params: { uri },
+		});
+		assert.ok(res.result, `expected result, got ${JSON.stringify(res)}`);
+		const contents = res.result.contents;
+		assert.ok(Array.isArray(contents) && contents.length === 1);
+		assert.equal(contents[0].mimeType, "application/json");
+		const text = contents[0].text;
+		const parsed = JSON.parse(text);
+		assert.ok(Array.isArray(parsed) && parsed.length >= 1, "expected at least one inbox item");
+		// F2: `file` is a path-bearing key and must be dropped, not leaked.
+		assert.equal(parsed[0].file, undefined, "lessons/inbox must redact the file field");
+		assert.ok(!text.includes(TMP_HOME), `text leaked TMP_HOME: ${text.slice(0, 160)}`);
+		assert.ok(!/\/home\//.test(text), `text leaked a /home/ path: ${text.slice(0, 160)}`);
+		assert.ok(!text.includes("~/.agents"), `text leaked ~/.agents: ${text.slice(0, 160)}`);
+	} finally {
+		try { rmSync(inboxDir, { recursive: true, force: true }); } catch { /* keep tests deterministic */ }
+	}
+});
+
+// F3: with no active session, brain://session/current must return a structured
+// `{ exists:false, session:null }` payload — NOT the misleading
+// "invalid skill URI" error that the read handler used to mislabel.
+test("resources/read brain://session/current with no active session returns a structured empty payload", async () => {
+	// Temporarily remove the seeded session file to simulate "no active session".
+	const sessionFile = path.join(TMP_HOME, ".agents", ".session.json");
+	const original = existsSync(sessionFile) ? readFileSync(sessionFile, "utf8") : null;
+	rmSync(sessionFile, { force: true });
+	try {
+		await init();
+		const uri = "brain://session/current";
+		const res = await serve.handleMessage({
+			jsonrpc: "2.0",
+			id: 502,
+			method: "resources/read",
+			params: { uri },
+		});
+		// F3: must NOT surface an error — the resource is valid, just empty.
+		assert.ok(res.result, `expected a structured result, got ${JSON.stringify(res)}`);
+		assert.ok(!res.error, `expected no error, got ${JSON.stringify(res.error)}`);
+		const contents = res.result.contents;
+		assert.ok(Array.isArray(contents) && contents.length === 1);
+		assert.equal(contents[0].uri, uri);
+		assert.equal(contents[0].mimeType, "application/json");
+		const parsed = JSON.parse(contents[0].text);
+		assert.equal(parsed.exists, false);
+		assert.equal(parsed.session, null);
+		assert.equal(parsed.uri, uri);
+	} finally {
+		// Restore the seeded active session for any later test that assumes one.
+		if (original) writeFileSync(sessionFile, original);
+	}
 });

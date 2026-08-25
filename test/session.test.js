@@ -35,7 +35,7 @@ test("sessionEnd returns a lesson candidate suggestion", async () => {
 
 test("sessionEnd with no active session reports a reason", async () => {
 	// overwrite the session file with an empty/invalid state
-	const { readFileSync, writeFileSync } = await import("node:fs");
+	const { writeFileSync } = await import("node:fs");
 	writeFileSync(session.sessionFilePath(), "{}", "utf8");
 	const r = await session.sessionEnd();
 	assert.equal(r.ok, false);

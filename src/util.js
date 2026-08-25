@@ -220,7 +220,19 @@ export function readFileNoFollow(p, { maxBytes } = {}) {
 		process.platform === "win32"
 			? fs.constants.O_RDONLY
 			: fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
-	const fd = fs.openSync(p, flags);
+	let fd;
+	try {
+		fd = fs.openSync(p, flags);
+	} catch (err) {
+		// POSIX: O_NOFOLLOW on the final symlink component fails the open
+		// with ELOOP before fstat runs. Translate to the same message the
+		// Windows fstat-guard path produces so callers see one consistent
+		// error regardless of platform.
+		if (err?.code === "ELOOP") {
+			throw new Error(`refusing to follow symlink: ${p}`);
+		}
+		throw err;
+	}
 	try {
 		const st = fs.fstatSync(fd);
 		if (st.isSymbolicLink()) {

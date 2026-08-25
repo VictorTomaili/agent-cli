@@ -29,8 +29,6 @@
 // so future invariants (e.g. "native-content always blocks unlink") live in
 // one place instead of three.
 
-import path from "node:path";
-
 /** State names returned by classify(). */
 export const STATES = Object.freeze({
 	MISSING: "missing",

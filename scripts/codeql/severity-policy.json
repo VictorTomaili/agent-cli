@@ -1,0 +1,33 @@
+{
+  "$comment": "CodeQL severity policy for agent-cli. Maps each CodeQL rule family to either 'block' (PR fails branch-protection required check on the CodeQL Analyze job) or 'advisory' (SARIF upload keeps showing it on the Security tab but does not block). Updated 2026-08-25 by the CodeQL fix planning team (qa-engineer + devops-engineer + software-architect + GPT-architect gpt-5.6-sol peer review).",
+
+  "block_on_pr": [
+    "$comment_real_security_rules_that_must_be_fixed_before_merge",
+    "js/regex-injection",
+    "js/file-system-race",
+    "js/incomplete-sanitization",
+    "js/incomplete-multi-character-sanitization",
+    "js/insecure-temporary-file",
+    "js/missing-await",
+    "js/trivial-conditional",
+    "js/missing-workflow-permissions"
+  ],
+
+  "advisory_only": [
+    "$comment_maintainability_quality_findings_do_not_block_merge_batch_in_next_minor",
+    "js/unused-local-variable",
+    "js/superfluous-trailing-arguments"
+  ],
+
+  "policy_metadata": {
+    "version": 1,
+    "created": "2026-08-25",
+    "owner": "dev-team (qa-engineer + devops-engineer)",
+    "rationale": "Block rules are real security or correctness bugs (CWE-classified where applicable). Advisory rules are quality/maintainability findings that do not pose an immediate risk; bulk-fix them in the next minor release rather than blocking each PR.",
+    "enforcement_mechanism": "Branch protection on main requires the CodeQL Analyze (javascript-typescript) job to pass before merge. The codeql.yml workflow itself does NOT fail-on-findings (so SARIF upload continues to the Security tab); enforcement is via branch-protection context.",
+    "branch_protection_context": "Analyze (javascript-typescript)",
+    "review_cadence": "On every PR touching src/ or scripts/. Update this file in the same PR that adds a new CodeQL rule family (avoid silent enforcement gaps).",
+    "false_positive_handling": "Suppress with `// lgtm [rule-id]` and a one-line rationale in the code. The suppression does NOT remove the rule from this file — keep the block/advisory mapping authoritative here. Periodic review of `git grep 'lgtm\\['` to ensure suppressions are still valid.",
+    "new_rule_handling": "If CodeQL adds a new rule family not listed here, it defaults to `block` (matches the principle of least surprise — better to surface than silently allow). Add the rule to the appropriate list in the same PR that suppresses its first finding."
+  }
+}

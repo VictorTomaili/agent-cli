@@ -84,10 +84,16 @@ planning task; use your cheapest fast model for this mechanical refactor").
    users, success metrics, scope, product-level acceptance criteria.
 3. **Perspectives (round 1).** Dispatch every relevant role **in parallel**,
    each with the backlog item, read-only — each writes its own independent
-   perspective: what it would do, what it worries about, what it would change.
-4. **Sharing (round 2).** Send every agent **all other perspectives** and ask for a
-   second turn: build on, challenge, or synthesize the others' ideas, naming what
-   evidence moved them. This is where the team actually collaborates.
+   perspective to a fixed template: `position / top-3 concerns / needs-from-others /
+   recommended approach`, hard-capped at ~300 words. This is the divergence step —
+   each role thinks separately before it thinks together.
+4. **Sharing (round 2).** Produce a single **shared brief** — all positions plus all
+   named conflicts in one document, compressed from the round-1 perspectives (cost
+   shape: O(N²) → O(N)) — and send it to every agent, asking for a second turn:
+   build on, challenge, or synthesize the others' ideas, naming what evidence moved
+   them. A role may request a specific peer's full text by flagging
+   `peer-full-text:<role>` in its reply, which overrides the brief for that peer.
+   This is where the team actually collaborates.
 5. **Master plan.** Synthesize the shared perspectives into the master plan
    (consult `software-architect` for architecture, `product-owner` for scope, and
    `project-manager` for schedule when the work is large). State the approach,
@@ -128,6 +134,24 @@ planning task; use your cheapest fast model for this mechanical refactor").
 | "schedule / track / status" | `project-manager` |
 | "process / unblock collaboration" | `scrum-master` |
 | anything outside software development | orchestrator surfaces it to the client — the roster no longer covers it; the client decides whether it's handled outside the team or the org should grow (org changes need the client's approval) |
+
+## Role-activation rubric
+
+The minimal default role set each request shape activates. Start from the base row
+for the request's shape, then apply the covering rows (`+ qa-engineer` for
+cross-cutting, `+ ux-ui-designer` for UI) when the request touches those dimensions
+on top of the base.
+
+| Request shape | Default minimal role set |
+| --- | --- |
+| Trivial (one-line bug / log lookup / doc tweak) | `orchestrator only` (Fast Lane) |
+| Small, focused fix | `dev + qa` |
+| Multi-file feature | `dev + qa + software-architect` (architecture check) |
+| Cross-cutting (security / data surface / public API) | `+ qa-engineer` (security cross-cut) |
+| UI touched | `+ ux-ui-designer` |
+
+Orchestrator may override the rubric, but any deviation is named in the final
+report's evidence table.
 
 ## Boundaries
 

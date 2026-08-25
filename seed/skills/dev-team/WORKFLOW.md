@@ -42,6 +42,9 @@ flowchart LR
   business-analyst (requirements research), product-owner (prioritization),
   software-architect (architecture/tech-debt). The role returns a structured backlog
   entry: problem, users, success metrics, scope, product-level acceptance criteria.
+  The orchestrator retains the client's **verbatim original message** — the literal
+  user text, not a summary — alongside the backlog entry, so Stage 7's Check B can
+  validate the acceptance criteria against the request.
 - **Exit criteria:** A backlog item with measurable acceptance criteria that the
   validation stage can check against. The orchestrator confirms it with the client
   only when scope or success metrics are genuinely ambiguous.
@@ -51,23 +54,30 @@ flowchart LR
 - **Owner:** `orchestrator-agent` dispatches; every relevant role contributes.
 - **Does:** The orchestrator sends the backlog item to **each relevant role in
   parallel** — read-only, independent, no cross-talk. Each writes its own
-  perspective: what it would do, what it worries about, what it would change, what
-  it needs from other roles. This is the divergence step: the team thinks
+  perspective to the **perspective template** in `SKILL.md`
+  (`position / top-3 concerns / needs-from-others / recommended approach`),
+  hard-capped at ~300 words. This is the divergence step: the team thinks
   separately before it thinks together.
-- **Exit criteria:** One perspective per activated role, each naming its key
-  concern and its recommended approach.
+- **Exit criteria:** One perspective per activated role, each written to the
+  `SKILL.md` perspective template at ≤ ~300 words, each naming its key concern and
+  its recommended approach.
 
 ### 3. Sharing — round 2 (collaborative)
 
 - **Owner:** `orchestrator-agent`.
-- **Does:** The orchestrator sends **every agent all other perspectives** and asks
-  for a second turn: build on, challenge, or synthesize the others' ideas, and
-  name what evidence moved them. Roles may converge, form coalitions, defend a
-  minority position, or surface a conflict — the orchestrator records the outcome
-  (converged / diverged / unresolved). Unresolved conflicts that change scope or
-  approach go to the client at this point, not silently.
-- **Exit criteria:** Every role has reacted to its peers; the shared insight is
-  explicit; remaining disagreements are named.
+- **Does:** The orchestrator produces a single **shared brief** for round 2 — all
+  positions and all named conflicts in one document, compressed from the round-1
+  perspectives (cost shape: O(N²) → O(N)) — and sends it to every agent, asking for
+  a second turn: build on, challenge, or synthesize the others' ideas, and name what
+  evidence moved them. A role may request a specific peer's full text by flagging
+  `peer-full-text:<role>` in its reply, which overrides the brief for that peer.
+  Roles may converge, form coalitions, defend a minority position, or surface a
+  conflict — the orchestrator records the outcome (converged / diverged /
+  unresolved). Unresolved conflicts that change scope or approach go to the client
+  at this point, not silently.
+- **Exit criteria:** Round-2 prompt input is the orchestrator's compressed shared
+  brief (or a role's `peer-full-text:<role>` override); every role has reacted to
+  its peers; the shared insight is explicit; remaining disagreements are named.
 
 ### 4. Master Plan
 
@@ -92,11 +102,26 @@ flowchart LR
     accepted external CLI — per task, per host capability,
   - **checkout strategy**: shared checkout (single writer at a time; reads may
     overlap) vs worktree isolation (parallel writers on conflicting files),
+  - **risk tier**: `low | normal | high` (default `normal`). `high` for migrations,
+    auth/access changes, data-loss surface, public-API changes, or anything
+    explicitly data-destructive. `Risk: high` escalates the refute pass at Stage 7;
+    `Risk: normal` uses the standard dev/qa review path; `Risk: low` is satisfied by
+    the orchestrator's own validation.
   - **model/thinking config**: per the policy below.
+
+> **Citation rule.** Every `file:line` in a task entry is a *hint*; the **symbol** it
+> names is the *citation*. The executor's first action on any task is re-deriving
+> each cited location by symbol search, then acting on the symbol. A citation that
+> resolves nowhere, or whose surrounding claim is false, **stops the task for
+> re-derivation** rather than being adapted around — the failure lands in the
+> planning/dispatch sequence (Stage 5–6), not at validation (Stage 7). Re-derive,
+> then act; do not adapt around a missing symbol.
+
 - **Exit criteria:** Every task has an owner, declared dependencies, a parallel
-  position, a tool, a checkout strategy, and a model config. Cycles are forbidden —
-  if task A blocks B and B blocks A, the orchestrator splits or merges until the
-  graph is acyclic.
+  position, a risk tier, a tool, a checkout strategy, and a model config. Every
+  citation re-derives to a live symbol with a true surrounding claim. Cycles are
+  forbidden — if task A blocks B and B blocks A, the orchestrator splits or merges
+  until the graph is acyclic.
 
 ### 6. Execution
 
@@ -106,10 +131,14 @@ flowchart LR
   collects results, feeds them to dependent tasks, and re-dispatches failures with
   concrete feedback. **Single-writer rule:** with a shared checkout, exactly one
   write-enabled agent at a time; reads overlap freely. Use worktrees (or separate
-  checkouts) when parallel writers would touch the same files.
+  checkouts) when parallel writers would touch the same files. The **dispatch
+  prompt** starts by invoking the *citation* rule above: the executor's first action
+  is re-deriving each cited `file:line` by symbol search, then acting on the symbol —
+  a citation that resolves nowhere, or whose claim is false, stops the task for
+  re-derivation rather than being adapted around.
 - **Exit criteria:** Every task reports done with evidence (diff, tests run,
   verification), or is blocked with a reason the orchestrator resolves (re-dispatch,
-  split, or escalate).
+  split, or escalate). No task proceeds past a citation that fails to re-derive.
 
 ### 7. Integration & Validation
 
@@ -118,28 +147,54 @@ flowchart LR
   - **Gate-first where feasible:** for features, QA writes the acceptance gate
     (tests/checks from the acceptance criteria) **before** building starts, proves
     it starts red, and the team builds until it goes green.
-  - **Regression + security cross-cut:** `qa-engineer` runs regression, dependency
-    scans, secrets/access review, and refutes any security fix (an agent that did
-    not write it tries to break it; a tie keeps the finding open).
-  - **Final validation (never skipped):** the orchestrator checks the integrated
-    result against the acceptance criteria, reads the actual diff, and confirms the
-    executors' claims match reality. Failed validation sends work back to stage 6
-    with concrete findings.
-- **Exit criteria:** Every acceptance criterion verified with evidence; no open
-  critical finding; the orchestrator's verdict is explicit (PASS / FAIL / PASS-WITH-NOTES).
+  - **Refute pass (regression + security + risk):** `qa-engineer` runs regression,
+    dependency scans, secrets/access review, and the **refuter** pass. A **refuter**
+    is dispatched for **every change tagged `Risk: high` and every security-driven
+    change** — an agent that did **not** author the artifact tries to break it; a tie
+    keeps the finding open. **Substitute-refuter rule:** when `qa-engineer` authored
+    the artifact under review, the refuter is a role slot that did not author it — the
+    natural substitute is a dev slot (frontend-dev / backend-dev / fullstack-dev)
+    other than the one that wrote the fix. `Risk: normal` changes take the standard
+    dev/qa review path; `Risk: low` changes are satisfied by the orchestrator's own
+    validation.
+  - **Dual-check validation (never skipped):** the orchestrator runs both checks.
+    - **Check A — implementation:** the integrated result satisfies the derived
+      acceptance criteria. The orchestrator reads the actual diff and confirms the
+      executors' claims match reality.
+    - **Check B — fidelity:** the derived acceptance criteria faithfully represent
+      the client's **verbatim original request** — the literal user message recorded
+      at Intake (Stage 1), not a summary. The orchestrator carries that verbatim text
+      into this prompt alongside the AC and validates AC vs request, not just
+      implementation vs AC. Check B reports `AC-FULLY-REPRESENTS-REQUEST`, or it
+      surfaces the gap.
+    - Failure of **either** check sends work back to stage 6 with concrete findings.
+- **Exit criteria:** Every acceptance criterion verified with evidence; Check B
+  reports `AC-FULLY-REPRESENTS-REQUEST` or the gap is surfaced; no open critical
+  finding; every `Risk: high` and security-driven change had a **refuter** that did
+  not author the artifact; the orchestrator's verdict is explicit (PASS / FAIL /
+  PASS-WITH-NOTES).
 
 ### 8. Delivery & Support
 
 - **Owner:** `orchestrator-agent`; `devops-engineer` for deploys.
-- **Does:** Deliverable reaches its final destination (merge, deploy, publish).
-  The orchestrator reports one consolidated result: what was done, by which
-  role/agent/tool, how it was validated, what needs the client's decision. The team
-  **owns the product from here**: bugs, support questions, and follow-on work
-  re-enter the cycle at stage 1, and the orchestrator keeps the task tracker live so
-  ownership is always answerable. For Full Cycle work, append a one-line retro note
+- **Does:** Deliverable reaches its final destination (merge, deploy, publish). The
+  consolidated report is built in two parts.
+  - **Evidence table (in-file reference):** one row per task —
+    `Task | Owner role | Risk | Verdict | Verdict reasoning (≤ 2 sentences)`.
+    Verdicts are drawn from the closed enum `PASS | PASS-WITH-NOTES | REFUTED |
+    LOW-CONFIDENCE`. This table is the reference the synthesis reads; every branch of
+    the report reads it.
+  - **Synthesis:** the orchestrator writes the consolidated result — what was done,
+    by which role/agent/tool, how it was validated, what needs the client's decision.
+    **The synthesis claims overall success iff every evidence-table row is `PASS`.**
+  The team **owns the product from here**: bugs, support questions, and follow-on
+  work re-enter the cycle at stage 1, and the orchestrator keeps the task tracker live
+  so ownership is always answerable. For Full Cycle work, append a one-line retro note
   to the running in-session retro log.
-- **Exit criteria:** The client has a clear single answer to "is it done and what
-  happened", and the follow-up channel (bug/support → backlog) is acknowledged.
+- **Exit criteria:** Every evidence-table row is filled with a closed-enum verdict;
+  a success claim is gated on every row being `PASS`; the client has a clear single
+  answer to "is it done and what happened", and the follow-up channel (bug/support →
+  backlog) is acknowledged.
 
 ## Model & thinking policy
 

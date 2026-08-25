@@ -99,7 +99,20 @@ if (indexSrc.includes(importLine)) {
 	process.exit(1);
 }
 
-writeFileSync(out, targetFile);
+// Use `flag: "wx"` so a second invocation cannot clobber an existing target
+// file (CodeQL js/file-system-race + an honest safety net for the contributor
+// running this twice). On EEXIST we exit cleanly with a clear message.
+try {
+	writeFileSync(out, targetFile, { flag: "wx" });
+} catch (err) {
+	if (err?.code === "EEXIST") {
+		process.stderr.write(
+			`error: target file ${out} already exists — refusing to overwrite\n`,
+		);
+		process.exit(1);
+	}
+	throw err;
+}
 process.stdout.write(`created ${out}\n`);
 const updated = indexSrc
 	.replace(

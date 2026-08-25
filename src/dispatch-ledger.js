@@ -297,14 +297,20 @@ export function readLedger({ session } = {}) {
 /**
  * Truncate the current session's ledger. Returns { ok, cleared, path }.
  * A missing ledger is a no-op (no file is created just to clear nothing).
+ *
+ * The previous version checked `fs.existsSync(p)` first; that check-then-write
+ * is a TOCTOU race (CodeQL js/file-system-race). Use `flag: "r+"` (open
+ * existing for read+write, fail ENOENT if missing) and translate ENOENT into
+ * the "nothing to clear" branch.
  */
 export function clearLedger({ session } = {}) {
 	const p = readPathFor(session);
-	if (!p || !fs.existsSync(p)) return { ok: true, cleared: false, path: null };
+	if (!p) return { ok: true, cleared: false, path: null };
 	try {
-		fs.writeFileSync(p, "", "utf8");
+		fs.writeFileSync(p, "", { flag: "r+" });
 		return { ok: true, cleared: true, path: p };
 	} catch (err) {
+		if (err?.code === "ENOENT") return { ok: true, cleared: false, path: p };
 		warnOnce("clear failed", err);
 		return { ok: false, cleared: false, path: p };
 	}

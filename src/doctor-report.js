@@ -18,7 +18,7 @@ import {
 	listAgents,
 	findUnresolvedModels,
 } from "./agents-lib.js";
-import { MODELS_MD } from "./models.js";
+import { MODELS_MD, invalidAliasNames } from "./models.js";
 import { readProjectConfig as readProjectSkillConfig } from "./skills-gate.js";
 import { listStagedUpdates, detectDevTeamDrift } from "./seed.js";
 import { shareHealth, SHARE_SOURCES, isOurLink } from "./share.js";
@@ -173,6 +173,22 @@ export async function buildDoctorReport(
 			`unresolved model aliases: ${unresolvedModels
 				.map((u) => `${u.name} uses '${u.model}' — run ${u.guidance}`)
 				.join("; ")}`,
+		);
+	// P11 / F10: alias keys must match ^[a-z0-9][a-z0-9-]*$ — the historical write
+	// path accepted anything, so polluted keys (e.g. an pasted HTML comment in the
+	// name) can be sitting in config.json. Surface them as a warning so a polluted
+	// install is rescued without guessing.
+	const invalidAliases = invalidAliasNames(cfg.models?.aliases ?? {});
+	checks.push({
+		check: "model-alias-names",
+		ok: invalidAliases.length === 0,
+		detail: invalidAliases.length
+			? `${invalidAliases.length} invalid alias name(s): ${invalidAliases.join(", ")}`
+			: "all alias names valid",
+	});
+	if (invalidAliases.length)
+		issues.push(
+			`invalid model alias name(s): ${invalidAliases.join(", ")} (must match ^[a-z0-9][a-z0-9-]*$); remove or rename them in config.json`,
 		);
 	const oldPiAgents = path.join(os.homedir(), ".pi", "agent", "agents");
 	// ~/.pi/agent/agents is now the pi SHARE LINK target (agent-cli link agents):

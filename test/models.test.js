@@ -218,3 +218,52 @@ test("liveCatalogMarkdown renders a table from a synthetic fetch result", () => 
 	// null context / zero price render as em-dashes, not NaN
 	assert.match(md, /\| `anthropic\/claude-opus` \| anthropic \| — \| — \| — \| — \|/);
 });
+
+// ---------------------------------------------------------------------------
+// P11 — reject invalid alias names on write (closes proposal finding F10).
+// The historical write path accepted ANY key (e.g. a pasted HTML comment in the
+// name). setAlias must reject a key failing ^[a-z0-9][a-z0-9-]*$ with a
+// structured INVALID_ALIAS_NAME error — never silently accept.
+// ---------------------------------------------------------------------------
+test("setAlias rejects an invalid alias name with code INVALID_ALIAS_NAME", () => {
+	assert.throws(
+		() => models.setAlias("smart-model <!-- foo -->", { model: "openai/gpt" }),
+		(e) => {
+			assert.equal(e.code, "INVALID_ALIAS_NAME");
+			assert.match(e.message, /invalid alias name: smart-model <!-- foo -->/);
+			assert.match(e.message, /\^\[a-z0-9\]\[a-z0-9-\]\*\$/);
+			return true;
+		},
+	);
+});
+
+test("setAlias accepts a valid alias name", () => {
+	// reset config to a clean state (the corrupt-config tests above left garbage)
+	mkdirSync(path.dirname(cfgPath()), { recursive: true });
+	writeFileSync(
+		cfgPath(),
+		JSON.stringify({ global: [], models: { aliases: {} } }),
+	);
+	const a = models.setAlias("my-new-alias", { model: "openai/gpt" });
+	assert.equal(a.model, "openai/gpt");
+	assert.ok(existsSync(cfgPath()));
+	assert.ok(models.getAlias("my-new-alias"));
+});
+
+test("invalidAliasNames lists only keys that fail the safe pattern", () => {
+	const names = models.invalidAliasNames({
+		"good-model": { model: "x" },
+		"smart-model <!-- foo -->": { model: "y" },
+		UPPER: { model: "z" },
+	});
+	assert.deepEqual(names.sort(), ["UPPER", "smart-model <!-- foo -->"]);
+});
+
+test("isValidAliasName honors the ^[a-z0-9][a-z0-9-]*$ contract", () => {
+	assert.equal(models.isValidAliasName("coding-model"), true);
+	assert.equal(models.isValidAliasName("a"), true);
+	assert.equal(models.isValidAliasName("-starts-with-dash"), false);
+	assert.equal(models.isValidAliasName("Has-Upper"), false);
+	assert.equal(models.isValidAliasName("has space"), false);
+	assert.equal(models.isValidAliasName(""), false);
+});

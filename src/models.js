@@ -32,6 +32,24 @@ const CAT_DESC = {
 const CORRUPT_MSG =
 	"config.json is corrupt; repair or remove it before changing model aliases";
 
+/** Safe alias name pattern: lowercase alphanumeric + hyphen, must start
+ *  alphanumeric. The historical write path accepted ANY key, so names like
+ *  `smart-model <!-- ... -->` (pasted HTML commentary) could pollute
+ *  config.json#models.aliases. Rejecting the pattern on write closes F10. */
+export const ALIAS_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** Whether `name` is an acceptable alias key. */
+export function isValidAliasName(name) {
+	return ALIAS_NAME_RE.test(String(name ?? ""));
+}
+
+/** Filter an aliases object to the keys that fail the safe pattern.
+ *  `aliases` defaults to the live config (getAliases treats a corrupt config
+ *  as empty, so this never throws). */
+export function invalidAliasNames(aliases = getAliases()) {
+	return Object.keys(aliases).filter((k) => !isValidAliasName(k));
+}
+
 /** Load config through the central corruption-aware loader. Throws on corrupt. */
 function readConfig() {
 	const cfg = loadConfigSync();
@@ -55,6 +73,13 @@ export function getAlias(name) {
 	return getAliases()[name] ?? null;
 }
 export function setAlias(name, { model, category, thinking, fallbacks }) {
+	if (!isValidAliasName(name)) {
+		const e = new Error(
+			`invalid alias name: ${name} - must match ^[a-z0-9][a-z0-9-]*$`,
+		);
+		e.code = "INVALID_ALIAS_NAME";
+		throw e;
+	}
 	// Throws on corrupt config BEFORE any mutation — the original bytes stay intact.
 	const cfg = readConfig();
 	cfg.models = cfg.models || {};

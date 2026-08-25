@@ -1,8 +1,8 @@
 // Tests for src/doctor-report.js#buildDoctorReport — the P1/F1 dev-team drift
-// check (update group). Isolates AGENT_CLI_HOME (dynamic import so util.js
-// freezes against the fixture) and seeds a sparse home; asserts only the
-// dev-team-drift check, leaving the pre-existing missing-file/identity issues
-// to the base report. (P11 alias-name checks live alongside in the P11 commit.)
+// check (update group) and the P11/F10 invalid-alias-name check. Isolates
+// AGENT_CLI_HOME (dynamic import so util.js freezes against the fixture) and
+// seeds a sparse home; asserts only the checks under test, leaving the
+// pre-existing missing-file/identity issues to the base report.
 import { test } from "node:test";
 import assert from "node:assert";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -41,6 +41,38 @@ function checkFor(report, name) {
 	return report.checks.find((c) => c.check === name);
 }
 
+test("doctor flags an alias key that fails the safe pattern (P11)", async () => {
+	seedLiveDevTeam();
+	const cfg = {
+		global: [],
+		models: {
+			aliases: {
+				"smart-model <!-- foo -->": { model: "openai/gpt", category: "smart" },
+				"good-model": { model: "openai/gpt", category: "coding" },
+			},
+		},
+	};
+	const report = await buildDoctorReport(cfg, baseOpts());
+	const c = checkFor(report, "model-alias-names");
+	assert.ok(c, "doctor must emit a model-alias-names check");
+	assert.equal(c.ok, false);
+	assert.match(c.detail, /invalid alias name/);
+	assert.ok(
+		report.issues.some((i) => i.includes("smart-model <!-- foo -->")),
+		"doctor issue must name the polluted alias",
+	);
+});
+
+test("doctor reports a clean model-alias-names check when every key is valid", async () => {
+	seedLiveDevTeam();
+	const cfg = {
+		global: [],
+		models: { aliases: { "good-model": { model: "openai/gpt" } } },
+	};
+	const report = await buildDoctorReport(cfg, baseOpts());
+	assert.equal(checkFor(report, "model-alias-names").ok, true);
+});
+
 test("doctor flags dev-team drift when the live skill differs from the seed (P1)", async () => {
 	seedLiveDevTeam();
 	writeFileSync(
@@ -63,3 +95,4 @@ test("doctor reports a clean dev-team-drift check when live matches the seed", a
 	const report = await buildDoctorReport({ global: [] }, baseOpts());
 	assert.equal(checkFor(report, "dev-team-drift").ok, true);
 });
+

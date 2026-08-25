@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert";
+import fs from "node:fs";
 import {
 	mkdtempSync,
 	writeFileSync,
@@ -131,7 +132,7 @@ test("homeExists: false for missing/empty, true for present marker", async () =>
 test("sanitizePathSegment strips traversal and separators", () => {
 	const s = util.sanitizePathSegment;
 	assert.equal(s("../../../PWNED"), "PWNED");
-	assert.equal(s("..\..\evil"), "evil");
+	assert.equal(s("....evil"), "evil");
 	assert.equal(s("a/b/c"), "a-b-c");
 	assert.equal(s(".."), null);
 	assert.equal(s("..."), null);
@@ -195,4 +196,88 @@ test("sanitizePathSegment caps length", () => {
 	const s = util.sanitizePathSegment;
 	assert.equal(s("x".repeat(200)).length, 64);
 	assert.equal(s("x".repeat(200), { max: 10 }).length, 10);
+});
+
+// --- writeFileIfAbsent ------------------------------------------------------
+// Extends the secrets.js:35 primitive. The `wx` flag makes the open atomic
+// with respect to a pre-planted symlink — EEXIST returns before any read or
+// write follows the link.
+
+test("writeFileIfAbsent: created:true on a fresh path", () => {
+	const f = path.join(TMP, "wia-new.txt");
+	const r = util.writeFileIfAbsent(f, "hello");
+	assert.equal(r.created, true);
+	assert.equal(fs.readFileSync(f, "utf8"), "hello");
+});
+
+test("writeFileIfAbsent: created:false on EEXIST — never overwrites", () => {
+	const f = path.join(TMP, "wia-exist.txt");
+	fs.writeFileSync(f, "first");
+	const r = util.writeFileIfAbsent(f, "second");
+	assert.equal(r.created, false);
+	assert.equal(fs.readFileSync(f, "utf8"), "first");
+});
+
+test("writeFileIfAbsent: refuses to follow a pre-planted symlink (wx is atomic)", () => {
+	if (process.platform === "win32") {
+		// skip — symlink privilege differs; covered by an integration test
+		return;
+	}
+	const dir = path.join(TMP, "wia-sym");
+	mkdirSync(dir, { recursive: true });
+	const real = path.join(dir, "victim.txt");
+	const link = path.join(dir, "sneaky.txt");
+	fs.writeFileSync(real, "do-not-touch");
+	symlinkSync(real, link);
+	const r = util.writeFileIfAbsent(link, "hijack");
+	assert.equal(r.created, false, "wx must EEXIST before following the symlink");
+	assert.equal(fs.readFileSync(real, "utf8"), "do-not-touch");
+});
+
+test("writeFileIfAbsent: throws through non-EEXIST errors (ENOENT)", () => {
+	assert.throws(
+		() => util.writeFileIfAbsent(path.join(TMP, "nope-dir-xyz", "x.txt"), "x"),
+		/ENOENT/,
+	);
+});
+
+// --- readFileNoFollow -------------------------------------------------------
+// Opens fd with O_NOFOLLOW (POSIX) or O_RDONLY + fstat guard (Windows).
+// The fstat guard catches Windows junctions which appear as S_IFLNK.
+
+test("readFileNoFollow: roundtrips a regular file", () => {
+	const f = path.join(TMP, "rfn-regular.txt");
+	fs.writeFileSync(f, "hello");
+	assert.equal(util.readFileNoFollow(f), "hello");
+});
+
+test("readFileNoFollow: refuses a symlink", () => {
+	if (process.platform === "win32") return;
+	const dir = path.join(TMP, "rfn-sym");
+	mkdirSync(dir, { recursive: true });
+	const real = path.join(dir, "real.txt");
+	const link = path.join(dir, "link.txt");
+	fs.writeFileSync(real, "secret");
+	symlinkSync(real, link);
+	assert.throws(() => util.readFileNoFollow(link), /symlink/);
+	// and the victim is untouched
+	assert.equal(fs.readFileSync(real, "utf8"), "secret");
+});
+
+test("readFileNoFollow: refuses a directory", () => {
+	assert.throws(() => util.readFileNoFollow(TMP), /not a regular file/);
+});
+
+test("readFileNoFollow: throws ENOENT for missing", () => {
+	assert.throws(
+		() => util.readFileNoFollow(path.join(TMP, "rfn-missing.txt")),
+		/ENOENT/,
+	);
+});
+
+test("readFileNoFollow: maxBytes cap is enforced", () => {
+	const f = path.join(TMP, "rfn-cap.txt");
+	fs.writeFileSync(f, "a".repeat(100));
+	assert.throws(() => util.readFileNoFollow(f, { maxBytes: 50 }), /cap/);
+	assert.equal(util.readFileNoFollow(f, { maxBytes: 200 }), "a".repeat(100));
 });

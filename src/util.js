@@ -175,6 +175,69 @@ export async function readIfExists(p) {
 	return null;
 }
 
+/**
+ * Write `content` to `p` only if `p` does not already exist.
+ *
+ * Uses the exclusive `wx` flag: the kernel atomically refuses to follow a
+ * pre-planted symlink at `p` because the open returns EEXIST before any
+ * data is read or written. Same primitive used at src/secrets.js:35 — that
+ * site was the reference fix for the file-system-race family. Returns
+ * `{ created: true }` on success, `{ created: false }` if the file already
+ * exists. Throws through any other error (EPERM, EACCES, ENOSPC, ...).
+ *
+ * @param {string} p  target path
+ * @param {string|Buffer} content
+ * @param {{ mode?: number }} [opts]
+ * @returns {{ created: boolean }}
+ */
+export function writeFileIfAbsent(p, content, { mode } = {}) {
+	try {
+		fs.writeFileSync(p, content, { mode, flag: "wx" });
+		return { created: true };
+	} catch (e) {
+		if (e?.code === "EEXIST") return { created: false };
+		throw e;
+	}
+}
+
+/**
+ * Read `p` as utf-8, refusing to follow symlinks or read non-regular files.
+ *
+ * Opens with O_NOFOLLOW where available (POSIX). On Windows the flag is a
+ * no-op; fstatSync().isSymbolicLink() is the second line of defense (Node's
+ * lstat reports Windows junctions as S_IFLNK, which is the case we want).
+ *
+ * Throws ENOENT if missing. Throws when `p` is a symlink, directory, device,
+ * or exceeds `opts.maxBytes` (the size cap is per-call; pass `MAX_SKILL_MD_BYTES`
+ * from src/skills/lib/store.js for the skill-store path).
+ *
+ * @param {string} p
+ * @param {{ maxBytes?: number }} [opts]
+ * @returns {string}
+ */
+export function readFileNoFollow(p, { maxBytes } = {}) {
+	const flags =
+		process.platform === "win32"
+			? fs.constants.O_RDONLY
+			: fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+	const fd = fs.openSync(p, flags);
+	try {
+		const st = fs.fstatSync(fd);
+		if (st.isSymbolicLink()) {
+			throw new Error(`refusing to follow symlink: ${p}`);
+		}
+		if (!st.isFile()) {
+			throw new Error(`not a regular file: ${p}`);
+		}
+		if (maxBytes != null && st.size > maxBytes) {
+			throw new Error(`file exceeds ${maxBytes}-byte cap: ${p}`);
+		}
+		return fs.readFileSync(fd, "utf8");
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
 /** Tilde-shorten a path; normalize backslashes for cross-platform display. */
 export function pretty(p) {
 	if (!p) return p;

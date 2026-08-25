@@ -23,7 +23,7 @@ export function registerModelsCommands(
 	program
 		.command("models [action] [rest...]")
 		.description(
-			"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | set <alias> <provider/model> [--category c] [--thinking lvl] [--fallback <provider/model>...] | resolve <alias> | write | suggest [--apply] | research [--refresh] | lint | usage | test <alias>. Bundled curated catalog + auto-pick per category.",
+			"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | rm <alias> | set <alias> <provider/model> [--category c] [--thinking lvl] [--fallback <provider/model>...] | resolve <alias> | write | suggest [--apply] | research [--refresh] | lint | usage | test <alias>. Bundled curated catalog + auto-pick per category.",
 		)
 		.option("--category <c>", "category for set")
 		.option("--thinking <lvl>", "thinking level for set")
@@ -88,6 +88,39 @@ export function registerModelsCommands(
 					log.success(
 						`Alias '${alias}' → ${r.model}${r.thinking ? " @" + r.thinking : ""}`,
 					);
+				return;
+			}
+			if (action === "rm" || action === "remove") {
+				// `rest` is variadic so an alias containing spaces still resolves
+				// to the key shown in `models list`. The names this exists to clean
+				// up (written before the P11 name check) look like
+				// `smart-model <!-- why -->`; quote them, or pass them after `--`
+				// so the trailing `-->` is not parsed as an option.
+				const alias = rest.join(" ").trim();
+				if (!alias) {
+					fail(
+						"Usage: agent-cli models rm <alias>   (quote a name with spaces, or pass it after --)",
+					);
+				}
+				const removed = m.removeAlias(alias);
+				if (!removed) {
+					fail(`No such alias: ${alias}`, {
+						command: "models",
+						action: "rm",
+						alias,
+					});
+				}
+				// Keep MODELS.md in sync with the alias configuration.
+				m.writeModelsMd();
+				emit({
+					command: "models",
+					action: "rm",
+					alias,
+					removed,
+					modelsMd: m.MODELS_MD,
+				});
+				if (!isJson())
+					log.success(`Removed alias '${alias}' (was ${removed.model})`);
 				return;
 			}
 			if (action === "resolve") {
@@ -340,6 +373,8 @@ export function registerModelsCommands(
 					);
 				return;
 			}
-			fail(`Unknown action: ${action}. Use list|set|resolve|write|suggest|lint|usage|test`);
+			fail(
+				`Unknown action: ${action}. Use list|set|rm|resolve|write|suggest|lint|usage|test`,
+			);
 		});
 }

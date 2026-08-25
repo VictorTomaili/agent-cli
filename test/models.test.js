@@ -267,3 +267,72 @@ test("isValidAliasName honors the ^[a-z0-9][a-z0-9-]*$ contract", () => {
 	assert.equal(models.isValidAliasName("has space"), false);
 	assert.equal(models.isValidAliasName(""), false);
 });
+
+// --- removeAlias ------------------------------------------------------------
+// The counterpart to the P11 name check: `set` refuses to WRITE a malformed
+// name, but aliases written before that check landed still sit in config.json.
+// `removeAlias` is the only way out of that state, so it must not apply the
+// same validation that would make those very keys undeletable.
+
+test("removeAlias returns the removed entry and drops the key", () => {
+	mkdirSync(path.dirname(cfgPath()), { recursive: true });
+	writeFileSync(
+		cfgPath(),
+		JSON.stringify({
+			global: [],
+			models: {
+				aliases: {
+					"keep-model": { category: "coding", model: "openai/a" },
+					"drop-model": { category: "smart", model: "openai/b" },
+				},
+			},
+		}),
+	);
+	const removed = models.removeAlias("drop-model");
+	assert.equal(removed.model, "openai/b");
+	assert.equal(models.getAlias("drop-model"), null);
+	// untouched siblings survive
+	assert.equal(models.getAlias("keep-model").model, "openai/a");
+	// and the change is persisted, not only in memory
+	const onDisk = JSON.parse(readFileSync(cfgPath(), "utf8"));
+	assert.deepEqual(Object.keys(onDisk.models.aliases), ["keep-model"]);
+});
+
+test("removeAlias deletes a malformed pre-P11 name that setAlias would reject", () => {
+	const bad = "smart-model <!-- why this model -->";
+	mkdirSync(path.dirname(cfgPath()), { recursive: true });
+	writeFileSync(
+		cfgPath(),
+		JSON.stringify({
+			global: [],
+			models: { aliases: { [bad]: { category: "smart", model: "openai/gpt-5" } } },
+		}),
+	);
+	assert.equal(models.isValidAliasName(bad), false, "precondition: unwritable name");
+	const removed = models.removeAlias(bad);
+	assert.equal(removed.model, "openai/gpt-5");
+	assert.deepEqual(models.getAliases(), {});
+});
+
+test("removeAlias returns null for an unknown alias and leaves config alone", () => {
+	mkdirSync(path.dirname(cfgPath()), { recursive: true });
+	writeFileSync(
+		cfgPath(),
+		JSON.stringify({ global: [], models: { aliases: { "a-model": { model: "x" } } } }),
+	);
+	const before = readFileSync(cfgPath(), "utf8");
+	assert.equal(models.removeAlias("nope"), null);
+	assert.equal(readFileSync(cfgPath(), "utf8"), before);
+});
+
+test("removeAlias returns null when there are no aliases at all", () => {
+	writeFileSync(cfgPath(), JSON.stringify({ global: [] }));
+	assert.equal(models.removeAlias("anything"), null);
+});
+
+test("removeAlias refuses to touch a corrupt config", () => {
+	writeFileSync(cfgPath(), "{ not json");
+	assert.throws(() => models.removeAlias("a-model"));
+	// original bytes intact — a corrupt file is never silently rewritten
+	assert.equal(readFileSync(cfgPath(), "utf8"), "{ not json");
+});

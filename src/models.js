@@ -72,6 +72,26 @@ export function getAliases() {
 export function getAlias(name) {
 	return getAliases()[name] ?? null;
 }
+/**
+ * Remove an alias. Returns the removed entry, or null when there was none.
+ *
+ * Deliberately does NOT validate the name: aliases predating the name check
+ * (P11 rejects invalid names on write, but nothing could clean the ones already
+ * in config.json — e.g. a key with a trailing HTML comment) are exactly the
+ * ones a user needs to remove. Refusing to delete a malformed name would leave
+ * it unfixable through the CLI, which is the state this command exists to end.
+ */
+export function removeAlias(name) {
+	// Throws on corrupt config BEFORE any mutation — original bytes stay intact.
+	const cfg = readConfig();
+	const aliases = cfg.models?.aliases;
+	if (!aliases || !Object.hasOwn(aliases, name)) return null;
+	const removed = aliases[name];
+	delete aliases[name];
+	saveConfigSync(cfg);
+	return removed;
+}
+
 export function setAlias(name, { model, category, thinking, fallbacks }) {
 	if (!isValidAliasName(name)) {
 		const e = new Error(

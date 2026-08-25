@@ -4,10 +4,9 @@
 // network access, no writes — the caller (CLI command or SDK) owns all of
 // that. Mirrors the collectState()/buildActions() split in src/actions.js.
 
-import os from "node:os";
 import path from "node:path";
 import fsp from "node:fs/promises";
-import { pretty, exists, AGENTS_DIR, MASTER_FILE } from "./util.js";
+import { pretty, exists, HOME, AGENTS_DIR, MASTER_FILE } from "./util.js";
 import { isConfigCorrupt } from "./config.js";
 import { hasAgentCliBlock } from "./blocks.js";
 import { getTarget } from "./targets.js";
@@ -190,7 +189,11 @@ export async function buildDoctorReport(
 		issues.push(
 			`invalid model alias name(s): ${invalidAliases.join(", ")} (must match ^[a-z0-9][a-z0-9-]*$); remove or rename them in config.json`,
 		);
-	const oldPiAgents = path.join(os.homedir(), ".pi", "agent", "agents");
+	// HOME, not os.homedir(): every other module resolves paths through the
+	// AGENT_CLI_HOME-aware export, and reading the real home here made a
+	// sandboxed doctor report on the developer's own ~/.pi/agent/agents —
+	// so linking that dir for real turned an unrelated test red.
+	const oldPiAgents = path.join(HOME, ".pi", "agent", "agents");
 	// ~/.pi/agent/agents is now the pi SHARE LINK target (agent-cli link agents):
 	// when it is our symlink to ~/.agents/agents, it is the DESIRED state — only
 	// real (non-link) files there are stranded orphans.

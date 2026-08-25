@@ -96,3 +96,31 @@ test("doctor reports a clean dev-team-drift check when live matches the seed", a
 	assert.equal(checkFor(report, "dev-team-drift").ok, true);
 });
 
+
+// --- no-orphan-personalities honors AGENT_CLI_HOME ---------------------------
+// This check used to resolve ~/.pi/agent/agents through os.homedir() while every
+// other path in the module went through util.js's AGENT_CLI_HOME-aware HOME.
+// The result: a sandboxed report described the DEVELOPER's machine. Once
+// ~/.pi/agent/agents was linked for real on a dev box, the orphan issue fired
+// inside an unrelated sandboxed test and turned it red — a failure no amount of
+// reading that test could explain.
+
+test("no-orphan-personalities counts the sandbox home, not the real one", async () => {
+	seedLiveDevTeam();
+	const old = path.join(TMP, ".pi", "agent", "agents");
+	mkdirSync(old, { recursive: true });
+	writeFileSync(path.join(old, "stranded.md"), "---\nname: stranded\n---\n");
+	writeFileSync(path.join(old, "notes.txt"), "not a persona");
+
+	const report = await buildDoctorReport({ global: [] }, baseOpts());
+	const c = checkFor(report, "no-orphan-personalities");
+	assert.ok(c, "doctor must emit a no-orphan-personalities check");
+	assert.equal(c.ok, false);
+	// exactly one .md in the SANDBOX — a count sourced from the real home would
+	// be 0 (clean CI runner) or the developer's roster size, never 1
+	assert.equal(c.detail, "1 in old ~/.pi/agent/agents");
+	assert.ok(
+		report.issues.some((i) => i.includes("1 personalities stranded")),
+		`issues: ${JSON.stringify(report.issues)}`,
+	);
+});

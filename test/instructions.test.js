@@ -192,7 +192,6 @@ test("CLI instructions prints Markdown by default", async () => {
 test("CLI instructions --json returns the structured payload", async () => {
 	// Override isJson via a second registration — easier: use --json by
 	// patching the harness.
-	const captured = [];
 	const capturedFail = [];
 	const program2 = new Command();
 	program2.option("--json");
@@ -268,9 +267,4 @@ test("suggestCommand for typical typos returns the right fixes", () => {
 	assert.match(suggestCommand("inist", ["init", "doctor", "status"]), /init/);
 });
 
-function kebabToHeading(kebab) {
-	return kebab
-		.split("-")
-		.map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-		.join(" ");
-}
+// function kebabToHeading removed (was unused; js/unused-local-variable)

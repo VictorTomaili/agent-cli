@@ -279,10 +279,7 @@ function snapshotLessonsDir(srcDir, backupDir, scope) {
 			return null;
 		}
 		for (const fp of srcFiles) {
-			const rel = path
-				.relative(srcDir, fp)
-				.split(path.sep)
-				.join("/");
+			const rel = path.relative(srcDir, fp).split(path.sep).join("/");
 			const dst = path.join(staging, rel);
 			writeFileSync(dst, fs.readFileSync(fp));
 		}
@@ -512,7 +509,8 @@ export function planConsolidation({
 	const cfg = loadConsolidateConfig();
 	const pt = promoteThreshold ?? cfg.promoteThreshold;
 	const dir = lessonsRoot(scope, cwd);
-	if (!fs.existsSync(dir)) return { ok: true, nothingToDo: true, scope, actions: [] };
+	if (!fs.existsSync(dir))
+		return { ok: true, nothingToDo: true, scope, actions: [] };
 	const files = walkSync(dir);
 	const actions = [];
 	for (const fp of files) {
@@ -582,8 +580,7 @@ export function applyPlanAction(
 		const core = [...readCore(coreFile(scope, cwd))];
 		if (!hasPointer(core, action.rel)) {
 			const summary = (
-				body.trim().split(/\r?\n/)[0] ||
-				path.basename(action.rel, ".md")
+				body.trim().split(/\r?\n/)[0] || path.basename(action.rel, ".md")
 			).replace(/^[-*]\s+/, "");
 			core.push(`- ${summary} — \`lessons/${action.rel}\``);
 		}
@@ -593,10 +590,7 @@ export function applyPlanAction(
 			buildFM({ ...fm, promoted: "true", marked: "false" }) + body,
 		);
 	} else if (action.action === "mark") {
-		writeFileSync(
-			action.path,
-			buildFM({ ...fm, marked: "true" }) + body,
-		);
+		writeFileSync(action.path, buildFM({ ...fm, marked: "true" }) + body);
 	} else if (action.action === "delete") {
 		fs.unlinkSync(action.path);
 	}

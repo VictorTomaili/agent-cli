@@ -15,12 +15,9 @@ const HOME_TMP = mkdtempSync(path.join(tmpdir(), "agent-con-home-"));
 process.env.AGENT_CLI_HOME = HOME_TMP;
 
 const { assess, consolidate, fail } = await import("../src/consolidate.js");
-const {
-	addLesson,
-	listLessons,
-	coreFile,
-	parseFM,
-} = await import("../src/lessons-lib.js");
+const { addLesson, listLessons, coreFile, parseFM } = await import(
+	"../src/lessons-lib.js"
+);
 const { planConsolidation, applyPlanAction } = await import(
 	"../src/consolidate.js"
 );
@@ -306,7 +303,11 @@ test("P0-2: fail() preserves empty-message fallback (|| not ??)", () => {
 	const emptyMsg = new Error("");
 	assert.equal(emptyMsg.message, "");
 	const r1 = fail("project", "internal", "E", "boom", emptyMsg);
-	assert.equal(r1.detail, "Error", `empty message must fall back to class name, got: ${JSON.stringify(r1.detail)}`);
+	assert.equal(
+		r1.detail,
+		"Error",
+		`empty message must fall back to class name, got: ${JSON.stringify(r1.detail)}`,
+	);
 
 	// Non-empty message: passes through verbatim.
 	const withMsg = new Error("real failure");

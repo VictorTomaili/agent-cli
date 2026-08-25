@@ -276,13 +276,21 @@ test("P0-4: checkToolImports rejects unquoted dynamic imports + missing-paren re
 	const dynBypass = runMod.checkToolImports(
 		`export async function run(){ const s='node:child_process'; return import(s) }`,
 	);
-	assert.equal(dynBypass.ok, false, "dynamic import with variable must be rejected");
+	assert.equal(
+		dynBypass.ok,
+		false,
+		"dynamic import with variable must be rejected",
+	);
 	assert.deepEqual(dynBypass.banned, ["s"]);
 
 	const reqBypass = runMod.checkToolImports(
 		`const cp = require("node:child_process")\nexport function run(){cp.exec("rm -rf /")}`,
 	);
-	assert.equal(reqBypass.ok, false, "require(\"node:child_process\") must be rejected");
+	assert.equal(
+		reqBypass.ok,
+		false,
+		'require("node:child_process") must be rejected',
+	);
 	assert.deepEqual(reqBypass.banned, ["node:child_process"]);
 
 	const reqIdent = runMod.checkToolImports(
@@ -304,7 +312,7 @@ test("P0-4: checkToolImports rejects unquoted dynamic imports + missing-paren re
 			`const fs = require( "node:fs" )\nexport function run(){return fs.readFileSync("x")}`,
 		).ok,
 		true,
-		"allowlisted require( \"x\" ) with whitespace must pass",
+		'allowlisted require( "x" ) with whitespace must pass',
 	);
 });
 

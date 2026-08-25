@@ -72,7 +72,9 @@ export function registerMemoryOpsCommands(
 		.option("--relink", "re-link pointer stubs after restoring")
 		.option("--diff", "preview file-level differences without restoring")
 		.action(async (name, opts) => {
-			const { restore, listSnapshots, snapshotDiff } = await import("../snapshot.js");
+			const { restore, listSnapshots, snapshotDiff } = await import(
+				"../snapshot.js"
+			);
 			const latest = () =>
 				listSnapshots().find((n) => !n.startsWith("pre-restore-")) || null;
 			if (opts.diff) {
@@ -93,7 +95,8 @@ export function registerMemoryOpsCommands(
 				return;
 			}
 			const list = listSnapshots();
-			const target = name || list.find((n) => !n.startsWith("pre-restore-")) || list[0];
+			const target =
+				name || list.find((n) => !n.startsWith("pre-restore-")) || list[0];
 			if (!target) fail("No snapshot to restore.");
 			const pre = await preSnapshot("restore");
 			const r = await restore(target);
@@ -146,7 +149,9 @@ export function registerMemoryOpsCommands(
 					if (!r.backups.length) log.info("No consolidation backups.");
 					for (const b of r.backups) {
 						const kind = b.kind === "tx" ? c.gray("[tx]") : "    ";
-						log.raw(`  ${kind} ${c.gray(b.name.padEnd(40))} ${b.mtime} ${c.gray(b.size + "B")}`);
+						log.raw(
+							`  ${kind} ${c.gray(b.name.padEnd(40))} ${b.mtime} ${c.gray(b.size + "B")}`,
+						);
 					}
 				}
 				if (!r.ok) process.exit(EXIT.ERROR);
@@ -172,6 +177,9 @@ export function registerMemoryOpsCommands(
 				}
 				return;
 			}
-			fail(`Unknown backups action: ${action}. Use list|diff`, { command: "backups", action });
+			fail(`Unknown backups action: ${action}. Use list|diff`, {
+				command: "backups",
+				action,
+			});
 		});
 }

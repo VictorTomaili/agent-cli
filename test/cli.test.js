@@ -693,7 +693,10 @@ test("update diff reports no differences without dumping files", () => {
 		path.join(home, ".agents", `update-${ver}`, "agents", "fullstack-dev.md"),
 		"utf8",
 	);
-	writeFileSync(path.join(home, ".agents", "agents", "fullstack-dev.md"), staged);
+	writeFileSync(
+		path.join(home, ".agents", "agents", "fullstack-dev.md"),
+		staged,
+	);
 	const j = parseJson(
 		run(["update", "diff", ver, "--file", "agents/fullstack-dev.md", "--json"], {
 			envHome: home,
@@ -1796,7 +1799,13 @@ test("team eval run runs the 5-fixture benchmark and exits 0", () => {
 	const r = run(["team", "eval", "run"], { envHome: home });
 	ok(r);
 	// Human table names the fixtures; runBenchmark always returns all 5.
-	for (const name of ["trivial-1", "trivial-2", "medium-1", "medium-2", "complex-1"]) {
+	for (const name of [
+		"trivial-1",
+		"trivial-2",
+		"medium-1",
+		"medium-2",
+		"complex-1",
+	]) {
 		assert.match(
 			r.stdout,
 			new RegExp(name.replace(/[-]/g, "\\-")),
@@ -1817,7 +1826,9 @@ test("team eval report on a session with no ledger exits 0 and reports nothing",
 	const home = run(["init"]).home;
 	const r = run(["team", "eval", "report"], { envHome: home });
 	ok(r);
-	const j = parseJson(run(["team", "eval", "report", "--json"], { envHome: home }).stdout);
+	const j = parseJson(
+		run(["team", "eval", "report", "--json"], { envHome: home }).stdout,
+	);
 	assert.equal(j.command, "team");
 	assert.equal(j.data.op, "report");
 	assert.equal(j.data.noLedger, true);
@@ -2000,8 +2011,16 @@ test("snapshot create emits a populated JSON envelope (regression: missing await
 	);
 	assert.equal(r.ok, true, `envelope: ${JSON.stringify(r)}`);
 	assert.equal(r.data.ok, true, `data: ${JSON.stringify(r.data)}`);
-	assert.equal(typeof r.data.name, "string", `name missing: ${JSON.stringify(r.data)}`);
-	assert.equal(typeof r.data.files, "number", `files missing: ${JSON.stringify(r.data)}`);
+	assert.equal(
+		typeof r.data.name,
+		"string",
+		`name missing: ${JSON.stringify(r.data)}`,
+	);
+	assert.equal(
+		typeof r.data.files,
+		"number",
+		`files missing: ${JSON.stringify(r.data)}`,
+	);
 	assert.ok(r.data.files >= 2, `expected ≥2 files, got ${r.data.files}`);
 	assert.ok(typeof r.data.path === "string" && r.data.path.length > 0);
 });

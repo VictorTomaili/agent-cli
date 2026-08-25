@@ -567,9 +567,24 @@ test("P0-3: each pi run uses a fresh unique temp dir (no predictable agent-run)"
 		filenames.add(path.basename(file));
 		return { status: 0, stdout: "ok\n", stderr: "" };
 	};
-	runners.runTask({ task: "a", toolOverride: "pi", cwd: TMP, spawnImpl: collect });
-	runners.runTask({ task: "b", toolOverride: "pi", cwd: TMP, spawnImpl: collect });
-	runners.runTask({ task: "c", toolOverride: "pi", cwd: TMP, spawnImpl: collect });
+	runners.runTask({
+		task: "a",
+		toolOverride: "pi",
+		cwd: TMP,
+		spawnImpl: collect,
+	});
+	runners.runTask({
+		task: "b",
+		toolOverride: "pi",
+		cwd: TMP,
+		spawnImpl: collect,
+	});
+	runners.runTask({
+		task: "c",
+		toolOverride: "pi",
+		cwd: TMP,
+		spawnImpl: collect,
+	});
 	assert.equal(
 		dirs.size,
 		3,

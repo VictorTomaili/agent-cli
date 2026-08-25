@@ -91,6 +91,7 @@ import { registerSkillCommands } from "./commands/skill-cmds.js";
 import { registerSessionCoreCommands } from "./commands/session-core.js";
 import { registerBootstrapCommands } from "./commands/bootstrap.js";
 import { registerEvaluateCommands } from "./commands/evaluate.js";
+import { registerLedgerCommands } from "./commands/ledger.js";
 import { registerMemoryUpgradeCommands } from "./commands/memory-upgrade.js";
 import { registerInstructionsCommand, suggestCommand } from "./commands/instructions.js";
 import { registerPromptCommand } from "./commands/prompt.js";
@@ -651,6 +652,14 @@ registerEvaluateCommands(program, {
 	path,
 	AGENTS_DIR,
 	resolveContained,
+});
+registerLedgerCommands(program, {
+	emit,
+	fail,
+	log,
+	c,
+	pretty,
+	isJson: () => JSON_MODE,
 });
 program
 	.name("agent-cli")

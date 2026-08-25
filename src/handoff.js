@@ -11,8 +11,6 @@ import {
 	exists,
 	ensureDir,
 	writeFile,
-	readFile,
-	writeFileSync,
 	sanitizePathSegment,
 } from "./util.js";
 import { gitInfo } from "./memory.js";

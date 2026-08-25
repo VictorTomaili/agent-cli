@@ -14,15 +14,10 @@ import {
 	ensureDir,
 	pretty,
 	normalizeEndings,
-	fsp,
 } from "./util.js";
 import { ensureBlocks } from "./blocks.js";
 
-import {
-	masterPointerContent,
-	parseMasterPointer,
-	POINTER_MARK,
-} from "./pointer.js";
+import { masterPointerContent, parseMasterPointer } from "./pointer.js";
 
 // Candidate sources to seed the master from (home-relative), richest first.
 const SEED_CANDIDATES = [

@@ -32,7 +32,6 @@ const envelopeMod = await import("../src/envelope.js");
 // Global process.exit interceptor — validate calls process.exit(EXIT.ERROR)
 // on failure, which would otherwise kill the worker. We capture the code
 // and throw so the test can assert on it.
-const origExit = process.exit;
 let lastExitCode = null;
 process.exit = (code) => {
 	lastExitCode = code;
@@ -131,6 +130,7 @@ test("validate fails when config.json is corrupt", async () => {
 	const cfgFile = path.join(TMP, ".agents", "config.json");
 	mkdirSync(path.dirname(cfgFile), { recursive: true });
 	const backup = existsSync(cfgFile) ? readFileSync(cfgFile, "utf8") : null;
+	// lgtm[js/file-system-race] -- corrupt-config test fixture, single-process
 	writeFileSync(cfgFile, "{ this is not valid json");
 	lastExitCode = null;
 	try {
@@ -146,8 +146,7 @@ test("validate fails when config.json is corrupt", async () => {
 		assert.equal(configCheck.ok, false);
 		assert.match(configCheck.detail, /corrupt|load failed/);
 	} finally {
-		if (backup !== null) writeFileSync(cfgFile, backup);
-		else rmSync(cfgFile, { force: true });
+		if (backup === null) rmSync(cfgFile, { force: true }); else writeFileSync(cfgFile, backup);
 	}
 });
 
@@ -240,6 +239,7 @@ test("validate exits non-zero on failure (process.exit(EXIT.ERROR) = 1)", async 
 	const cfgFile = path.join(TMP, ".agents", "config.json");
 	const backup = existsSync(cfgFile) ? readFileSync(cfgFile, "utf8") : null;
 	mkdirSync(path.dirname(cfgFile), { recursive: true });
+	// lgtm[js/file-system-race] -- corrupt-config test fixture, single-process
 	writeFileSync(cfgFile, "{" /* malformed */);
 	lastExitCode = null;
 	try {
@@ -250,7 +250,6 @@ test("validate exits non-zero on failure (process.exit(EXIT.ERROR) = 1)", async 
 			`validate must exit 1 on failure, got ${lastExitCode}`,
 		);
 	} finally {
-		if (backup !== null) writeFileSync(cfgFile, backup);
-		else rmSync(cfgFile, { force: true });
+		if (backup === null) rmSync(cfgFile, { force: true }); else writeFileSync(cfgFile, backup);  // lgtm[js/file-system-race] -- restore-fixture
 	}
 });

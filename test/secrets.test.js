@@ -33,6 +33,7 @@ test("loadKey never replaces an existing key (a race would make secrets undecryp
 
 	// Simulate losing the race: a different 32-byte key appears on disk.
 	const other = randomBytes(32);
+	// lgtm[js/file-system-race] -- this IS the race the test simulates
 	writeFileSync(kp, other);
 	assert.deepEqual(
 		secrets.loadKey(),
@@ -40,6 +41,7 @@ test("loadKey never replaces an existing key (a race would make secrets undecryp
 		"an existing key on disk must win over minting a new one",
 	);
 	// restore, so the round-trip tests below still decrypt
+	// lgtm[js/file-system-race] -- restore-fixture
 	writeFileSync(kp, first);
 });
 

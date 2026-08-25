@@ -129,6 +129,7 @@ test("best-effort: an unwritable inbox does not throw and returns a falsy path",
 	if (inboxIsDir) rmSync(INBOX, { recursive: true, force: true });
 	// Make `.inbox` a regular FILE so mkdir (via util.writeFileSync) must fail — this
 	// works even when running as root (a directory cannot be created over an existing file).
+	// lgtm[js/file-system-race] -- the writeFileSync IS the test fixture
 	writeFileSync(INBOX, "not a directory");
 	try {
 		const result = recordRetro({

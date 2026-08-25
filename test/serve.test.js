@@ -545,6 +545,6 @@ test("resources/read brain://session/current with no active session returns a st
 		assert.equal(parsed.uri, uri);
 	} finally {
 		// Restore the seeded active session for any later test that assumes one.
-		if (original) writeFileSync(sessionFile, original);
+		if (original) writeFileSync(sessionFile, original);  // lgtm[js/file-system-race] -- restore-fixture
 	}
 });

@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { HOME, AGENTS_DIR, exists, readFile } from "./util.js";
+import { HOME, exists, readFile } from "./util.js";
 import { identityFilePath } from "./agents-lib.js";
 import { assess } from "./consolidate.js";
 import { inboxLessons } from "./lessons-lib.js";

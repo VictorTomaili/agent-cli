@@ -1984,3 +1984,24 @@ test("share link warnings surface in brief and vanish after linking", () => {
 		`warnings after: ${JSON.stringify(data2.warnings)}`,
 	);
 });
+
+test("snapshot create emits a populated JSON envelope (regression: missing await)", () => {
+	// Regression for CodeQL P0-1: memory-ops.js called `snap()` without await,
+	// so spreading the Promise into emit() produced `data: {}` and human mode
+	// rendered "Snapshot undefined: undefined files → undefined".
+	const home = run(["init"]).home;
+	// seed a file so the snapshot count is meaningful
+	const brain = path.join(home, ".agents");
+	mkdirSync(path.join(brain, "agents"), { recursive: true });
+	writeFileSync(path.join(brain, "AGENTS.md"), "# master\n");
+	writeFileSync(path.join(brain, "agents", "scout.md"), "x\n");
+	const r = parseJson(
+		run(["snapshot", "create", "foo", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(r.ok, true, `envelope: ${JSON.stringify(r)}`);
+	assert.equal(r.data.ok, true, `data: ${JSON.stringify(r.data)}`);
+	assert.equal(typeof r.data.name, "string", `name missing: ${JSON.stringify(r.data)}`);
+	assert.equal(typeof r.data.files, "number", `files missing: ${JSON.stringify(r.data)}`);
+	assert.ok(r.data.files >= 2, `expected ≥2 files, got ${r.data.files}`);
+	assert.ok(typeof r.data.path === "string" && r.data.path.length > 0);
+});

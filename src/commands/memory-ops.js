@@ -50,7 +50,7 @@ export function registerMemoryOpsCommands(
 				if (!r.ok) process.exit(EXIT.ERROR);
 				return;
 			}
-			const r = snap();
+			const r = await snap();
 			let pruned = [];
 			if (opts.retain) pruned = pruneSnapshots(parseInt(opts.retain, 10)).pruned;
 			emit({

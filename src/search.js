@@ -6,14 +6,48 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { HOME, AGENTS_DIR, exists } from "./util.js";
-import { lessonsRoot, listLessons, parseFM } from "./lessons-lib.js";
+import { lessonsRoot, listLessons } from "./lessons-lib.js";
 import { spectRoot } from "./spect.js";
 
 const STOPWORDS = new Set([
-	"the", "and", "for", "with", "you", "your", "this", "that", "have",
-	"has", "are", "was", "were", "but", "not", "all", "can", "will", "from",
-	"our", "their", "they", "them", "there", "here", "what", "when", "which",
-	"who", "whom", "how", "why", "its", "it's", "one", "two", "new", "any",
+	"the",
+	"and",
+	"for",
+	"with",
+	"you",
+	"your",
+	"this",
+	"that",
+	"have",
+	"has",
+	"are",
+	"was",
+	"were",
+	"but",
+	"not",
+	"all",
+	"can",
+	"will",
+	"from",
+	"our",
+	"their",
+	"they",
+	"them",
+	"there",
+	"here",
+	"what",
+	"when",
+	"which",
+	"who",
+	"whom",
+	"how",
+	"why",
+	"its",
+	"it's",
+	"one",
+	"two",
+	"new",
+	"any",
 ]);
 
 /** Tokenize a query/content into normalized search terms. */
@@ -131,8 +165,7 @@ export async function searchAll(
 				"MODELS.md",
 			]) {
 				const p = path.join(brain, name);
-				if (await exists(p))
-					candidates.push({ path: p, scope, kind: "identity" });
+				if (await exists(p)) candidates.push({ path: p, scope, kind: "identity" });
 			}
 		}
 		if (kind === "spect" || kind === "all") {
@@ -194,5 +227,8 @@ export async function searchLessons(
 
 /** Paths the search must NOT surface (secrets/state). */
 export function searchExcludes() {
-	return [path.join(AGENTS_DIR, ".secrets.json"), path.join(AGENTS_DIR, ".consolidate-state.json")];
+	return [
+		path.join(AGENTS_DIR, ".secrets.json"),
+		path.join(AGENTS_DIR, ".consolidate-state.json"),
+	];
 }

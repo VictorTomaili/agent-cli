@@ -14,7 +14,6 @@ import { randomBytes } from "node:crypto";
 
 process.env.AGENT_CLI_HOME = mkdtempSync(path.join(tmpdir(), "agent-secrets-"));
 const secrets = await import("../src/secrets.js");
-const HOME = process.env.AGENT_CLI_HOME;
 
 test("loadKey never replaces an existing key (a race would make secrets undecryptable)", () => {
 	// The key is created with the exclusive `wx` flag. Repeated calls, and a
@@ -59,7 +58,8 @@ test("secrets are not stored in plaintext", () => {
 test("key file exists with 0600 permissions", () => {
 	const kp = secrets.keyPath("global");
 	assert.equal(existsSync(kp), true);
-	if (process.platform !== "win32") assert.equal(statSync(kp).mode & 0o777, 0o600);
+	if (process.platform !== "win32")
+		assert.equal(statSync(kp).mode & 0o777, 0o600);
 });
 
 test("list returns names only; missing get throws", () => {
@@ -90,7 +90,10 @@ test("project scope uses a separate store", () => {
 	assert.throws(() => secrets.getSecret("PROJ_SECRET"));
 	// keys are scoped too
 	assert.ok(existsSync(secrets.keyPath("project", cwd)));
-	assert.notEqual(secrets.secretsPath("project", cwd), secrets.secretsPath("global"));
+	assert.notEqual(
+		secrets.secretsPath("project", cwd),
+		secrets.secretsPath("global"),
+	);
 });
 
 test("regenerating a key invalidates old ciphertext (garbage on decrypt)", () => {

@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert";
 import {
 	mkdtempSync,
-	mkdirSync,
 	writeFileSync,
 	readFileSync,
 	rmSync,

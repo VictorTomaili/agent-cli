@@ -12,6 +12,14 @@ coverage/
 review/
 AGENT-EXPERIENCE-REVIEW.md
 
+# docs/ is a MIXED folder: `docs/contract.md` is a shipped, tracked spec
+# (package.json files[] allowlists exactly that one path). Everything else
+# under docs/ is a local working analysis — never committed, never shipped.
+# Un-ignore a new doc explicitly when it becomes a real shipped document, and
+# add it to files[] at the same time.
+docs/*
+!docs/contract.md
+
 # Internal planning notes — not shipped, not public repo history.
 # (Single spec/planning folder; local-only, all spec workflow lives here.)
 .spec/

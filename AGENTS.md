@@ -36,7 +36,7 @@ npm test        # node --test test/*.test.js
 
 Run `npm run check && npm test` before considering any change done — CI (`.github/workflows/ci.yml`)
 runs the same two commands on the ubuntu/windows × Node 22/24 matrix, and `.github/workflows/publish.yml`
-publishes to npm automatically on every `master` push whose `package.json` version isn't on the
+publishes to npm automatically on every `main` push whose `package.json` version isn't on the
 registry yet, so a broken `check`/`test` blocks a real release, not just a PR.
 
 ## Conventions to preserve
@@ -52,8 +52,10 @@ registry yet, so a broken `check`/`test` blocks a real release, not just a PR.
   write/delete driven by untrusted input, pointer-only deletion in `unlink`, secrets never
   synced/snapshotted/searched.
 - **npm publish surface**: only what's listed in `package.json`'s `"files"` array
-  (`src`, `seed`, `README.md`, `LICENSE`) ships in the tarball. `ARCHITECTURE.md` and `.spec/`
-  never do — don't assume a new root-level doc is visible to an installed user.
+  (`src`, `seed`, `README.md`, `LICENSE`, `docs/contract.md`) ships in the tarball. Note the
+  allowlist names `docs/contract.md` as a single path, not the `docs/` folder: everything else
+  under `docs/` is a local working analysis (gitignored, see `.gitignore`) and must never ship.
+  `ARCHITECTURE.md` and `.spec/` never do — don't assume a new root-level doc is visible to an installed user.
 - **`.spec/`** — single local-only folder for the project's spec-driven-dev workflow AND
   internal planning notes (`README.md`, `constitution.md`, `specs/`, `plans/`, `tasks/`,
   `templates/`, `ROADMAP.md`, `findings.md`). Gitignored, never committed, never shipped in

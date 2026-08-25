@@ -58,7 +58,7 @@
     "seed",
     "README.md",
     "LICENSE",
-    "docs"
+    "docs/contract.md"
   ],
   "publishConfig": {
     "access": "public",

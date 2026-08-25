@@ -33,7 +33,11 @@ export function registerRetroCommands(
 		.description(
 			"Write one dev-team retro lesson to the lessons-store inbox (stdin is the lesson body).",
 		)
-		.requiredOption("--session <id>", "session id whose P7 dispatch ledger informs the entry")
+		.option(
+			"--session <id>",
+			"session id whose P7 dispatch ledger informs the entry (default: the pinned/current session)",
+		)
+		.option("--lesson <text>", "the lesson body, when not piped on stdin")
 		.option("--lane <lane>", "collaboration lane: 'fast' or 'full' (default 'full')")
 		.option("--roles <csv>", "comma-separated roles activated (defaults to the ledger summary)")
 		.option("--outcome <verdict>", "PASS|PASS-WITH-NOTES|REFUTED|LOW-CONFIDENCE")
@@ -41,11 +45,18 @@ export function registerRetroCommands(
 		.action(async (opts) => {
 			const { recordRetro } = await import("../dev-team-retro.js");
 			const { summarizeSession } = await import("../team-eval.js");
+			const { resolveSession } = await import("../dispatch-ledger.js");
 			const home = reportHome();
-			const summary = summarizeSession({ sessionId: opts.session, home });
-			const lesson = readLessonStdin();
+			// The orchestrator does not know a session id — it pinned one with
+			// `ledger start` and never saw it again. Default to that pin rather
+			// than demanding the id back.
+			const sessionId = resolveSession(opts.session);
+			const summary = summarizeSession({ sessionId, home });
+			// `--lesson` first: piping a heredoc is a shell-quoting trap for prose
+			// that contains backticks or `$`, and the caller here is an LLM.
+			const lesson = opts.lesson ? String(opts.lesson).trim() : readLessonStdin();
 			if (!lesson) {
-				fail("retro record requires a lesson body on stdin", {
+				fail("retro record requires a lesson body — pass --lesson <text> or pipe it on stdin", {
 					command: "retro",
 					op: "record",
 				});
@@ -65,7 +76,7 @@ export function registerRetroCommands(
 				fail("retro record failed to write the lesson (best-effort)", {
 					command: "retro",
 					op: "record",
-					session: opts.session,
+					session: sessionId,
 				});
 			}
 			emit({
@@ -73,7 +84,7 @@ export function registerRetroCommands(
 				op: "record",
 				file: pretty(file),
 				path: file,
-				session: opts.session,
+				session: sessionId,
 			});
 			if (!isJson()) {
 				log.raw(`${c.green("✓")} recorded retro → ${pretty(file)}`);
@@ -86,14 +97,25 @@ export function registerRetroCommands(
 			"Count dev-team retro entries in the lessons store (the Self-Improvement trigger's 5+ threshold).",
 		)
 		.option("--since <iso>", "only count entries written at/after this ISO timestamp")
+		.option(
+			"--since-last-loop",
+			"count only entries written since the last `retro mark` (the Self-Improvement trigger)",
+		)
 		.option("--theme <name>", "theme to count (default 'dev-team')")
 		.option("--core", "also count dev-team lessons already filed into the main store")
 		.action(async (opts) => {
-			const { countRetros } = await import("../dev-team-retro.js");
+			const { countRetros, lastLoopRun } = await import("../dev-team-retro.js");
+			const home = reportHome();
+			// --since-last-loop is opt-in rather than the default: `retro count`
+			// keeps meaning "how many retros are there", and the trigger asks the
+			// narrower question explicitly.
+			const since = opts.sinceLastLoop
+				? lastLoopRun({ home }) || undefined
+				: opts.since;
 			const count = countRetros({
-				home: reportHome(),
+				home,
+				since,
 				theme: opts.theme || "dev-team",
-				since: opts.since,
 				includeCore: !!opts.core,
 			});
 			emit({
@@ -101,12 +123,32 @@ export function registerRetroCommands(
 				op: "count",
 				count,
 				theme: opts.theme || "dev-team",
-				since: opts.since || null,
+				since: since || null,
+				sinceLastLoop: !!opts.sinceLastLoop,
 				includeCore: !!opts.core,
 			});
 			if (!isJson()) {
 				log.raw(`${c.bold(count)} retro entr${count === 1 ? "y" : "ies"}` +
-					(opts.since ? c.gray(` since ${opts.since}`) : ""));
+					(since ? c.gray(` since ${since}`) : ""));
 			}
+		});
+
+	retro
+		.command("mark")
+		.description(
+			"Stamp 'the Self-Improvement Loop ran now', so `retro count --since-last-loop` counts forward from here.",
+		)
+		.option("--at <iso>", "stamp this instant instead of now")
+		.action(async (opts) => {
+			const { markLoopRun } = await import("../dev-team-retro.js");
+			const at = markLoopRun({ home: reportHome(), at: opts.at });
+			if (!at) {
+				fail("retro mark failed to write the watermark (best-effort)", {
+					command: "retro",
+					op: "mark",
+				});
+			}
+			emit({ command: "retro", op: "mark", lastRunAt: at });
+			if (!isJson()) log.raw(`${c.green("✓")} loop watermark ${c.gray(at)}`);
 		});
 }

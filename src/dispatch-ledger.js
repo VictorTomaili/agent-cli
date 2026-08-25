@@ -25,11 +25,30 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { sanitizePathSegment } from "./util.js";
 
-/** The session this process writes to. Generated once per process (UUIDv4),
- *  so sibling writes in one host process share a single ledger. It is NOT
- *  persisted: each agent host process is its own session. */
+/** The session this process writes to when nothing else pins one. Generated
+ *  once per process (UUIDv4), so sibling writes in one host process share a
+ *  single ledger.
+ *
+ *  This is the IN-PROCESS default and it is deliberately NOT enough on its
+ *  own: an LLM orchestrator reaches this module by shelling out, so every
+ *  `agent-cli ledger record` is a fresh process with a fresh id — N dispatches
+ *  would land in N one-line files and P6 would aggregate nothing. `startSession`
+ *  below pins an id to disk so separate processes share one ledger. */
 const SESSION_ID = crypto.randomUUID();
+
+/** The pinned-session pointer: a one-line file holding the current session id.
+ *
+ *  Deliberately explicit rather than inferred. An earlier design attached to
+ *  "the newest .dispatch.log touched within N hours", which has two failure
+ *  modes we do not want: a long request that crosses the window splits into two
+ *  sessions mid-flight, and two concurrent requests silently merge into one
+ *  ledger. A pointer written by an explicit `ledger start` has neither — a new
+ *  request re-pins, and `--session` overrides for anything that needs its own. */
+function pointerPath() {
+	return path.join(logDir(), ".current-session");
+}
 
 /** Closed status enum. Any other value is coerced to `failed` so downstream
  *  aggregation never sees an out-of-schema status. */
@@ -60,9 +79,65 @@ function logDir() {
 	return path.join(homeDir(), ".agents", ".logs");
 }
 
-/** The ledger path for this process's session. */
-export function ledgerPath() {
-	return path.join(logDir(), `${SESSION_ID}.dispatch.log`);
+/** Read the pinned session id, or null when nothing is pinned/readable. */
+function readPointer() {
+	try {
+		return sanitizePathSegment(fs.readFileSync(pointerPath(), "utf8").trim());
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Resolve the session a call should act on, in priority order:
+ *   1. an explicit id (the `--session` flag) — always wins;
+ *   2. the pinned pointer written by `startSession`;
+ *   3. this process's own SESSION_ID.
+ *
+ * Every id is folded through `sanitizePathSegment` because it becomes a
+ * filename. An explicit id that sanitizes to nothing falls through rather than
+ * silently writing to a `.dispatch.log` with an empty name.
+ */
+export function resolveSession(session) {
+	return sanitizePathSegment(session) || readPointer() || SESSION_ID;
+}
+
+/**
+ * Pin a session id so later, separate `agent-cli` processes append to ONE
+ * ledger. Mints a UUIDv4 when no id is given. Best-effort: a failed pin still
+ * returns the id, so the caller degrades to per-process sessions rather than
+ * erroring out.
+ *
+ * @returns {{session: string, path: string, pinned: boolean}}
+ */
+export function startSession(session) {
+	const id = sanitizePathSegment(session) || crypto.randomUUID();
+	let pinned = false;
+	try {
+		fs.mkdirSync(logDir(), { recursive: true });
+		fs.writeFileSync(pointerPath(), id + "\n", "utf8");
+		pinned = true;
+	} catch (err) {
+		warnOnce("pin failed", err);
+	}
+	return { session: id, path: ledgerPath(id), pinned };
+}
+
+/** Remove the pin, so the next write falls back to a per-process session. */
+export function endSession() {
+	const session = readPointer();
+	try {
+		fs.rmSync(pointerPath(), { force: true });
+		return { ok: true, session, cleared: !!session };
+	} catch (err) {
+		warnOnce("unpin failed", err);
+		return { ok: false, session, cleared: false };
+	}
+}
+
+/** The ledger path for `session` (or the resolved current session). */
+export function ledgerPath(session) {
+	return path.join(logDir(), `${resolveSession(session)}.dispatch.log`);
 }
 
 /** Most-recent existing .dispatch.log under the session .logs dir (or null).
@@ -98,10 +173,10 @@ function clampTask(task) {
 }
 
 /** Build one ledger entry. The closed field set + field ordering on the line. */
-function buildEntry({ role, task, model, status, note, ms }) {
+function buildEntry({ role, task, model, status, note, ms, session }) {
 	const entry = {
 		ts: new Date().toISOString(),
-		session: SESSION_ID,
+		session: resolveSession(session),
 		role: String(role ?? "orchestrator"),
 		task: clampTask(task),
 		model: String(model && String(model).trim() ? model : "unknown"),
@@ -114,7 +189,9 @@ function buildEntry({ role, task, model, status, note, ms }) {
 
 /** Append one ledger line. Never throws. */
 function append(entry) {
-	const p = ledgerPath();
+	// The entry already carries its resolved session — write to THAT ledger,
+	// not to whatever resolveSession() would answer a second time.
+	const p = ledgerPath(entry.session);
 	try {
 		fs.mkdirSync(path.dirname(p), { recursive: true });
 		fs.appendFileSync(p, JSON.stringify(entry) + "\n", "utf8");
@@ -129,9 +206,25 @@ function append(entry) {
  * as 0 (there is no start reference here). For elapsed timing use startDispatch.
  * Returns the entry (best-effort: an entry object even when the write failed).
  */
-export function recordDispatch({ role, task, model, status, note } = {}) {
+export function recordDispatch({
+	role,
+	task,
+	model,
+	status,
+	note,
+	ms = 0,
+	session,
+} = {}) {
 	return append(
-		buildEntry({ role, task, model, status: status ?? "started", note, ms: 0 }),
+		buildEntry({
+			role,
+			task,
+			model,
+			status: status ?? "started",
+			note,
+			ms,
+			session,
+		}),
 	);
 }
 
@@ -140,8 +233,11 @@ export function recordDispatch({ role, task, model, status, note } = {}) {
  * at call time; `finish(status, note?)` records the succeeded/failed/cancelled
  * line with `ms = Date.now() - ts`. Best-effort: always returns the entry.
  */
-export function startDispatch({ role, task, model } = {}) {
+export function startDispatch({ role, task, model, session } = {}) {
 	const ts = Date.now();
+	// Resolve the session at START, not at finish: a `ledger start` landing
+	// mid-dispatch must not move the terminal line to a different ledger.
+	const pinned = resolveSession(session);
 	return function finish(status, note) {
 		return append(
 			buildEntry({
@@ -151,18 +247,33 @@ export function startDispatch({ role, task, model } = {}) {
 				status: status ?? "failed",
 				note,
 				ms: Date.now() - ts,
+				session: pinned,
 			}),
 		);
 	};
 }
 
 /**
- * Read the current session's ledger (the most-recent .dispatch.log under
- * ~/.agents/.logs). Returns { ok, entries, path }. Malformed lines are skipped.
+ * Resolve which ledger a READER should open:
+ *   - an explicit `--session`, or a pinned pointer, names the file directly
+ *     (even when it does not exist yet — an empty read is the honest answer);
+ *   - with neither, fall back to the newest `.dispatch.log`, so `ledger show`
+ *     still reaches a ledger an earlier process left behind.
  */
-export function readLedger() {
-	const p = findCurrentLedgerPath();
-	if (!p) return { ok: true, entries: [], path: null };
+function readPathFor(session) {
+	const explicit = sanitizePathSegment(session) || readPointer();
+	if (explicit) return path.join(logDir(), `${explicit}.dispatch.log`);
+	return findCurrentLedgerPath();
+}
+
+/**
+ * Read a session's ledger — the explicit/pinned one, else the most-recent
+ * .dispatch.log under ~/.agents/.logs. Returns { ok, entries, path }.
+ * Malformed lines are skipped.
+ */
+export function readLedger({ session } = {}) {
+	const p = readPathFor(session);
+	if (!p || !fs.existsSync(p)) return { ok: true, entries: [], path: null };
 	let content;
 	try {
 		content = fs.readFileSync(p, "utf8");
@@ -187,9 +298,9 @@ export function readLedger() {
  * Truncate the current session's ledger. Returns { ok, cleared, path }.
  * A missing ledger is a no-op (no file is created just to clear nothing).
  */
-export function clearLedger() {
-	const p = findCurrentLedgerPath();
-	if (!p) return { ok: true, cleared: false, path: null };
+export function clearLedger({ session } = {}) {
+	const p = readPathFor(session);
+	if (!p || !fs.existsSync(p)) return { ok: true, cleared: false, path: null };
 	try {
 		fs.writeFileSync(p, "", "utf8");
 		return { ok: true, cleared: true, path: p };

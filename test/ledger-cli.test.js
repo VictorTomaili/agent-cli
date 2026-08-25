@@ -169,3 +169,117 @@ test("agent-cli ledger --handoff <taskId> errors when a required predecessor is 
 	assert.equal(j.ok, false);
 	assert.match(j.error, /no ledger record for predecessor P1/);
 });
+
+// --- Write surface: start / record / end ------------------------------------
+// This is the half P7 was missing. `recordDispatch` was library-only, so an LLM
+// orchestrator — whose only route in is Bash — could never write a ledger line,
+// and P6's harness aggregated an empty file.
+
+test("ledger record across SEPARATE processes lands in ONE ledger after ledger start", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-cli-ledger-session-"));
+	const started = parseJson(run(["--json", "ledger", "start"], { envHome: home }).stdout);
+	assert.equal(started.ok, true);
+	const session = started.data.session;
+	assert.ok(session, "ledger start must report the session id");
+
+	// Three independent CLI invocations — each its own node process.
+	for (const [role, task, status] of [
+		["backend-dev", "T1", "succeeded"],
+		["qa-engineer", "T2", "succeeded"],
+		["security", "T3", "failed"],
+	]) {
+		const r = run(
+			["--json", "ledger", "record", "--role", role, "--task", task, "--status", status],
+			{ envHome: home },
+		);
+		const parsed = parseJson(r.stdout);
+		assert.equal(parsed.ok, true, `record failed for ${task}: ${r.stderr}`);
+		assert.equal(
+			parsed.data.session,
+			session,
+			`${task} landed in a different session — the pin is not shared across processes`,
+		);
+	}
+
+	const shown = parseJson(run(["--json", "ledger", "show"], { envHome: home }).stdout);
+	assert.equal(shown.data.count, 3, "all three dispatches must be in one ledger");
+	assert.deepEqual(
+		shown.data.entries.map((e) => e.task),
+		["T1", "T2", "T3"],
+	);
+});
+
+test("ledger record defaults to a terminal status (one line per finished dispatch)", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-cli-ledger-terminal-"));
+	run(["ledger", "start"], { envHome: home });
+	const parsed = parseJson(
+		run(["--json", "ledger", "record", "--role", "dev", "--task", "T1"], {
+			envHome: home,
+		}).stdout,
+	);
+	// `started` would inflate summarizeSession's per-line `runs` without ever
+	// counting toward the success rate, so the default must be terminal.
+	assert.equal(parsed.data.entry.status, "succeeded");
+});
+
+test("ledger record rejects a bad --status instead of coercing it to failed", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-cli-ledger-badstatus-"));
+	const r = run(
+		["ledger", "record", "--role", "dev", "--task", "T1", "--status", "done"],
+		{ envHome: home },
+	);
+	assert.notEqual(r.code, 0, "a typo'd status must fail loudly");
+	assert.match(r.stdout + r.stderr, /Unknown status/);
+});
+
+test("ledger record requires --role and --task", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-cli-ledger-required-"));
+	const r = run(["ledger", "record", "--role", "dev"], { envHome: home });
+	assert.notEqual(r.code, 0);
+	assert.match(r.stdout + r.stderr, /requires --role and --task/);
+});
+
+test("--session overrides the pin, and ledger end unpins", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-cli-ledger-override-"));
+	const pinned = parseJson(run(["--json", "ledger", "start"], { envHome: home }).stdout)
+		.data.session;
+
+	// An explicit --session must not land in the pinned ledger.
+	run(
+		["ledger", "record", "--role", "dev", "--task", "OTHER", "--session", "other-run"],
+		{ envHome: home },
+	);
+	const pinnedLedger = parseJson(
+		run(["--json", "ledger", "show"], { envHome: home }).stdout,
+	);
+	assert.equal(pinnedLedger.data.count, 0, "the override leaked into the pinned session");
+
+	const other = parseJson(
+		run(["--json", "ledger", "show", "--session", "other-run"], { envHome: home }).stdout,
+	);
+	assert.equal(other.data.count, 1);
+	assert.equal(other.data.entries[0].task, "OTHER");
+
+	const ended = parseJson(run(["--json", "ledger", "end"], { envHome: home }).stdout);
+	assert.equal(ended.data.session, pinned);
+	assert.equal(ended.data.cleared, true);
+});
+
+test("a traversal --session cannot write outside the .logs dir", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-cli-ledger-trav-"));
+	const parsed = parseJson(
+		run(
+			[
+				"--json", "ledger", "record",
+				"--role", "dev", "--task", "T1",
+				"--session", "../../escape",
+			],
+			{ envHome: home },
+		).stdout,
+	);
+	assert.ok(
+		!String(parsed.data.session).includes("..") &&
+			!String(parsed.data.session).includes("/"),
+		`session id must be folded to one safe segment, got ${parsed.data.session}`,
+	);
+});

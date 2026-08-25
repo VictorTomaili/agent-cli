@@ -121,7 +121,8 @@ it seeds the master, writes pointer stubs for every detected tool, deploys the h
 | Brain upgrades | `memory upgrade status\|plan\|prepare\|apply` (LLM-driven schema migrations) |
 | Brain snapshots | `snapshot`, `restore`, `backups`, `sync` (git-backed) |
 | Session lifecycle | `session`, `day-start`, `session-start`, `brief`, `brief-hooks` |
-| Shipped-default updates | `update list\|stage\|diff\|apply\|clear`, `upgrade` |
+| Shipped-default updates | `update list\|stage\|diff\|apply\|clear`, `upgrade` (add `--overwrite` to take the shipped version of a file you changed — backed up first) |
+| dev-team instrumentation | `ledger start\|record\|end\|show\|clear`, `ledger --handoff <taskId>`, `team eval run\|report`, `retro record\|count\|mark` |
 | Skills | `skill setup\|refresh\|status\|list\|install\|enable\|disable` |
 | Diagnostics | `doctor`, `validate`, `config`, `stats`, `whoami`, `files`, `manifest`, `schema` |
 | Automation | `hooks install` (git hooks), `automation add\|list\|run`, `watch`, `serve` (MCP over stdio) |

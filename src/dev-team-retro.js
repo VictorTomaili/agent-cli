@@ -12,11 +12,10 @@
 // that is calling it. `recordRetro` returns the written path (a truthy string) on success and
 // `null` on failure; `countRetros` reads the same store and returns an integer.
 //
-// TODO(P8 wiring): the Self-Improvement Loop trigger "5+ retro entries since the last loop
-// should call `countRetros({ since: <lastLoopTimestamp> })` instead of scanning an in-session
-// log. The protocol-text PR (P2-P5) already shipped; the WORKFLOW.md trigger line is NOT
-// touched here — this PR only lands the persistence + count primitive that makes that
-// threshold reachable.
+// The Self-Improvement Loop trigger now reads this store: WORKFLOW.md's trigger is
+// `agent-cli retro count --since-last-loop`, measured from the watermark `retro mark`
+// stamps (markLoopRun/lastLoopRun below), and Stage 8 writes each entry via
+// `agent-cli retro record`. The in-session log the trigger used to scan is gone.
 
 import path from "node:path";
 import os from "node:os";
@@ -284,4 +283,46 @@ export function countRetros({
 	let count = scanDir(path.join(root, ".inbox"), theme, sinceTs);
 	if (includeCore) count += scanMain(root, theme, sinceTs);
 	return count;
+}
+
+// --- Self-Improvement Loop watermark ----------------------------------------
+// The trigger is "5+ retro entries SINCE THE LAST LOOP", which needs a
+// persisted "last loop" instant. The obvious candidate — "entries still in the
+// .inbox" — does not work: `agent-cli consolidate` never drains the inbox
+// (src/consolidate.js's walkSync skips every dot-entry, so `.inbox` is outside
+// its walk), so a pending-count would only ever grow. This is an explicit
+// watermark instead: the loop stamps it on completion, and `countRetros`
+// counts forward from the stamp.
+
+/** Path of the loop watermark file. */
+function markPath(base) {
+	return path.join(base, ".agents", "lessons", ".dev-team-loop.json");
+}
+
+/**
+ * Stamp "the Self-Improvement Loop ran now". Best-effort, like every other
+ * write here. Returns the ISO timestamp written, or null on failure.
+ */
+export function markLoopRun({ home, at } = {}) {
+	const base = home || homeDir();
+	const ts = at || new Date().toISOString();
+	try {
+		writeFileSync(markPath(base), JSON.stringify({ lastRunAt: ts }, null, 2) + "\n");
+		return ts;
+	} catch (err) {
+		warnOnce("mark failed", err);
+		return null;
+	}
+}
+
+/** The last stamped loop instant (ISO string), or null when never stamped. */
+export function lastLoopRun({ home } = {}) {
+	const base = home || homeDir();
+	try {
+		const parsed = JSON.parse(fs.readFileSync(markPath(base), "utf8"));
+		const ts = parsed && parsed.lastRunAt;
+		return typeof ts === "string" && Number.isFinite(Date.parse(ts)) ? ts : null;
+	} catch {
+		return null;
+	}
 }

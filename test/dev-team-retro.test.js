@@ -11,6 +11,7 @@ import {
 	rmSync,
 	existsSync,
 	statSync,
+	utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,7 +19,9 @@ import path from "node:path";
 const HOME_TMP = mkdtempSync(path.join(tmpdir(), "agent-retro-home-"));
 process.env.AGENT_CLI_HOME = HOME_TMP;
 
-const { recordRetro, countRetros } = await import("../src/dev-team-retro.js");
+const { recordRetro, countRetros, markLoopRun, lastLoopRun } = await import(
+	"../src/dev-team-retro.js",
+);
 const { parseFM } = await import("../src/lessons-lib.js");
 
 const INBOX = path.join(HOME_TMP, ".agents", "lessons", ".inbox");
@@ -137,4 +140,62 @@ test("best-effort: an unwritable inbox does not throw and returns a falsy path",
 		rmSync(INBOX, { force: true });
 		if (inboxIsDir) mkdirSync(INBOX, { recursive: true });
 	}
+});
+
+// --- Self-Improvement Loop watermark ----------------------------------------
+// The trigger is "5+ retro entries SINCE THE LAST LOOP". A pending-inbox count
+// cannot express that: `agent-cli consolidate` never drains .inbox (walkSync in
+// src/consolidate.js skips dot-entries), so it would only ever grow. The
+// watermark is the explicit "last loop ran at" instant instead.
+
+test("lastLoopRun is null before any mark", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-retro-mark-none-"));
+	assert.equal(lastLoopRun({ home }), null);
+});
+
+test("markLoopRun stamps an instant that lastLoopRun reads back", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-retro-mark-"));
+	const at = markLoopRun({ home, at: "2026-08-25T10:00:00.000Z" });
+	assert.equal(at, "2026-08-25T10:00:00.000Z");
+	assert.equal(lastLoopRun({ home }), "2026-08-25T10:00:00.000Z");
+});
+
+test("countRetros since the watermark counts only entries written after it", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-retro-mark-count-"));
+	const inbox = path.join(home, ".agents", "lessons", ".inbox");
+	mkdirSync(inbox, { recursive: true });
+	// scanDir filters on file mtime (matching the shipped `--since` behaviour),
+	// so the fixtures set mtime explicitly rather than relying on frontmatter.
+	const entry = (name, epochMs) => {
+		const fp = path.join(inbox, name);
+		writeFileSync(fp, ["---", "theme: dev-team", "kind: retro", "---", "", "body", ""].join("\n"), "utf8");
+		utimesSync(fp, new Date(epochMs), new Date(epochMs));
+	};
+	const watermark = Date.now() - 60_000;
+	entry("old.md", watermark - 60_000);
+	entry("new-1.md", watermark + 10_000);
+	entry("new-2.md", watermark + 20_000);
+
+	assert.equal(countRetros({ home }), 3, "unfiltered count sees everything");
+
+	markLoopRun({ home, at: new Date(watermark).toISOString() });
+	assert.equal(
+		countRetros({ home, since: lastLoopRun({ home }) }),
+		2,
+		"only entries after the watermark count toward the next trigger",
+	);
+});
+
+test("lastLoopRun ignores a corrupt or malformed watermark", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-retro-mark-bad-"));
+	const dir = path.join(home, ".agents", "lessons");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(path.join(dir, ".dev-team-loop.json"), "not json", "utf8");
+	assert.equal(lastLoopRun({ home }), null);
+	writeFileSync(
+		path.join(dir, ".dev-team-loop.json"),
+		JSON.stringify({ lastRunAt: "nonsense" }),
+		"utf8",
+	);
+	assert.equal(lastLoopRun({ home }), null, "an unparseable date must not become a filter");
 });

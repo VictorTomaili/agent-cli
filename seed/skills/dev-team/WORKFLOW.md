@@ -136,9 +136,33 @@ flowchart LR
   is re-deriving each cited `file:line` by symbol search, then acting on the symbol —
   a citation that resolves nowhere, or whose claim is false, stops the task for
   re-derivation rather than being adapted around.
+- **Instrumentation (Full Cycle; skip in Fast Lane).** On hosts with a dispatch
+  ledger (agent-cli), the orchestrator opens the session **once**, before the first
+  dispatch, and records **one line per finished dispatch** — not one per state
+  change:
+
+  ```
+  agent-cli ledger start                       # once per client request
+  agent-cli ledger record --role <role> --task <taskId> --model <model> \
+                          --status succeeded|failed|cancelled \
+                          [--note '{"dependsOn":["<blockerId>"]}']
+  ```
+
+  `--task` is the **task id from the Task DAG**, not a description — Stage 7 and
+  the handoff artifact match on it exactly. `--status` is the *terminal* status;
+  recording a `started` line as well would double every count the eval harness
+  derives. `--note` carries the task's blockers as JSON when it has any, which is
+  what lets a dependent task pull its predecessor's result:
+  `agent-cli ledger --handoff <taskId>`.
+
+  This is bookkeeping, not a gate: it runs after a dispatch reports, and a host
+  without agent-cli skips the whole bullet — the protocol does not depend on it.
+  If a ledger command fails, note it and carry on; never stop execution to fix
+  instrumentation.
 - **Exit criteria:** Every task reports done with evidence (diff, tests run,
   verification), or is blocked with a reason the orchestrator resolves (re-dispatch,
   split, or escalate). No task proceeds past a citation that fails to re-derive.
+  On a ledger-capable host, every finished dispatch has exactly one ledger line.
 
 ### 7. Integration & Validation
 
@@ -189,12 +213,24 @@ flowchart LR
     **The synthesis claims overall success iff every evidence-table row is `PASS`.**
   The team **owns the product from here**: bugs, support questions, and follow-on
   work re-enter the cycle at stage 1, and the orchestrator keeps the task tracker live
-  so ownership is always answerable. For Full Cycle work, append a one-line retro note
-  to the running in-session retro log.
+  so ownership is always answerable.
+- **Retro (Full Cycle).** Write the one-line retro **to persistent storage**, not to
+  an in-session note — a session's own log dies with the session, so the
+  Self-Improvement trigger below could never reach its threshold:
+
+  ```
+  agent-cli retro record --lane full --outcome <PASS|PASS-WITH-NOTES|REFUTED|LOW-CONFIDENCE> \
+                         --lesson "<what the team should do differently next time>"
+  ```
+
+  No session id is needed — it reads the one `ledger start` pinned. On a host
+  without agent-cli, keep the note in the session report and say so, accepting that
+  the Self-Improvement Loop stays client-triggered there.
 - **Exit criteria:** Every evidence-table row is filled with a closed-enum verdict;
   a success claim is gated on every row being `PASS`; the client has a clear single
   answer to "is it done and what happened", and the follow-up channel (bug/support →
-  backlog) is acknowledged.
+  backlog) is acknowledged. For Full Cycle work on a retro-capable host, the retro
+  line is **persisted**, not merely written into the report.
 
 ## Model & thinking policy
 
@@ -245,12 +281,22 @@ flowchart LR
 
 **Trigger** — the orchestrator starts this loop when either holds:
 
-- The in-session retro log has accumulated **5 or more entries** since the last
-  loop ran, or
+- **5 or more persisted retro entries since the last loop ran** — checked, not
+  remembered, at the end of any Full Cycle delivery:
+
+  ```
+  agent-cli retro count --since-last-loop      # ≥ 5 → run the loop
+  ```
+
+  The count comes from the retro store Stage 8 writes to, and `--since-last-loop`
+  measures from the watermark the Commit step stamps — so the threshold survives
+  session boundaries and compaction. A host without agent-cli has no cross-session
+  count and relies on the client trigger below.
 - The client explicitly asks ("how's the team doing", "review the org", "can we
   improve this process").
 
-**Review (two lenses on the same retro log):**
+**Review (two lenses on the same evidence — the persisted retro entries since the
+last watermark, plus the session KPIs behind them: `agent-cli team eval report`):**
 
 - `scrum-master` — process lens: rounds that stall (perspectives never shared, a
   role's voice missing), redundant reviews, slot-count mismatches.
@@ -270,6 +316,15 @@ evidence.
 
 **Commit** — only on approval, the orchestrator makes the edit (or builds the tool)
 and confirms back to the client in one line what changed.
+
+**Close the loop** — approved *or* declined, the orchestrator stamps the watermark
+so the next threshold counts from here rather than re-firing on the same entries:
+
+```
+agent-cli retro mark
+```
+
+Skipping this is what makes the loop re-trigger every delivery on the same backlog.
 
 ## RACI at a glance
 

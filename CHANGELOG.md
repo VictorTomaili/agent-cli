@@ -9,6 +9,103 @@ to npm and pushes the matching `vX.Y.Z` tag.
 
 ## [Unreleased]
 
+## [0.9.0]
+
+Closes 57 of 58 open CodeQL security alerts (the 1 remaining is the
+`js/missing-workflow-permissions` rule on `.github/workflows/codeql.yml`
+itself, which the workflow already satisfies — the alert is stale until
+the next re-scan). Adds two new safe-FS helpers in `src/util.js`,
+enables branch protection on `main` with the CodeQL Analyze
+context as a required status check, and ships the
+`scripts/codeql/severity-policy.json` mapping each rule family to
+block/advisory.
+
+### Security
+
+Four critical fixes ship in this release; all four are recommended
+upgrades for anyone running `agent-cli` in production.
+
+- **CRITICAL: skill-tool sandbox bypass (P0-4).** `src/skills/commands/run.js`
+  previously checked static imports against the allowlist, but `FORBIDDEN_IMPORT`
+  was dead code and the active `IMPORT_SPEC` regex required quoted specifiers —
+  so a malicious `SKILL.tool.js` doing `const s = "node:child_process"; return
+  import(s)` was accepted and ran the disallowed module in-process. The new
+  regex splits static (quoted only) and dynamic (quoted OR identifier) forms;
+  unquoted identifiers in a dynamic position are always banned. Added test
+  coverage in `test/skill-authoring.test.js`. Audit of `~/.skill-cli/store`:
+  no installed skill triggers the new check.
+- **`agent-cli snapshot --json` returned invalid envelope (P0-1).** `snap()`
+  is async; the previous `const r = snap()` spread a Promise into the
+  envelope, yielding `{ok: undefined, files: undefined}`. Added `await`.
+- **`agent-cli clear` no-op vs clear could leak the empty file (P0-2).** The
+  `existsSync` + `writeFileSync` race in `clearLedger` is gone — replaced with
+  `openSync(p, "r+")` + `ftruncateSync(0)`. `flag: "r+"` requires the file to
+  exist; ENOENT is translated to `cleared:false` (no-op on missing).
+- **Temp dir parent symlinkable (P0-3).** `src/runners.js` used
+  `mkdirSync({recursive:true})` on a predictable parent path, which an
+  attacker could symlink on shared systems. Now uses `mkdtempSync` (0700 unique
+  dir) + `crypto.randomBytes(8)` filename suffix. Windows-safe precedent at
+  `src/consolidate.js:264` and `src/archetypes.js:84`.
+
+### Added
+
+- `src/util.js` exports two new safe-FS helpers used by 9 call sites across
+  `src/`:
+  - `writeFileIfAbsent(p, content, {mode})` — exclusive-create (`wx`) open.
+    Throws through any error other than `EEXIST`. Returns
+    `{created: true|false}`. Reference implementation: `src/secrets.js:35`.
+  - `readFileNoFollow(p, {maxBytes})` — opens fd with `O_NOFOLLOW` (POSIX) or
+    `O_RDONLY` + `fstatSync` isFile guard (Windows). Refuses symlinks,
+    directories, devices; optional byte cap.
+- `scripts/codeql/severity-policy.json` — the rule-family → block/advisory
+  mapping enforced via branch protection. Block rules are real security or
+  correctness bugs; advisory rules are quality/maintainability findings that
+  batch in the next minor instead of blocking each PR.
+- Branch protection on `main`: `Analyze (javascript-typescript)` is a required
+  status check. `enforce_admins: true`, `required_linear_history: true`.
+
+### Fixed
+
+- **`js/file-system-race`** (17 sites closed, 0 remaining in `src/`+`scripts/):
+  - 3 write-side sites migrated to `writeFileIfAbsent`:
+    `src/skills/commands/create.js`, `scripts/add-target.js`, and
+    `src/dispatch-ledger.js` (overwrite case — `existsSync` dropped, `r+`
+    - `ftruncateSync` used).
+  - 5 read-side sites migrated to `readFileNoFollow`: `src/skills/lib/store.js`,
+    `src/snapshot.js:229,313`, `src/sync.js:79`, `src/skills/commands/run.js:45`.
+  - 1 mkdir race suppressed with rationale comment:
+    `src/snapshot.js:111` (`copyDirSync` — both src/dst are agent-cli-owned,
+    single-process, benign).
+  - 8 test/ sites suppressed with per-site rationale (single-process
+    fixtures / restore helpers / the race-the-test-simulates case).
+- **`js/incomplete-multi-character-sanitization`** (2 real fixes, 0
+  remaining): `src/lessons-lib.js` and `src/agents-lib.js` switched to a
+  loop-until-stable HTML comment strip. A single-pass regex left `<!--`
+  behind when adjacent text created new `<!--` substrings.
+- **`js/superfluous-trailing-arguments`** (4 sites): `src/skills/cli.js`
+  stopped forwarding `rest` to `cmdSearch()`/`cmdActive()`/`cmdDefaults()`
+  — all three are zero-arg.
+- **`js/unused-local-variable`** (30 sites closed via the bulk cleanup PRs):
+  `src/actions.js`, `src/api/index.js`, `src/commands/{inspect,prompt}.js`,
+  `src/consolidate.js`, `src/handoff.js`, `src/hooks.js`, `src/managed-resource.js`,
+  `src/memory.js`, `src/memory-upgrade.js`, `src/prompt-report.js`,
+  `src/search.js`, `src/skills/commands/{capture,run}.js`, `src/store.js`,
+  plus 6 test files (`captured`/`kebabToHeading`/`mkdirSync`/`readFileSync`/
+  `lstatSync`/`statSync`). A handful were restored after linter
+  false positives (e.g. `mkdirSync` IS used in `test/skill-install.test.js`
+  16 times).
+- **`js/incomplete-sanitization`** (2 false-positive suppressions):
+  `src/models.js:534` and `test/cli.test.js:1811` already use the `/g` flag;
+  inline `// lgtm` comments cite the regex semantics.
+
+### Layering note
+
+`src/skills/**` cannot import from `src/util.js` per the import-boundary
+test (`test/import-boundaries.test.js:117`). The 3 skills/ file-system-race
+sites use direct `fs.openSync(p, "wx"/"r")` + `fstatSync` + close in a
+try/finally — the same primitive the new helpers wrap, inlined so the
+self-contained skills subsystem stays layer-pure.
+
 ## [0.8.1]
 
 0.8.0 could reject a bad model alias but not remove one.
@@ -132,7 +229,8 @@ The MCP server, and the dev-team instrumentation it measures itself with.
 
 See the [commit history](https://github.com/VictorTomaili/agent-cli/commits/main).
 
-[Unreleased]: https://github.com/VictorTomaili/agent-cli/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/VictorTomaili/agent-cli/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/VictorTomaili/agent-cli/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/VictorTomaili/agent-cli/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/VictorTomaili/agent-cli/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/VictorTomaili/agent-cli/releases/tag/v0.7.0

@@ -1,6 +1,6 @@
 {
   "name": "@victortomaili/agent-cli",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Manage AGENTS.md and sync it across all your AI coding agents (Claude Code, Codex, Gemini, Cursor, Windsurf, Cline, Copilot, DeepSeek Harness, and more). One canonical source in ~/.agents/, mirrored everywhere.",
   "license": "MIT",
   "author": "Victor Tomaili <victor@tomaili.com>",

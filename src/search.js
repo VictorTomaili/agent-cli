@@ -5,12 +5,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import {
-	HOME,
-	AGENTS_DIR,
-	exists,
-	readFile,
-} from "./util.js";
+import { HOME, AGENTS_DIR, exists } from "./util.js";
 import { lessonsRoot, listLessons, parseFM } from "./lessons-lib.js";
 import { spectRoot } from "./spect.js";
 
@@ -77,17 +72,6 @@ async function readIfMd(file) {
 		return await fs.readFile(file, "utf8");
 	} catch {
 		return null;
-	}
-}
-
-async function listMdIn(dir) {
-	try {
-		const entries = await fs.readdir(dir, { withFileTypes: true });
-		return entries
-			.filter((e) => e.isFile() && e.name.endsWith(".md"))
-			.map((e) => path.join(dir, e.name));
-	} catch {
-		return [];
 	}
 }
 
@@ -192,7 +176,6 @@ export async function searchLessons(
 	for (const item of items) {
 		const content = await readIfMd(item.file);
 		if (content == null) continue;
-		const { fm } = parseFM(content);
 		const { score, matchedTokens } = scoreContent(tokens, content, item.file);
 		if (score <= 0) continue;
 		results.push({

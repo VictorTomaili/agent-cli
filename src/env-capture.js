@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { identityFilePath } from "./agents-lib.js";
-import { exists, readFile, writeFile } from "./util.js";
+import { exists, readFile, writeFile, escapeRegExp } from "./util.js";
 
 /** Detect local environment facts. */
 export function detectEnvironment() {
@@ -108,7 +108,10 @@ export async function setEnvironmentField(
 	// instead of silently appending an unfillable junk line.
 	const { ENVIRONMENT_FIELDS } = await import("./fields.js");
 	const known = ENVIRONMENT_FIELDS.map((f) => f.key);
-	const re = new RegExp(`^-\\s*${field}\\s*:.*$`, "m");
+	// `field` is caller-supplied and interpolated into a pattern. Unescaped, a
+	// field named `.*` matches every line, so the typo guard below reports the
+	// opposite of the truth for exactly the inputs it exists to catch.
+	const re = new RegExp(`^-\\s*${escapeRegExp(field)}\\s*:.*$`, "m");
 	const warning =
 		!re.test(raw) && !known.includes(field)
 			? `note: '${field}' is not a tracked ENV_LOCAL_* field (${known.join(", ")}) — the gap detector won't monitor it`

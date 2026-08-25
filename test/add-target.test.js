@@ -10,7 +10,10 @@ import {
 	writeFileSync,
 	readdirSync,
 	rmSync,
+	mkdtempSync,
+	cpSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +27,24 @@ const SCRIPT = path.join(
 	"scripts",
 	"add-target.js",
 );
-const REPO_ROOT = path.dirname(SCRIPT) + "/..";
+const REAL_ROOT = path.resolve(path.dirname(SCRIPT), "..");
+
+// Scaffold into a COPY of the tree, never the live one.
+//
+// The scaffold writes a real `import x from "./x.js"` line into
+// src/targets/index.js. `node --test` runs test files in parallel processes, so
+// while that line exists any other worker importing the registry resolves an
+// import whose file may not be written yet — surfacing as an intermittent
+// ERR_MODULE_NOT_FOUND, or as "does not provide an export named 'TARGETS'" when
+// index.js is read mid-write. Those failures land in unrelated files
+// (api.test.js, cli.test.js, detect.test.js), which is what made them look like
+// infrastructure flake rather than one test mutating shared state.
+//
+// AGENT_CLI_SCAFFOLD_ROOT points the script at this copy instead.
+const REPO_ROOT = mkdtempSync(path.join(tmpdir(), "agent-scaffold-"));
+cpSync(path.join(REAL_ROOT, "src", "targets"), path.join(REPO_ROOT, "src", "targets"), {
+	recursive: true,
+});
 const INDEX = path.join(REPO_ROOT, "src", "targets", "index.js");
 const TARGETS_DIR = path.join(REPO_ROOT, "src", "targets");
 
@@ -43,6 +63,7 @@ function withScaffold(args, fn) {
 		const r = spawnSync("node", [SCRIPT, ...args], {
 			cwd: REPO_ROOT,
 			encoding: "utf8",
+			env: { ...process.env, AGENT_CLI_SCAFFOLD_ROOT: REPO_ROOT },
 		});
 		const descAfter = new Set(
 			readdirSync(TARGETS_DIR).filter((f) => f.endsWith(".js") && f !== "index.js"),
@@ -103,12 +124,48 @@ test("scaffold validates the docs URL", () => {
 	});
 });
 
-// Note: testing the "double-add" path (the script refuses when the import
-// already exists in index.js) requires mutating index.js — and that mutation
-// is visible to other test workers running concurrently, which then fail
-// when they import index.js (the phantom import references a non-existent
-// file). The script's behavior is simple enough to verify by code review
-// — see scripts/add-target.js around the `from "./<id>\\.js"` check.
+// The double-add path used to be untestable: it needs index.js to already carry
+// the import, and mutating the live index.js broke concurrent workers. Now that
+// the scaffold runs against a temp copy (AGENT_CLI_SCAFFOLD_ROOT), it is just a
+// test.
+test("scaffold refuses to double-add an id already imported in index.js", () => {
+	const id = "scaffoldtwice";
+	const argv = [id, "T", "https://x", ".t/T.md", "T.md", ".t"];
+	withScaffold(argv, (first) => {
+		assert.equal(first.r.status, 0, `first add should succeed: ${first.r.stderr}`);
+		assert.ok(readFileSync(INDEX, "utf8").includes(`from "./${id}.js"`));
+
+		// The descriptor-exists check fires before the double-add guard, so the
+		// guard is only reachable in the state it actually exists for: a
+		// half-applied add, where index.js carries the import but the descriptor
+		// file is gone.
+		rmSync(path.join(TARGETS_DIR, `${id}.js`));
+
+		// Second add, with the import line still present, must refuse.
+		const second = spawnSync("node", [SCRIPT, ...argv], {
+			cwd: REPO_ROOT,
+			encoding: "utf8",
+			env: { ...process.env, AGENT_CLI_SCAFFOLD_ROOT: REPO_ROOT },
+		});
+		assert.notEqual(second.status, 0, "double-add must exit non-zero");
+		assert.match(second.stderr, /refusing to double-add/);
+	});
+});
+
+test("scaffold's double-add guard treats the id literally, not as a regex", () => {
+	// The guard interpolates the id into a match. It must not be possible for a
+	// metacharacter to make an unrelated id look already-present.
+	const r = spawnSync("node", [SCRIPT, ".*", "T", "https://x"], {
+		cwd: REPO_ROOT,
+		encoding: "utf8",
+		env: { ...process.env, AGENT_CLI_SCAFFOLD_ROOT: REPO_ROOT },
+	});
+	// It is rejected by the id-format rule, and crucially NOT by a wildcard
+	// match against every existing import.
+	assert.notEqual(r.status, 0);
+	assert.match(r.stderr, /must match/);
+	assert.doesNotMatch(r.stderr, /refusing to double-add/);
+});
 
 test("scaffold prints actionable next-step guidance", () => {
 	const id = "scaffoldtest2";

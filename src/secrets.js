@@ -23,17 +23,49 @@ export function keyPath(scope = "global", cwd = process.cwd()) {
 	return path.join(scopeDir(scope, cwd), SECRETS_KEY);
 }
 
-/** Load (or create) the 32-byte AES key for a scope. */
+/**
+ * Load (or create) the 32-byte AES key for a scope.
+ *
+ * Created with the exclusive `wx` flag rather than a plain write behind an
+ * `existsSync` check. That check-then-write is a race, and losing it here is
+ * not a hiccup: two agent-cli processes starting at once could both see "no
+ * key", both generate one, and the second write would replace the key the
+ * first had already encrypted secrets with — silently making them
+ * undecryptable. With `wx` the loser gets EEXIST and re-reads the winner's key.
+ */
 export function loadKey(scope = "global", cwd = process.cwd()) {
 	const kp = keyPath(scope, cwd);
 	fs.mkdirSync(path.dirname(kp), { recursive: true });
-	if (fs.existsSync(kp)) {
-		const buf = fs.readFileSync(kp);
-		if (buf.length === 32) return buf;
-	}
+	const readExisting = () => {
+		try {
+			const buf = fs.readFileSync(kp);
+			return buf.length === 32 ? buf : null;
+		} catch {
+			return null;
+		}
+	};
+
+	const existing = readExisting();
+	if (existing) return existing;
+
 	const key = crypto.randomBytes(32);
-	fs.writeFileSync(kp, key, { mode: 0o600 });
-	return key;
+	try {
+		fs.writeFileSync(kp, key, { mode: 0o600, flag: "wx" });
+		return key;
+	} catch (err) {
+		if (err && err.code === "EEXIST") {
+			// Someone created it between our read and our write, or it exists but
+			// was the wrong length. Prefer whatever is on disk — overwriting is
+			// what destroys secrets.
+			const raced = readExisting();
+			if (raced) return raced;
+			// On disk but unusable (truncated/corrupt): replace it deliberately,
+			// which is no worse than the state we are already in.
+			fs.writeFileSync(kp, key, { mode: 0o600 });
+			return key;
+		}
+		throw err;
+	}
 }
 
 function readStore(scope, cwd) {

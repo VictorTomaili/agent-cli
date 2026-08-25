@@ -158,6 +158,39 @@ test("sanitizePathSegment preserves case and the safe character set", () => {
 	);
 });
 
+// --- escapeRegExp -----------------------------------------------------------
+// Anything interpolated into `new RegExp(...)` that is meant to match literally
+// has to come through here, or every metacharacter in it goes live.
+
+test("escapeRegExp makes a metacharacter match literally", () => {
+	const e = util.escapeRegExp;
+	// The concrete bug this exists for: env-capture builds
+	// `^-\s*<field>\s*:.*$` from a caller-supplied field name. Unescaped, a
+	// field of ".*" matches every line, so the typo guard reports the opposite
+	// of the truth.
+	const line = "- SOME_KEY: value";
+	const build = (f) => new RegExp("^-\\s*" + f + "\\s*:.*$", "m");
+	assert.equal(build(".*").test(line), true, "unescaped .* matches — the bug");
+	assert.equal(build(e(".*")).test(line), false, "escaped .* must not match");
+	// and a real key still matches
+	assert.equal(build(e("SOME_KEY")).test(line), true);
+	assert.equal(build(e("OTHER_KEY")).test(line), false);
+});
+
+test("escapeRegExp escapes every regex metacharacter, and leaves the rest alone", () => {
+	const e = util.escapeRegExp;
+	for (const ch of [".", "*", "+", "?", "^", "$", "{", "}", "(", ")", "|", "[", "]", "\\"]) {
+		const escaped = e(ch);
+		assert.equal(escaped, "\\" + ch, `${ch} must be escaped`);
+		// round-trip: the escaped form matches the literal character
+		assert.equal(new RegExp("^" + escaped + "$").test(ch), true);
+	}
+	assert.equal(e("SOME_KEY-1.2"), "SOME_KEY-1\\.2");
+	assert.equal(e(""), "");
+	assert.equal(e(null), "");
+	assert.equal(e(undefined), "");
+});
+
 test("sanitizePathSegment caps length", () => {
 	const s = util.sanitizePathSegment;
 	assert.equal(s("x".repeat(200)).length, 64);

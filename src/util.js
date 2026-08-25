@@ -233,6 +233,18 @@ export function sanitizePathSegment(raw, { max = 64 } = {}) {
 	return s || null;
 }
 
+/**
+ * Escape a string for literal use inside a `new RegExp(...)`.
+ *
+ * Interpolating caller-supplied text into a pattern makes every regex
+ * metacharacter live: a field named `.*` stops meaning "that field" and starts
+ * matching anything, and a pathological value can be made to backtrack. Anything
+ * that is meant to be matched literally goes through here first.
+ */
+export function escapeRegExp(s) {
+	return String(s ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Normalize newlines for stable comparison. */
 export function normalizeEndings(s) {
 	return s.replace(/\r\n/g, "\n");

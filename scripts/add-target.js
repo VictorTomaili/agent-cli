@@ -15,7 +15,17 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// The repo this scaffolds into. Defaults to the checkout this script lives in,
+// which is what a contributor wants. `AGENT_CLI_SCAFFOLD_ROOT` redirects it at a
+// copy of the tree, which is what the TESTS want: scaffolding writes a real
+// import line into src/targets/index.js, and node --test runs files in parallel
+// processes, so mutating the live tree makes an unrelated worker import a
+// module that does not exist yet. That race is the cause of intermittent
+// "does not provide an export named 'TARGETS'" and ERR_MODULE_NOT_FOUND
+// failures across the suite.
+const ROOT = process.env.AGENT_CLI_SCAFFOLD_ROOT
+	? resolve(process.env.AGENT_CLI_SCAFFOLD_ROOT)
+	: resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TARGETS_DIR = resolve(ROOT, "src/targets");
 const INDEX = resolve(TARGETS_DIR, "index.js");
 
@@ -79,7 +89,10 @@ export default {
 // descriptor file (otherwise a failed double-add leaves a stale descriptor
 // behind that pollutes the next run).
 const indexSrc = readFileSync(INDEX, "utf8");
-if (new RegExp(`from "./${id}\\.js"`).test(indexSrc)) {
+// `id` comes from argv and is interpolated into a pattern, so it is matched
+// literally rather than as a regex (the `.` in `./` needs escaping too).
+const importLine = `from "./${id}.js"`;
+if (indexSrc.includes(importLine)) {
 	process.stderr.write(
 		`error: ${id} already imported in index.js — refusing to double-add\n`,
 	);

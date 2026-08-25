@@ -16,6 +16,33 @@ process.env.AGENT_CLI_HOME = mkdtempSync(path.join(tmpdir(), "agent-secrets-"));
 const secrets = await import("../src/secrets.js");
 const HOME = process.env.AGENT_CLI_HOME;
 
+test("loadKey never replaces an existing key (a race would make secrets undecryptable)", () => {
+	// The key is created with the exclusive `wx` flag. Repeated calls, and a
+	// call that finds a key already on disk, must both return THAT key — if a
+	// second caller overwrote it, everything encrypted with the first would be
+	// permanently unreadable.
+	const first = secrets.loadKey();
+	const second = secrets.loadKey();
+	assert.deepEqual(second, first, "loadKey must be stable across calls");
+
+	const kp = secrets.keyPath();
+	assert.ok(existsSync(kp));
+	const onDisk = readFileSync(kp);
+	assert.equal(onDisk.length, 32);
+	assert.deepEqual(onDisk, first, "the returned key must be the one on disk");
+
+	// Simulate losing the race: a different 32-byte key appears on disk.
+	const other = randomBytes(32);
+	writeFileSync(kp, other);
+	assert.deepEqual(
+		secrets.loadKey(),
+		other,
+		"an existing key on disk must win over minting a new one",
+	);
+	// restore, so the round-trip tests below still decrypt
+	writeFileSync(kp, first);
+});
+
 test("set/get round-trips a secret", () => {
 	const r = secrets.setSecret("API_KEY", "s3cr3t-value");
 	assert.equal(r.ok, true);

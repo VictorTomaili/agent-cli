@@ -13,9 +13,8 @@
 // (~600–1,200 tokens depending on state) and only mentions commands the LLM
 // actually needs.
 
-import { buildActions, suggestedStrings } from "./actions.js";
+import { buildActions } from "./actions.js";
 import { isSkillAvailable } from "./skill.js";
-import { pretty } from "./util.js";
 
 /**
  * @param {object} s - state from actions.js#collectState(...)
@@ -33,7 +32,6 @@ import { pretty } from "./util.js";
  */
 export function buildPromptPayload(s, { version, forTask = null, forTaskHits = null } = {}) {
 	const actions = buildActions(s);
-	const suggested = suggestedStrings(actions);
 
 	const sections = [];
 	const metadata = {

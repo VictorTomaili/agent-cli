@@ -72,3 +72,66 @@ test("P8 smoke: an attachContextForTask artifact is readable by the existing rea
 	assert.match(shown.content, /- summary: built the parser/);
 	assert.match(shown.content, /- ledger line: \{/);
 });
+
+// --- Path containment -------------------------------------------------------
+// A task id reaches attachContextForTask from the orchestrator's task DAG and is
+// interpolated into a FILENAME. Before the fix, `../../../PWNED` wrote the
+// artifact three levels above HANDOFF_DIR.
+
+test("attachContextForTask keeps a traversal task id inside the handoff dir", async () => {
+	const base = mkdtempSync(path.join(tmpdir(), "agent-ho-escape-"));
+	const logs = path.join(base, ".agents", ".logs");
+	mkdirSync(logs, { recursive: true });
+	const session = "s-escape";
+	const evil = "../../../PWNED";
+	const lines = [
+		JSON.stringify({
+			ts: "2026-01-01T00:00:00.000Z",
+			session,
+			role: "dev",
+			task: "P1",
+			model: "m",
+			status: "succeeded",
+			ms: 1,
+			note: "pred",
+		}),
+		JSON.stringify({
+			ts: "2026-01-01T00:00:01.000Z",
+			session,
+			role: "dev",
+			task: evil,
+			model: "m",
+			status: "succeeded",
+			ms: 1,
+			note: JSON.stringify({ dependsOn: ["P1"] }),
+		}),
+	].join("\n");
+	writeFileSync(path.join(logs, `${session}.dispatch.log`), lines + "\n", "utf8");
+
+	const r = h.attachContextForTask({ taskId: evil, session, home: base });
+	assert.equal(r.ok, true);
+	assert.ok(
+		r.artifactPath.startsWith(h.HANDOFF_DIR),
+		`artifact escaped the handoff dir: ${r.artifactPath}`,
+	);
+	assert.ok(
+		!path.basename(r.artifactPath).includes(".."),
+		`filename must not carry traversal segments: ${r.artifactPath}`,
+	);
+	// the raw id is still faithfully recorded in the (inert) document body
+	const shown = await h.showHandoff(path.basename(r.artifactPath, ".md"));
+	assert.equal(shown.ok, true);
+	assert.match(shown.content, /# Handoff for \.\.\/\.\.\/\.\.\/PWNED/);
+});
+
+test("showHandoff / setHandoffStatus refuse a traversal id", async () => {
+	const created = await h.createHandoff({ to: "worker", task: "contained" });
+	// sanity: the real id still resolves
+	assert.equal((await h.showHandoff(created.id)).ok, true);
+	// a crafted id must not walk out of HANDOFF_DIR — setHandoffStatus WRITES
+	// through the same resolver, so this is a write-containment check too.
+	const escaped = await h.showHandoff("../../../../etc/passwd");
+	assert.equal(escaped.ok, false);
+	const written = await h.setHandoffStatus("../../../../etc/passwd", "closed");
+	assert.equal(written.ok, false);
+});

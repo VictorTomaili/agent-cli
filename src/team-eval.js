@@ -24,6 +24,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { sanitizePathSegment } from "./util.js";
 
 /** Resolve the home the ledger lives under. `home` param wins; otherwise the
  *  AGENT_CLI_HOME override (testable), then the real home. */
@@ -62,7 +63,12 @@ function zeroSummary(sessionId, noLedger) {
  * @returns {object} the summary described in the file header.
  */
 export function summarizeSession({ sessionId, home } = {}) {
-	const sid = String(sessionId ?? "");
+	// The session id is interpolated straight into a filename, so it is folded
+	// to a single safe segment first: without this, `--session ../../x` reads a
+	// `.dispatch.log` outside the .logs dir entirely. A caller passing an id
+	// that sanitizes to nothing gets the same zeroed `noLedger` summary as a
+	// caller passing none.
+	const sid = sanitizePathSegment(sessionId) ?? "";
 	const base = resolveHome(home);
 	const p = path.join(base, ".agents", ".logs", `${sid}.dispatch.log`);
 

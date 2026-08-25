@@ -168,3 +168,46 @@ test("scoreTeamRun does not disturb the existing scoreSession export", () => {
 	const s = scoreSession({ endedAt: "2026-08-01T01:00:00.000Z", reported: true, lessonsCaptured: [{}] });
 	assert.equal(s.score, s.max);
 });
+
+// --- Path containment (session id is interpolated into a filename) -----------
+
+test("summarizeSession refuses a traversal session id instead of reading outside .logs", () => {
+	const home = freshHome();
+	// A ledger-shaped file OUTSIDE the .logs dir, two levels up.
+	const outsideDir = mkdtempSync(path.join(tmpdir(), "agent-cli-team-eval-outside-"));
+	const planted = JSON.stringify({
+		ts: "2026-01-01T00:00:00.000Z",
+		session: "x",
+		role: "LEAKED",
+		task: "SECRET",
+		model: "m",
+		status: "succeeded",
+		ms: 1,
+	});
+	writeFileSync(path.join(outsideDir, "pwn.dispatch.log"), planted + "\n", "utf8");
+
+	const rel = path.relative(path.join(home, ".agents", ".logs"), path.join(outsideDir, "pwn"));
+	const summary = summarizeSession({ sessionId: rel.split(path.sep).join("/"), home });
+
+	assert.equal(summary.noLedger, true, "a traversal id must not resolve to a ledger");
+	assert.equal(summary.runs, 0);
+	assert.deepEqual(summary.rolesActivated, [], "must not surface the planted role");
+});
+
+test("summarizeSession still reads a normal session id (containment is not over-broad)", () => {
+	const home = freshHome();
+	const line = JSON.stringify({
+		ts: "2026-01-01T00:00:00.000Z",
+		session: "s-1",
+		role: "backend-dev",
+		task: "T1",
+		model: "m",
+		status: "succeeded",
+		ms: 5,
+	});
+	writeLedger(home, "s-1", line + "\n");
+	const summary = summarizeSession({ sessionId: "s-1", home });
+	assert.equal(summary.noLedger, false);
+	assert.equal(summary.runs, 1);
+	assert.deepEqual(summary.rolesActivated, ["backend-dev"]);
+});

@@ -208,6 +208,31 @@ export function resolveContained(root, rel) {
 		: null;
 }
 
+/**
+ * Fold a caller-supplied identifier into a single safe path SEGMENT.
+ *
+ * `resolveContained` above is the right tool when the input is meant to be a
+ * relative path and an escape should be refused. This is for the other case:
+ * an id (a session id, a task id) that is only ever interpolated INTO a
+ * filename, where an escape is never meaningful and the id should simply be
+ * flattened. Everything outside `[A-Za-z0-9._-]` folds to `-`, leading and
+ * trailing dots/dashes are stripped (so `..` cannot survive, and no dotfile is
+ * created), and the result is length-capped.
+ *
+ * Case is preserved deliberately — task ids like `T1` must not collide with
+ * `t1` just because they passed through here.
+ *
+ * @returns {string|null} the segment, or null when nothing usable remains.
+ */
+export function sanitizePathSegment(raw, { max = 64 } = {}) {
+	const s = String(raw ?? "")
+		.trim()
+		.replace(/[^A-Za-z0-9._-]+/g, "-")
+		.replace(/^[-.]+|[-.]+$/g, "")
+		.slice(0, max);
+	return s || null;
+}
+
 /** Normalize newlines for stable comparison. */
 export function normalizeEndings(s) {
 	return s.replace(/\r\n/g, "\n");

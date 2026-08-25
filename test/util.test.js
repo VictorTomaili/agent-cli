@@ -122,3 +122,44 @@ test("homeExists: false for missing/empty, true for present marker", async () =>
 	mkdirSync(path.join(TMP, ".marker-present"), { recursive: true });
 	assert.equal(await util.homeExists(".marker-present"), true);
 });
+
+// --- sanitizePathSegment ----------------------------------------------------
+// Folds a caller-supplied id into ONE filename segment. Unlike resolveContained
+// (which refuses an escaping relative path), this flattens an id that is only
+// ever interpolated into a filename.
+
+test("sanitizePathSegment strips traversal and separators", () => {
+	const s = util.sanitizePathSegment;
+	assert.equal(s("../../../PWNED"), "PWNED");
+	assert.equal(s("..\..\evil"), "evil");
+	assert.equal(s("a/b/c"), "a-b-c");
+	assert.equal(s(".."), null);
+	assert.equal(s("..."), null);
+	assert.equal(s("/"), null);
+	assert.equal(s(""), null);
+	assert.equal(s(null), null);
+	assert.equal(s(undefined), null);
+	// never yields a dotfile, and never leaves a trailing dot
+	assert.equal(s(".hidden"), "hidden");
+	assert.equal(s("trailing."), "trailing");
+});
+
+test("sanitizePathSegment preserves case and the safe character set", () => {
+	const s = util.sanitizePathSegment;
+	// case must survive: task id T1 must not collide with t1
+	assert.equal(s("T1"), "T1");
+	assert.notEqual(s("T1"), s("t1"));
+	assert.equal(s("h-1735689600000-fix-parser"), "h-1735689600000-fix-parser");
+	assert.equal(s("a.b_c-D9"), "a.b_c-D9");
+	// a UUID session id passes through untouched
+	assert.equal(
+		s("0b5faf32-60f5-473a-a044-8a1ced4ccd0b"),
+		"0b5faf32-60f5-473a-a044-8a1ced4ccd0b",
+	);
+});
+
+test("sanitizePathSegment caps length", () => {
+	const s = util.sanitizePathSegment;
+	assert.equal(s("x".repeat(200)).length, 64);
+	assert.equal(s("x".repeat(200), { max: 10 }).length, 10);
+});

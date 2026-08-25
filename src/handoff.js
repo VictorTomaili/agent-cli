@@ -5,7 +5,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { HOME, AGENTS_DIR, exists, ensureDir, writeFile, readFile, writeFileSync } from "./util.js";
+import {
+	HOME,
+	AGENTS_DIR,
+	exists,
+	ensureDir,
+	writeFile,
+	readFile,
+	writeFileSync,
+	sanitizePathSegment,
+} from "./util.js";
 import { gitInfo } from "./memory.js";
 import { summarizeSession } from "./team-eval.js";
 
@@ -81,7 +90,14 @@ function parseFm(content) {
 }
 
 function findFile(id) {
-	const file = path.join(HANDOFF_DIR, `${id}.md`);
+	// Shared chokepoint for showHandoff (read) and setHandoffStatus (WRITE), so
+	// the id is folded to one segment here rather than at each call site. Every
+	// id this module mints already lives in the safe set — `h-<ts>-<slug>` and
+	// `<task>-from-<pred>` — so this is lossless for real ids and only rejects
+	// a crafted one.
+	const safe = sanitizePathSegment(id);
+	if (!safe) return null;
+	const file = path.join(HANDOFF_DIR, `${safe}.md`);
 	return fs.existsSync(file) ? file : null;
 }
 
@@ -284,7 +300,14 @@ export function attachContextForTask({ taskId, dependsOn, session, home } = {}) 
 		blocks.push(buildHandoffBlock(pred, entry, summary));
 	}
 
-	const fileName = `${tid}-from-${deps[0] || tid}.md`;
+	// `tid` and the predecessor id are interpolated into a FILENAME, and both
+	// originate in the orchestrator's task DAG rather than in this process — so
+	// each is folded to one safe segment before it touches the path. Without
+	// this, a task id of `../../../PWNED` writes the artifact three levels above
+	// HANDOFF_DIR. The raw ids still go into the document body, which is inert.
+	const safeTid = sanitizePathSegment(tid) ?? "task";
+	const safePred = sanitizePathSegment(deps[0] || tid) ?? safeTid;
+	const fileName = `${safeTid}-from-${safePred}.md`;
 	const file = path.join(HANDOFF_DIR, fileName);
 	const content = buildHandoffDoc({ taskId: tid, session: sessionId, deps, blocks });
 

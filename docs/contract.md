@@ -186,13 +186,14 @@ JSON-RPC 2.0, newline-delimited on stdin/stdout, no dependencies. It wraps the
 SDK (`src/api/index.js`) so an MCP host (Claude Desktop, VS Code, Cursor, etc.)
 can call the CLI's read tools and read/subscribe to resources without shelling
 out. `SERVER_NAME` is `agent-cli`, `SERVER_VERSION` is `2.0.0`, and
-`PROTOCOL_VERSION` is `2025-06-18`. The surface is versioned: v0.8.0 is
-read-only; writes arrive in v0.8.1 (see the capability gating below).
+`PROTOCOL_VERSION` is `2025-06-18`. The surface is **capability-gated, not
+version-gated**: the server is read-only unless the client opts into the write
+capability during `initialize` (see the capability gating below).
 
 ### `initialize` capabilities
 
-The `initialize` response advertises the server's capabilities. v0.8.0 is
-read-only and always sends `READ_CAPABILITIES`:
+The `initialize` response advertises the server's capabilities. Every
+connection always gets `READ_CAPABILITIES`:
 
 ```json
 {
@@ -208,10 +209,10 @@ read-only and always sends `READ_CAPABILITIES`:
 - `resources.subscribe: true` — the server supports `resources/subscribe` for
   the two subscribable URIs below.
 
-v0.8.1 introduces writes, and the write capability is **opt-in** (A16): the
-server adds `WRITE_CAPABILITY` to the response only when the client offers it
-during `initialize` by setting `capabilities.experimental.agentCli.writeTools`
-to the exact boolean `true` (truthy strings fail closed):
+The write capability is **opt-in** (A16): the server adds `WRITE_CAPABILITY`
+to the response only when the client offers it during `initialize` by setting
+`capabilities.experimental.agentCli.writeTools` to the exact boolean `true`
+(truthy strings fail closed):
 
 ```json
 {
@@ -221,8 +222,8 @@ to the exact boolean `true` (truthy strings fail closed):
 }
 ```
 
-So the v0.8.0 server never advertises a write surface it does not ship, and a
-v0.8.1 server never silently drops the declaration.
+So a host that does not opt in never sees a write surface, and a host that
+does opt in never has the declaration silently dropped.
 
 ### `resources/list`
 
@@ -280,7 +281,7 @@ Contractual guarantees:
   originalSize }` so the host can detect truncation and re-fetch the full file
   via the CLI. `size` always reports the on-disk file size, not the truncated
   payload.
-- v0.8.0 exposes resources under the `global` scope; project-scoped reads are
+- Resources are exposed under the `global` scope; project-scoped reads are
   not wired (a Phase 6 follow-up).
 
 ### `resources/subscribe` (A18)
@@ -302,7 +303,7 @@ async event stream that runs outside a request.
 ### `prompts/list` + `prompts/get`
 
 `prompts/list` returns 3 prompt descriptors; each maps one-to-one to a CLI
-command, and `prompts/get` returns the canonical prompt text. No v0.8.0 prompt
+command, and `prompts/get` returns the canonical prompt text. No prompt
 requires an argument; `session-start` and `brief-plan` accept an optional `for`
 (task-aware retrieval), `instructions` takes none.
 
@@ -314,11 +315,11 @@ requires an argument; `session-start` and `brief-plan` accept an optional `for`
 
 ### `tools/list` + `tools/call`
 
-v0.8.0 exposes **6 read-only tools** (A16): `brief`, `doctor`, `search`,
-`snapshot`, `status`, and `spect_status`. Write tools are a **v0.8.1**
-addition, gated by `capabilities.experimental.agentCli.writeTools` (the opt-in
-above) — a v0.8.0 host never sees them, and a v0.8.1 host sees them only after
-the handshake offers the capability. `tools.listChanged: false` means the tool
+The server exposes **6 read-only tools** (A16): `brief`, `doctor`, `search`,
+`snapshot`, `status`, and `spect_status`. The **10 write tools** ship in the
+same server, gated by `capabilities.experimental.agentCli.writeTools` (the
+opt-in above) — a host that does not offer the capability never sees them in
+`tools/list`, and a host that does sees them only after the handshake. `tools.listChanged: false` means the tool
 set is stable across the connection.
 
 > Note: this section describes the MCP framing only. For the JSON envelope /

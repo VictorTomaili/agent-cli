@@ -181,12 +181,15 @@ plus `args`. The canonical example (Claude Desktop's
 The VS Code `vscode-mcp` style uses the same `command`/`args` shape under a
 `servers` key in `.vscode/mcp.json`; check your host's docs for the exact key.
 
-v0.8.0 exposes the read side: 6 read-only tools (`brief`, `doctor`, `search`,
+The server is read-only by default: 6 read tools (`brief`, `doctor`, `search`,
 `snapshot`, `status`, `spect_status`), plus resources (`brain://*` — brain
 files, skills, targets, lessons, current session) and prompts
 (`prompt://session-start`, `prompt://instructions`, `prompt://brief-plan`).
-Write tools arrive in v0.8.1 and are capability-gated: a client opts in by
-offering `capabilities.experimental.agentCli.writeTools` during `initialize`.
+The 10 write tools are **capability-gated** rather than version-gated: a host
+sees them only after opting in during `initialize` with
+`capabilities.experimental.agentCli.writeTools: true` (the exact boolean —
+truthy strings fail closed). A host that does not opt in never sees a write
+tool in `tools/list` and gets `write_capability_required` if it calls one.
 
 See **[docs/contract.md](docs/contract.md)** for the full MCP surface — the
 `initialize` capabilities, the 11 resource URIs + payload contract, the

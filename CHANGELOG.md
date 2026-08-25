@@ -9,6 +9,10 @@ to npm and pushes the matching `vX.Y.Z` tag.
 
 ## [Unreleased]
 
+## [0.8.1]
+
+0.8.0 could reject a bad model alias but not remove one.
+
 ### Added
 
 - `agent-cli models rm <alias>` — delete a model alias. 0.8.0 made `models set`
@@ -16,6 +20,16 @@ to npm and pushes the matching `vX.Y.Z` tag.
   ones already written before that check landed (e.g. a key with a trailing
   HTML comment). `removeAlias` deliberately skips the name check, since
   validating on delete would leave exactly those keys unfixable.
+
+### Fixed
+
+- **`doctor` read the real home even under `AGENT_CLI_HOME`.** The
+  `no-orphan-personalities` check resolved `~/.pi/agent/agents` through
+  `os.homedir()` while every other path in the module went through the
+  override-aware `HOME`, so a sandboxed report described the developer's own
+  machine. Linking that directory for real was enough to turn an unrelated
+  sandboxed test red, with nothing in the test to explain why. CI never caught
+  it because a fresh runner has no `~/.pi`.
 
 ## [0.8.0]
 
@@ -118,6 +132,7 @@ The MCP server, and the dev-team instrumentation it measures itself with.
 
 See the [commit history](https://github.com/VictorTomaili/agent-cli/commits/main).
 
-[Unreleased]: https://github.com/VictorTomaili/agent-cli/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/VictorTomaili/agent-cli/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/VictorTomaili/agent-cli/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/VictorTomaili/agent-cli/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/VictorTomaili/agent-cli/releases/tag/v0.7.0

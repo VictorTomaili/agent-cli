@@ -3,6 +3,9 @@
 // Thin: parse --show/--clear (or the show|clear subcommand), call the lib,
 // format. The write path (recordDispatch / startDispatch) is the lib API the
 // orchestrator's CLI host calls directly; this command is the read/clear view.
+// P8 adds `--handoff <taskId>`: assemble + print the per-task handoff artifact.
+
+import fs from "node:fs";
 
 /** Register the `ledger` command. */
 export function registerLedgerCommands(
@@ -16,7 +19,40 @@ export function registerLedgerCommands(
 		)
 		.option("--show", "print the current session's dispatch ledger (default)")
 		.option("--clear", "truncate the current session's dispatch ledger")
+		.option(
+			"--handoff <taskId>",
+			"assemble and print the per-task handoff artifact for <taskId> (P8)",
+		)
 		.action(async (action, opts = {}) => {
+			if (opts.handoff) {
+				const { attachContextForTask } = await import("../handoff.js");
+				const res = attachContextForTask({ taskId: opts.handoff });
+				if (!res.ok) {
+					fail(res.reason || `no handoff for ${opts.handoff}`, {
+						command: "ledger",
+						op: "handoff",
+						taskId: opts.handoff,
+					});
+				}
+				const content = res.artifactPath
+					? fs.readFileSync(res.artifactPath, "utf8")
+					: "";
+				emit({
+					command: "ledger",
+					op: "handoff",
+					taskId: opts.handoff,
+					artifactPath: res.artifactPath ? pretty(res.artifactPath) : null,
+					content,
+					ok: true,
+				});
+				if (!isJson()) {
+					if (res.artifactPath)
+						log.raw(`${c.bold("handoff")} ${c.gray(pretty(res.artifactPath))}`);
+					log.raw(content);
+				}
+				return;
+			}
+
 			const show = opts.show || action === "show" || (!action && !opts.clear);
 			const clear = opts.clear || action === "clear";
 

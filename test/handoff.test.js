@@ -37,3 +37,38 @@ test("handoff count increments and missing id is clean", async () => {
 	await h.createHandoff({ to: "scout", task: "research" });
 	assert.equal((await h.listHandoffs()).length, before + 1);
 });
+
+test("P8 smoke: an attachContextForTask artifact is readable by the existing reader", async () => {
+	const base = process.env.AGENT_CLI_HOME;
+	const session = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
+	const logs = path.join(base, ".agents", ".logs");
+	mkdirSync(logs, { recursive: true });
+	const entry = JSON.stringify({
+		ts: "2026-08-01T00:00:00.000Z",
+		session,
+		role: "dev",
+		task: "P1",
+		model: "openai/gpt-5",
+		status: "succeeded",
+		ms: 120,
+		note: "built the parser",
+	});
+	writeFileSync(path.join(logs, `${session}.dispatch.log`), entry + "\n", "utf8");
+
+	const r = h.attachContextForTask({ taskId: "T", dependsOn: ["P1"], session, home: base });
+	assert.equal(r.ok, true);
+	assert.ok(r.artifactPath, "expected an artifact path");
+	assert.ok(
+		r.artifactPath.startsWith(h.HANDOFF_DIR),
+		`artifact must live under the handoff dir: ${r.artifactPath}`,
+	);
+
+	// The existing reader opens the artifact unchanged (no regression).
+	const id = path.basename(r.artifactPath, ".md");
+	const shown = await h.showHandoff(id);
+	assert.equal(shown.ok, true);
+	assert.match(shown.content, /# Handoff for T/);
+	assert.match(shown.content, /## P1/);
+	assert.match(shown.content, /- summary: built the parser/);
+	assert.match(shown.content, /- ledger line: \{/);
+});

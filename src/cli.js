@@ -93,6 +93,7 @@ import { registerBootstrapCommands } from "./commands/bootstrap.js";
 import { registerEvaluateCommands } from "./commands/evaluate.js";
 import { registerLedgerCommands } from "./commands/ledger.js";
 import { registerTeamEvalCommands } from "./commands/team-eval.js";
+import { registerRetroCommands } from "./commands/retro.js";
 import { registerMemoryUpgradeCommands } from "./commands/memory-upgrade.js";
 import { registerInstructionsCommand, suggestCommand } from "./commands/instructions.js";
 import { registerPromptCommand } from "./commands/prompt.js";
@@ -666,6 +667,14 @@ registerTeamEvalCommands(program, {
 	emit,
 	log,
 	c,
+	isJson: () => JSON_MODE,
+});
+registerRetroCommands(program, {
+	emit,
+	fail,
+	log,
+	c,
+	pretty,
 	isJson: () => JSON_MODE,
 });
 program

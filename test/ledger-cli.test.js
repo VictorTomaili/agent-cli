@@ -102,3 +102,70 @@ test("agent-cli ledger with an unknown action errors", () => {
 	assert.equal(j.ok, false);
 	assert.match(j.error, /Unknown ledger action/i);
 });
+
+test("agent-cli ledger --handoff <taskId> assembles a per-task handoff doc (P8)", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-cli-ledger-handoff-"));
+	process.env.AGENT_CLI_HOME = home;
+	// Dependencies are discovered from the task's ledger `note` (JSON dependsOn).
+	recordDispatch({
+		role: "dev",
+		task: "P1",
+		model: "openai/gpt-5",
+		status: "succeeded",
+		note: "built the parser",
+	});
+	recordDispatch({
+		role: "qa",
+		task: "P2",
+		model: "zai/glm-5.2",
+		status: "succeeded",
+		note: "gate green",
+	});
+	recordDispatch({
+		role: "orchestrator",
+		task: "T",
+		model: "unknown",
+		status: "started",
+		note: JSON.stringify({ dependsOn: ["P1", "P2"] }),
+	});
+
+	const r = run(["ledger", "--handoff", "T", "--json"], { envHome: home });
+	assert.equal(r.code, 0, r.stderr);
+	const j = parseJson(r.stdout);
+	assert.equal(j.command, "ledger");
+	assert.equal(j.data.op, "handoff");
+	assert.equal(j.data.taskId, "T");
+	assert.equal(j.data.ok, true);
+	assert.match(j.data.artifactPath, /T-from-P1\.md$/);
+
+	const content = j.data.content;
+	assert.match(content, /# Handoff for T/);
+	assert.match(content, /^session: /m);
+	assert.match(content, /predecessors: \[P1, P2\],/);
+	assert.match(content, /## P1/);
+	assert.match(content, /- role: dev/);
+	assert.match(content, /- status: succeeded/);
+	assert.match(content, /- summary: built the parser/);
+	assert.match(content, /- ledger line: \{/);
+	assert.match(content, /built the parser/);
+	assert.match(content, /## P2/);
+	assert.match(content, /- summary: gate green/);
+});
+
+test("agent-cli ledger --handoff <taskId> errors when a required predecessor is missing", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-cli-ledger-handoff-missing-"));
+	process.env.AGENT_CLI_HOME = home;
+	recordDispatch({
+		role: "orchestrator",
+		task: "T",
+		model: "unknown",
+		status: "started",
+		note: JSON.stringify({ dependsOn: ["P1", "P2"] }),
+	});
+
+	const r = run(["ledger", "--handoff", "T", "--json"], { envHome: home });
+	assert.notEqual(r.code, 0, r.stderr);
+	const j = parseJson(r.stdout);
+	assert.equal(j.ok, false);
+	assert.match(j.error, /no ledger record for predecessor P1/);
+});

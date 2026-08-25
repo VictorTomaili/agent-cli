@@ -9,6 +9,14 @@ to npm and pushes the matching `vX.Y.Z` tag.
 
 ## [Unreleased]
 
+### Added
+
+- `agent-cli models rm <alias>` — delete a model alias. 0.8.0 made `models set`
+  reject a name outside `^[a-z0-9][a-z0-9-]*$`, but nothing could remove the
+  ones already written before that check landed (e.g. a key with a trailing
+  HTML comment). `removeAlias` deliberately skips the name check, since
+  validating on delete would leave exactly those keys unfixable.
+
 ## [0.8.0]
 
 The MCP server, and the dev-team instrumentation it measures itself with.

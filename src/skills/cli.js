@@ -115,7 +115,7 @@ async function main() {
 			// No source + a real terminal → interactive search TUI. Agents/CI (non-TTY)
 			// and explicit sources stay non-interactive.
 			if (rest.length === 0 && isInteractive()) {
-				await cmdSearch(rest);
+				await cmdSearch();
 			} else {
 				cmdInstall(rest);
 			}
@@ -130,7 +130,7 @@ async function main() {
 				);
 				process.exit(1);
 			}
-			await cmdSearch(rest);
+			await cmdSearch();
 			break;
 		case "enable":
 		case "on":
@@ -146,11 +146,11 @@ async function main() {
 			break;
 		case "active":
 		case "status":
-			cmdActive(rest);
+			cmdActive();
 			break;
 		case "defaults":
 		case "defs":
-			cmdDefaults(rest);
+			cmdDefaults();
 			break;
 		case "default":
 		case "def":

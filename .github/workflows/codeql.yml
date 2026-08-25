@@ -1,0 +1,62 @@
+name: CodeQL
+
+# Static analysis for the repository. The `main` ruleset requires code-scanning
+# results before a pull request can merge, so this workflow is what produces
+# them — without it, every PR blocks on a check that never reports.
+#
+# Two languages are analysed:
+#   javascript-typescript — the CLI itself (src/, test/, scripts/)
+#   actions               — the workflows in this directory, which run with
+#                           `contents: write` and `id-token: write` on the
+#                           publish path and are worth linting for injection.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so a newly published CodeQL query still finds an old bug in code
+    # that is not being actively changed.
+    - cron: "23 4 * * 1"
+
+# A second push to the same PR makes the first analysis irrelevant.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload the SARIF results
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: actions
+            build-mode: none
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # security-and-quality is a superset of the default suite: it adds
+          # maintainability queries on top of the security ones. This repo
+          # already holds itself to the stricter bar in review, so the extra
+          # signal is wanted rather than noise.
+          queries: security-and-quality
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}

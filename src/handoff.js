@@ -312,7 +312,7 @@ export function attachContextForTask({ taskId, dependsOn, session, home } = {}) 
 	try {
 		fs.mkdirSync(HANDOFF_DIR, { recursive: true });
 		// Atomic write (exclusive-create → fsync → rename), same as every lesson-store write.
-		writeFileSync(file, content);
+		fs.writeFileSync(file, content);
 	} catch (err) {
 		return { ok: false, reason: "handoff write failed" };
 	}

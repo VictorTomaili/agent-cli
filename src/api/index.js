@@ -27,7 +27,7 @@ import {
 	getInstalledSkill,
 } from "../skill.js";
 import { identityInventory, parseFrontmatter } from "../agents-lib.js";
-import { listLessons } from "../lessons-lib.js";
+import { listLessons, inboxLessons } from "../lessons-lib.js";
 import { readCoreLessons } from "../lessons-lib.js";
 import { inspectSpect } from "../spect.js";
 import { listSnapshots, snapshot } from "../snapshot.js";

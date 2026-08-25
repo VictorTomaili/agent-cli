@@ -14,7 +14,7 @@ import path from "node:path";
 const HOME_TMP = mkdtempSync(path.join(tmpdir(), "agent-con-home-"));
 process.env.AGENT_CLI_HOME = HOME_TMP;
 
-const { assess, consolidate } = await import("../src/consolidate.js");
+const { assess, consolidate, fail } = await import("../src/consolidate.js");
 const {
 	addLesson,
 	listLessons,
@@ -295,4 +295,25 @@ test("repeated consolidation does not duplicate a promoted lesson's pointer", as
 	const after = readFileSync(corePath, "utf8");
 	assert.ok(after.includes("- A user-authored note"));
 	assert.equal((after.match(/lessons\/git\/rec\.md/g) || []).length, 1);
+});
+
+test("P0-2: fail() preserves empty-message fallback (|| not ??)", () => {
+	// Regression for CodeQL P0-2: original ternary `error && error.message
+	// ? error.message : String(error)` returns String(error) ("Error" class
+	// name) when error.message is "" because empty string is falsy.
+	// Using `??` would return "" since "" is not nullish. `||` preserves
+	// the original fallback.
+	const emptyMsg = new Error("");
+	assert.equal(emptyMsg.message, "");
+	const r1 = fail("project", "internal", "E", "boom", emptyMsg);
+	assert.equal(r1.detail, "Error", `empty message must fall back to class name, got: ${JSON.stringify(r1.detail)}`);
+
+	// Non-empty message: passes through verbatim.
+	const withMsg = new Error("real failure");
+	const r2 = fail("project", "internal", "E", "boom", withMsg);
+	assert.equal(r2.detail, "real failure");
+
+	// MCP surface: detail is suppressed regardless of message content.
+	const r3 = fail("project", "mcp", "E", "boom", withMsg);
+	assert.equal(r3.detail, undefined);
 });

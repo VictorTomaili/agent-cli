@@ -85,10 +85,10 @@ function approxTokens(s) {
  * is the short human-readable summary. `detail` (error.message) is only attached when
  * the caller's `surface` is "internal" — MCP-shaped callers must never receive it.
  */
-function fail(scope, surface, code, reason, error) {
+export function fail(scope, surface, code, reason, error) {
 	const out = { ok: false, code, reason, scope };
 	if (error && surface !== "mcp") {
-		out.detail = error && error.message ? error.message : String(error);
+		out.detail = error.message || String(error);
 	}
 	return out;
 }

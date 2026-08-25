@@ -33,7 +33,7 @@ jobs:
       contents: write # pushes the release tag back to the repo
       id-token: write # OIDC token for npm's short-lived publish token
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # setup-node v6 REQUIRED for OIDC: v5 defaults NODE_AUTH_TOKEN (the
       # GitHub token) when registry-url is set, and npm then skips the OIDC
       # exchange and PUTs with that token -> E404 (actions/setup-node#1440).

@@ -2,12 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert";
 import {
 	mkdtempSync,
+	mkdirSync,
 	writeFileSync,
 	readFileSync,
 	rmSync,
 	existsSync,
 	symlinkSync,
-	lstatSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";

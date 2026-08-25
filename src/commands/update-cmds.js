@@ -42,6 +42,10 @@ export function registerUpdateCommands(
 			"--file <rel>",
 			"restrict diff to one staged file (relative, e.g. agents/fullstack-dev.md)",
 		)
+		.option(
+			"--overwrite",
+			"apply: replace files that diverged from the payload (each is backed up to ~/.agents/backups/apply-<version>/ first)",
+		)
 		.action(async (action, version, opts) => {
 			const seed = await import("../seed.js");
 			const npm = await import("../npm-check.js");
@@ -180,7 +184,10 @@ export function registerUpdateCommands(
 			if (action === "apply") {
 				if (!version) fail("Usage: agent-cli update apply <version>");
 				const pre = await preSnapshot("update-apply");
-				const r = await seed.applyStaged(version, { home: AGENTS_DIR });
+				const r = await seed.applyStaged(version, {
+					home: AGENTS_DIR,
+					force: !!opts.overwrite,
+				});
 				emit({
 					command: "update",
 					action: "apply",
@@ -195,11 +202,19 @@ export function registerUpdateCommands(
 					log.success(
 						`Applied ${r.applied.length} file(s) from update-${version}`,
 					);
+					if (r.overwritten?.length)
+						log.dim(
+							`Overwrote ${r.overwritten.length} diverged file(s); previous content in ~/.agents/backups/apply-${version}/`,
+						);
 					if (r.backedUp.length)
 						log.dim(`Backed up: ${r.backedUp.join(", ")}`);
-					if (r.skipped.length)
+					if (r.skipped.length) {
 						for (const s of r.skipped)
 							log.warn(`Skipped ${s.rel}: ${s.reason}`);
+						log.dim(
+							`Review with \`agent-cli update diff ${version} --file <rel>\`, then re-run with --overwrite to take the shipped version (a backup is written first).`,
+						);
+					}
 				}
 				if (!r.ok) process.exit(EXIT.ERROR);
 				return;
@@ -212,13 +227,20 @@ export function registerUpdateCommands(
 		.description(
 			"Apply all staged seed updates, then re-link pointers and refresh skill blocks.",
 		)
-		.action(async () => {
+		.option(
+			"--overwrite",
+			"replace files that diverged from the payload (each is backed up to ~/.agents/backups/apply-<version>/ first)",
+		)
+		.action(async (opts = {}) => {
 			const seed = await import("../seed.js");
 			const staged = await seed.listStagedUpdates({ home: AGENTS_DIR });
 			const applied = [];
 			const failed = [];
 			for (const s of staged) {
-				const r = await seed.applyStaged(s.version, { home: AGENTS_DIR });
+				const r = await seed.applyStaged(s.version, {
+					home: AGENTS_DIR,
+					force: !!opts.overwrite,
+				});
 				if (r.ok) applied.push({ version: s.version, ...r });
 				else failed.push({ version: s.version, reason: r.reason });
 			}
@@ -241,10 +263,22 @@ export function registerUpdateCommands(
 				blocksRefreshed: blocks.changed,
 			});
 			if (!isJson()) {
-				for (const a of applied)
-					log.success(
-						`update-${a.version}: applied ${a.applied.length}, skipped ${a.skipped.length}`,
-					);
+				for (const a of applied) {
+					const parts = [`applied ${a.applied.length}`];
+					if (a.overwritten?.length)
+						parts.push(`overwrote ${a.overwritten.length}`);
+					parts.push(`skipped ${a.skipped.length}`);
+					const line = `update-${a.version}: ${parts.join(", ")}`;
+					// A skip means this payload did NOT land — never dress that as
+					// success, or the drift warning outlives every "✓ upgraded".
+					if (a.skipped.length) log.warn(line);
+					else log.success(line);
+					for (const sk of a.skipped) log.dim(`  ${sk.rel}: ${sk.reason}`);
+					if (a.skipped.length)
+						log.dim(
+							`  still staged — review with \`agent-cli update diff ${a.version} --file <rel>\`, then \`agent-cli upgrade --overwrite\` to take the shipped version.`,
+						);
+				}
 				for (const f of failed)
 					log.warn(`update-${f.version}: ${f.reason}`);
 				log.kv("relinked", relinked);

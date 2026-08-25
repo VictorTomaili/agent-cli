@@ -316,7 +316,7 @@ export async function clearStaged(version, { home = AGENTS_DIR } = {}) {
  * applied file is backed up to `backups/apply-<version>/` first. Clears the staged
  * payload on success. Returns { applied, skipped, backedUp }.
  */
-export async function applyStaged(version, { home = AGENTS_DIR } = {}) {
+export async function applyStaged(version, { home = AGENTS_DIR, force = false } = {}) {
 	const payload = (await listStagedUpdates({ home })).find(
 		(s) => s.version === version,
 	);
@@ -324,6 +324,7 @@ export async function applyStaged(version, { home = AGENTS_DIR } = {}) {
 	const applied = [];
 	const skipped = [];
 	const backedUp = [];
+	const overwritten = [];
 	for (const rel of payload.files) {
 		const staged = await readStagedFile(version, rel, { home });
 		const livePath = resolveContained(home, rel);
@@ -333,16 +334,24 @@ export async function applyStaged(version, { home = AGENTS_DIR } = {}) {
 		}
 		if (await exists(livePath)) {
 			const live = await readFile(livePath);
-			if (live !== staged) {
-				// diverged (user content or older seed) — refuse to clobber.
+			const diverged = live !== staged;
+			if (diverged && !force) {
+				// Diverged means "live content is not what this payload expects" —
+				// which covers BOTH a user's own edit and a merely stale earlier
+				// seed, and nothing here can tell those apart. Refuse by default
+				// so an upgrade never silently eats a hand-written change; `force`
+				// is the caller's explicit "replace it, I have the backup".
 				skipped.push({ rel, reason: "diverged — manual merge required" });
 				continue;
 			}
+			// Back up every file we are about to overwrite, diverged or not — the
+			// diverged one is precisely the copy worth being able to restore.
 			const backupDir = path.join(home, "backups", `apply-${version}`);
 			const backupFile = path.join(backupDir, rel);
 			await ensureDir(path.dirname(backupFile));
 			await writeFile(backupFile, live);
 			backedUp.push(rel);
+			if (diverged) overwritten.push(rel);
 		}
 		await writeFile(livePath, staged);
 		applied.push(rel);
@@ -354,7 +363,12 @@ export async function applyStaged(version, { home = AGENTS_DIR } = {}) {
 		applied,
 		skipped,
 		backedUp,
-		diffStat: { applied: applied.length, skipped: skipped.length },
+		overwritten,
+		diffStat: {
+			applied: applied.length,
+			skipped: skipped.length,
+			overwritten: overwritten.length,
+		},
 	};
 }
 

@@ -279,6 +279,80 @@ test("applyStaged applies matching files, backs up, refuses diverged, clears whe
 	assert.ok(!existsSync(path.join(home, "update-0.2.0")));
 });
 
+test("applyStaged force:true overwrites a diverged file, backs it up, and clears the payload", async () => {
+	const seedDir = makeSeedDir();
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-force-"));
+	await seed.stageSeeds({ home, seedDir, version: "0.2.0" });
+	mkdirSync(path.join(home, "agents"), { recursive: true });
+	const stagedPlanner = readFileSync(
+		path.join(home, "update-0.2.0", "agents", "planner.md"),
+		"utf8",
+	);
+	writeFileSync(path.join(home, "agents", "planner.md"), "USER EDITED\n");
+	writeFileSync(
+		path.join(home, "agents", "scout.md"),
+		readFileSync(path.join(home, "update-0.2.0", "agents", "scout.md"), "utf8"),
+	);
+
+	// Regression guard for the DEFAULT: without force the payload must still
+	// refuse to clobber and must stay staged.
+	const refused = await seed.applyStaged("0.2.0", { home });
+	assert.ok(refused.skipped.some((x) => x.rel === "agents/planner.md"));
+	assert.deepEqual(refused.overwritten, []);
+	assert.ok(existsSync(path.join(home, "update-0.2.0")));
+
+	const r = await seed.applyStaged("0.2.0", { home, force: true });
+	assert.equal(r.ok, true);
+	assert.deepEqual(r.skipped, [], "force must not skip a diverged file");
+	assert.ok(r.applied.includes("agents/planner.md"));
+	assert.ok(
+		r.overwritten.includes("agents/planner.md"),
+		"a diverged file must be reported as overwritten, not silently applied",
+	);
+	assert.equal(r.diffStat.overwritten, 1);
+	// the live file now IS the payload
+	assert.equal(
+		readFileSync(path.join(home, "agents", "planner.md"), "utf8"),
+		stagedPlanner,
+	);
+	// the pre-overwrite content is recoverable — this is what makes force safe
+	assert.ok(r.backedUp.includes("agents/planner.md"));
+	assert.equal(
+		readFileSync(
+			path.join(home, "backups", "apply-0.2.0", "agents", "planner.md"),
+			"utf8",
+		),
+		"USER EDITED\n",
+	);
+	// nothing skipped → payload cleared, so the drift warning can actually clear
+	assert.ok(!existsSync(path.join(home, "update-0.2.0")));
+});
+
+test("applyStaged force:true does not weaken path containment", async () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-force-escape-"));
+	const outside = mkdtempSync(path.join(tmpdir(), "agent-seed-force-outside-"));
+	const victim = path.join(outside, "victim.md");
+	writeFileSync(victim, "ORIGINAL\n");
+	// A payload whose file list carries a traversal rel: applyStaged resolves
+	// every rel through resolveContained(), and force must not bypass that.
+	const stageDir = path.join(home, "update-0.2.0");
+	mkdirSync(stageDir, { recursive: true });
+	writeFileSync(path.join(stageDir, "removed.json"), "[]\n");
+	const evilRel = "../" + path.basename(outside) + "/victim.md";
+	assert.equal(
+		await seed.readStagedFile("0.2.0", evilRel, { home }),
+		null,
+		"readStagedFile must refuse a traversal rel",
+	);
+	const r = await seed.applyStaged("0.2.0", { home, force: true });
+	assert.equal(r.ok, true);
+	assert.equal(
+		readFileSync(victim, "utf8"),
+		"ORIGINAL\n",
+		"force must never write outside the home",
+	);
+});
+
 test("applyStaged rejects an unknown version", async () => {
 	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-apply-none-"));
 	const r = await seed.applyStaged("9.9.9", { home });

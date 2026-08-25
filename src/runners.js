@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { loadConfigSync, saveConfigSync, isConfigCorrupt } from "./config.js";
 
@@ -304,11 +305,14 @@ export function runTask({
 		try {
 			if (entry.tool === "pi") {
 				// The task text goes in a temp prompt file — never on argv.
-				const dir = path.join(os.tmpdir(), "agent-run");
-				fs.mkdirSync(dir, { recursive: true });
+				// mkdtempSync mints a 0700 unique directory (collision-proof, no
+				// predictable path for a symlink-plant attack); crypto.randomBytes
+				// adds an unguessable filename suffix. Matches the Windows-safe
+				// pattern in src/consolidate.js:264.
+				const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-run-"));
 				promptFile = path.join(
 					dir,
-					`task-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.md`,
+					`task-${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString("hex")}.md`,
 				);
 				fs.writeFileSync(promptFile, task, "utf8");
 			}

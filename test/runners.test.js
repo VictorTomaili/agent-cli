@@ -551,6 +551,43 @@ test("resolveSpawn: missing command → command not found", () => {
 	}
 });
 
+test("P0-3: each pi run uses a fresh unique temp dir (no predictable agent-run)", () => {
+	// Regression for CodeQL P0-3: prompt temp dir used to be a fixed
+	// `os.tmpdir()/agent-run` (mkdirSync, no `wx`), which is symlinkable on a
+	// shared host. After the fix every run gets a fresh mkdtempSync dir +
+	// unguessable crypto-random filename suffix.
+	resetConfig();
+	runners.setRunner("pi", { provider: "z", model: "m" });
+	const dirs = new Set();
+	const filenames = new Set();
+	const collect = (cmd, args) => {
+		const at = args.find((a) => a.startsWith("@"));
+		const file = at.slice(1);
+		dirs.add(path.dirname(file));
+		filenames.add(path.basename(file));
+		return { status: 0, stdout: "ok\n", stderr: "" };
+	};
+	runners.runTask({ task: "a", toolOverride: "pi", cwd: TMP, spawnImpl: collect });
+	runners.runTask({ task: "b", toolOverride: "pi", cwd: TMP, spawnImpl: collect });
+	runners.runTask({ task: "c", toolOverride: "pi", cwd: TMP, spawnImpl: collect });
+	assert.equal(
+		dirs.size,
+		3,
+		`expected 3 distinct temp dirs across runs, got: ${[...dirs].join(", ")}`,
+	);
+	assert.equal(
+		filenames.size,
+		3,
+		`expected 3 distinct filenames, got: ${[...filenames].join(", ")}`,
+	);
+	for (const name of filenames) {
+		assert.match(name, /^task-\d+-\d+-[0-9a-f]{16}\.md$/);
+	}
+	for (const dir of dirs) {
+		assert.ok(!dir.endsWith(`agent-run${path.sep}`) && dir !== "agent-run");
+	}
+});
+
 test("runTask (real spawn path): an unresolvable runner records a spawn-kind attempt and falls through", () => {
 	resetConfig();
 	// fake: codex is resolvable via AGENT_RUN_BIN_CODEX (.cjs → node-direct)

@@ -212,7 +212,7 @@ export function assess({ scope = "global", cwd = process.cwd() } = {}) {
 // `lessons/<relative-path>` reference, NOT by prose formatting, so any pointer
 // format (legacy `- **Lesson:** ...` or new `- <summary> — \`lessons/<rel>\``)
 // containing a `lessons/<rel>` reference is recognized and deduplicated.
-const LESSON_REF = /lessons\/[A-Za-z0-9._\/-]+/;
+const LESSON_REF = /lessons\/[A-Za-z0-9._/-]+/;
 
 function readCore(file) {
 	if (!fs.existsSync(file)) return [];
@@ -515,7 +515,7 @@ export function planConsolidation({
 	const actions = [];
 	for (const fp of files) {
 		const raw = fs.readFileSync(fp, "utf8");
-		const { fm, body } = parseFM(raw);
+		const { fm } = parseFM(raw);
 		const occ = parseInt(fm.occurrences || "1", 10) || 1;
 		const isMarked = String(fm.marked || "false") === "true";
 		const rel = path.relative(dir, fp).split(path.sep).join("/");

@@ -12,7 +12,9 @@
 // the result into its system prompt, and is fully oriented. Subsequent
 // `brief --json` calls (per turn) keep it current.
 
-import { isSkillAvailable } from "../skill.js";
+// isSkillAvailable: removed (unused in this command's surface; the function
+// is referenced indirectly via the brief's suggestedStrings path).
+// import { isSkillAvailable } from "../skill.js";
 
 /** Register the `prompt` command. */
 export function registerPromptCommand(program, { emit, fail, log, c, pretty, isJson, VERSION }) {

@@ -54,15 +54,15 @@ export function checkToolImports(source) {
   let m;
   IMPORT_SPEC.lastIndex = 0;
   while ((m = IMPORT_SPEC.exec(source))) {
-    if (m[3] !== undefined) {
+    if (m[3] === undefined) {
+      const spec = m[1] ?? m[2];
+      if (!TOOL_ALLOWLIST.has(spec)) banned.add(spec);
+    } else {
       // Unquoted identifier in a dynamic-import position — e.g.
       //   const s = "node:child_process"; return import(s)
       // The previous implementation accepted this and skipped the allowlist.
       // Always banned.
       banned.add(m[3]);
-    } else {
-      const spec = m[1] ?? m[2];
-      if (!TOOL_ALLOWLIST.has(spec)) banned.add(spec);
     }
   }
   return { ok: banned.size === 0, banned: [...banned] };
@@ -75,29 +75,40 @@ export function checkToolImports(source) {
 export async function runSkillTool(toolPath, argv = []) {
   // M5: the executed tool source is attacker-controlled (a fetched skill) —
   // refuse anything over the SKILL.md cap instead of slurping a multi-GB file.
-  const st = fs.statSync(toolPath);
-  if (!st.isFile() || st.size > MAX_SKILL_MD_BYTES) {
-    throw new Error("SKILL.tool.js exceeds the size cap — refusing to run");
+  // CodeQL js/file-system-race: statSync + readFileSync is a TOCTOU race.
+  // Layering keeps skills/ from src/util.js; hand-roll O_NOFOLLOW open + fstat.
+  const flags =
+    process.platform === "win32"
+      ? fs.constants.O_RDONLY
+      : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+  const fd = fs.openSync(toolPath, flags);
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > MAX_SKILL_MD_BYTES) {
+      throw new Error("SKILL.tool.js exceeds the size cap — refusing to run");
+    }
+    const source = fs.readFileSync(fd, "utf8");
+    const check = checkToolImports(source);
+    if (!check.ok) {
+      throw new Error(
+        "SKILL.tool.js imports are not in the allowlist: " +
+          check.banned.join(", ") +
+          " (allowed: fs, path, os, util, crypto, url, stream, events, buffer)",
+      );
+    }
+    const url = pathToFileURL(toolPath).href + "?t=" + Date.now();
+    const mod = await import(url);
+    if (typeof mod.run !== "function") {
+      throw new Error("SKILL.tool.js must export a `run(argv)` function");
+    }
+    const out = await mod.run(argv);
+    if (!out || typeof out.ok !== "boolean") {
+      throw new Error("SKILL.tool.js run() must return { ok: boolean, output }");
+    }
+    return { ok: out.ok, output: String(out.output ?? "") };
+  } finally {
+    fs.closeSync(fd);
   }
-  const source = fs.readFileSync(toolPath, "utf8");
-  const check = checkToolImports(source);
-  if (!check.ok) {
-    throw new Error(
-      "SKILL.tool.js imports are not in the allowlist: " +
-        check.banned.join(", ") +
-        " (allowed: fs, path, os, util, crypto, url, stream, events, buffer)",
-    );
-  }
-  const url = pathToFileURL(toolPath).href + "?t=" + Date.now();
-  const mod = await import(url);
-  if (typeof mod.run !== "function") {
-    throw new Error("SKILL.tool.js must export a `run(argv)` function");
-  }
-  const out = await mod.run(argv);
-  if (!out || typeof out.ok !== "boolean") {
-    throw new Error("SKILL.tool.js run() must return { ok: boolean, output }");
-  }
-  return { ok: out.ok, output: String(out.output ?? "") };
 }
 
 // `skill run <name> [-- args...]` — execute a skill's SKILL.tool.js (if any).

@@ -299,19 +299,26 @@ export function readLedger({ session } = {}) {
  * A missing ledger is a no-op (no file is created just to clear nothing).
  *
  * The previous version checked `fs.existsSync(p)` first; that check-then-write
- * is a TOCTOU race (CodeQL js/file-system-race). Use `flag: "r+"` (open
- * existing for read+write, fail ENOENT if missing) and translate ENOENT into
- * the "nothing to clear" branch.
+ * is a TOCTOU race (CodeQL js/file-system-race). Open with `flag: "r+"` (must
+ * already exist — ENOENT otherwise) and then ftruncateSync(0) on the fd. The
+ * open is atomic with respect to a planted symlink or rename; the truncate
+ * operates on a verified-to-exist fd.
  */
 export function clearLedger({ session } = {}) {
 	const p = readPathFor(session);
 	if (!p) return { ok: true, cleared: false, path: null };
+	let fd;
 	try {
-		fs.writeFileSync(p, "", { flag: "r+" });
-		return { ok: true, cleared: true, path: p };
+		fd = fs.openSync(p, "r+");
 	} catch (err) {
 		if (err?.code === "ENOENT") return { ok: true, cleared: false, path: p };
 		warnOnce("clear failed", err);
 		return { ok: false, cleared: false, path: p };
 	}
+	try {
+		fs.ftruncateSync(fd, 0);
+	} finally {
+		fs.closeSync(fd);
+	}
+	return { ok: true, cleared: true, path: p };
 }

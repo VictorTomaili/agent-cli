@@ -110,18 +110,35 @@ export function cmdCreate(args) {
 
   const skillPath = path.join(outDir, name);
   const mdPath = path.join(skillPath, "SKILL.md");
-  if (fs.existsSync(mdPath)) {
-    console.error(c.red("Already exists: " + mdPath));
-    process.exit(1);
-  }
+  // CodeQL js/file-system-race: existsSync + writeFileSync is a TOCTOU race.
+  // Use `flag: "wx"` so the open is exclusive; on EEXIST the write fails
+  // atomically with a clear message.
   fs.mkdirSync(skillPath, { recursive: true });
-  fs.writeFileSync(mdPath, TEMPLATE(name, descArg), "utf8");
+  try {
+    fs.writeFileSync(mdPath, TEMPLATE(name, descArg), { flag: "wx" });
+  } catch (err) {
+    if (err?.code === "EEXIST") {
+      console.error(c.red("Already exists: " + mdPath));
+      process.exit(1);
+    }
+    throw err;
+  }
   if (hasTool) {
-    fs.writeFileSync(
-      path.join(skillPath, "SKILL.tool.js"),
-      TOOL_TEMPLATE(name),
-      "utf8",
-    );
+    try {
+      fs.writeFileSync(
+        path.join(skillPath, "SKILL.tool.js"),
+        TOOL_TEMPLATE(name),
+        { flag: "wx" },
+      );
+    } catch (err) {
+      if (err?.code === "EEXIST") {
+        console.error(
+          c.red("Already exists: " + path.join(skillPath, "SKILL.tool.js")),
+        );
+        process.exit(1);
+      }
+      throw err;
+    }
   }
   fs.mkdirSync(path.join(skillPath, "tests"), { recursive: true });
   console.log(

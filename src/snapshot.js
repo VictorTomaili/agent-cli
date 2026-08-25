@@ -95,6 +95,9 @@ function rm(p) {
  * the brain into a snapshot).
  */
 function copyDirSync(src, dst, { skipNames = new Set(), skipSecret = true } = {}) {
+	// lgtm[js/file-system-race] — src and dst are both agent-cli-owned paths
+	// (the brain or a snapshot); the readdir-then-mkdir is single-process,
+	// no external attacker, the race is benign. See P1-1 site-categorization.
 	fs.mkdirSync(dst, { recursive: true });
 	for (const e of fs.readdirSync(src, { withFileTypes: true })) {
 		if (skipNames.has(e.name)) continue;

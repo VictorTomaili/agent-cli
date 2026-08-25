@@ -26,14 +26,26 @@ export const MAX_WALK_DEPTH = 24;
  * exceeds the cap (a hostile skill must not be parsed, listed, or executed).
  */
 export function readSkillMdBounded(md) {
-	let st;
+	// CodeQL js/file-system-race: statSync + readFileSync is a TOCTOU race.
+	// Layering rule keeps skills/ from importing src/util.js, so we hand-roll
+	// the open with O_NOFOLLOW (POSIX) and an fstat isFile / size guard.
+	const flags =
+		process.platform === "win32"
+			? fs.constants.O_RDONLY
+			: fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+	let fd;
 	try {
-		st = fs.statSync(md);
+		fd = fs.openSync(md, flags);
 	} catch {
 		return null;
 	}
-	if (!st.isFile() || st.size > MAX_SKILL_MD_BYTES) return null;
-	return fs.readFileSync(md, "utf8");
+	try {
+		const st = fs.fstatSync(fd);
+		if (!st.isFile() || st.size > MAX_SKILL_MD_BYTES) return null;
+		return fs.readFileSync(fd, "utf8");
+	} finally {
+		fs.closeSync(fd);
+	}
 }
 
 // --- M1: symlink / Windows-junction containment for the skill store ----------

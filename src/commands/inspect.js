@@ -7,7 +7,6 @@
 export function registerInspectCommands(program, deps) {
 	const {
 		emit,
-		fail,
 		log,
 		c,
 		pretty,
@@ -70,14 +69,14 @@ export function registerInspectCommands(program, deps) {
 			if (!isJson()) {
 				log.kv("base", pretty(inv.base));
 				for (const f of inv.files) {
-					const mark = !f.exists
-						? c.gray("✗")
-						: f.filled === false
+					const mark = f.exists
+						? f.filled === false
 							? c.yellow("⚠")
-							: c.green("✓");
+							: c.green("✓")
+						: c.gray("✗");
 					const tag = f.filled === false ? c.yellow(" (unfilled)") : "";
 					log.raw(
-						`  ${mark} ${f.kind.padEnd(13)} ${pretty(f.path)}${f.size != null ? c.gray(" (" + f.size + "B)") : ""}${tag}`,
+						`  ${mark} ${f.kind.padEnd(13)} ${pretty(f.path)}${f.size == null ? "" : c.gray(" (" + f.size + "B)")}${tag}`,
 					);
 				}
 				log.raw(

@@ -27,12 +27,8 @@ import {
 	getInstalledSkill,
 } from "../skill.js";
 import { identityInventory, parseFrontmatter } from "../agents-lib.js";
-import {
-	listLessons,
-	inboxLessons,
-	coreFile,
-	readCoreLessons,
-} from "../lessons-lib.js";
+import { listLessons } from "../lessons-lib.js";
+import { readCoreLessons } from "../lessons-lib.js";
 import { inspectSpect } from "../spect.js";
 import { listSnapshots, snapshot } from "../snapshot.js";
 import { getAliases, getAlias } from "../models.js";
@@ -87,7 +83,7 @@ async function collectTargetsPayload({ all = true } = {}) {
 }
 
 /** `agent-cli status` payload. */
-export async function status({ all = false, cwd = process.cwd() } = {}) {
+export async function status({ all = false } = {}) {
 	const cfg = await loadConfig();
 	const masterContent = await readMaster();
 	const targetsPayload = await collectTargetsPayload({ all });
@@ -401,7 +397,7 @@ export async function brainFile(kind, { scope = "global", cwd = process.cwd() } 
  * status() so both surfaces stay in lock-step. Read-only; uses the existing
  * config / detectInstalled / classify primitives.
  */
-export async function targets({ all = true, cwd = process.cwd() } = {}) {
+export async function targets({ all = true } = {}) {
 	return collectTargetsPayload({ all });
 }
 

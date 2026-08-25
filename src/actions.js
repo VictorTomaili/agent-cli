@@ -10,10 +10,9 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import { pretty, AGENTS_DIR, MASTER_FILE, exists } from "./util.js";
+import { AGENTS_DIR, exists } from "./util.js";
 import { loadConfig } from "./config.js";
 import { readMaster } from "./store.js";
-import { hasAgentCliBlock } from "./blocks.js";
 import { getTarget } from "./targets.js";
 import { detectInstalled } from "./detect.js";
 import { classify } from "./pointer.js";
@@ -60,9 +59,9 @@ export async function collectState(opts = {}) {
 	const invG = await identityInventory({ scope: "global", cwd });
 	const projectBase = path.join(cwd, ".agents");
 	const invP =
-		projectBase !== AGENTS_DIR
-			? await identityInventory({ scope: "project", cwd })
-			: null;
+		projectBase === AGENTS_DIR
+			? null
+			: await identityInventory({ scope: "project", cwd });
 	const modelsMod = await import("./models.js");
 	const modelsMdPath = modelsMod.MODELS_MD;
 	const modelsMdExists = await exists(modelsMdPath);

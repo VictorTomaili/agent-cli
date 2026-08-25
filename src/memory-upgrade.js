@@ -32,7 +32,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { identityFilePath, identityBase } from "./agents-lib.js";
-import { FIELD_TAGS } from "./fields.js";
 import { exists, readFile, writeFile, ensureDir } from "./util.js";
 
 /** Bump this when a new migration is added. Existing migrations are never

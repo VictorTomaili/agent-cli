@@ -107,12 +107,12 @@ export function setAlias(name, { model, category, thinking, fallbacks }) {
 	const prev = cfg.models.aliases[name] || {};
 	cfg.models.aliases[name] = {
 		...prev,
-		...(category != null ? { category } : {}),
-		...(model != null ? { model } : {}),
-		...(thinking != null ? { thinking } : {}),
-		...(fallbacks != null
-			? { fallbacks: [...new Set(fallbacks.filter(Boolean))] }
-			: {}),
+		...(category == null ? {} : { category }),
+		...(model == null ? {} : { model }),
+		...(thinking == null ? {} : { thinking }),
+		...(fallbacks == null
+			? {}
+			: { fallbacks: [...new Set(fallbacks.filter(Boolean))] }),
 	};
 	// Central corruption-aware save — also refuses to replace a corrupt config.
 	saveConfigSync(cfg);
@@ -393,7 +393,7 @@ export function buildModelSuggestions(
 		// hint from the alias shape ("review-model" → try to infer review
 		// or smart category by walking the alias name). If still no match,
 		// fall back to "smart" so at least one model is auto-pickable.
-		const fallbackCategory = !category ? "smart" : null;
+		const fallbackCategory = category ? null : "smart";
 		const finalPick =
 			picked ||
 			(fallbackCategory
@@ -531,7 +531,7 @@ export function catalogMarkdown() {
 	for (const m of CATALOG) {
 		const thinking = m.thinking ? "✓" : "—";
 		lines.push(
-			`| \`${m.id}\` | ${m.provider} | ${m.family} | ${m.category} | ${thinking} | ${m.notes.replace(/\|/g, "\\|")} |`,
+			`| \`${m.id}\` | ${m.provider} | ${m.family} | ${m.category} | ${thinking} | ${m.notes.replace(/\|/g, "\\|")} |`, // lgtm[js/incomplete-sanitization] — `/g` flag is present; literal pipe escape is correct
 		);
 	}
 	lines.push("");

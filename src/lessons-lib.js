@@ -38,10 +38,15 @@ export async function readCoreLessons({ cwd = process.cwd() } = {}) {
 			const md = await readFile(fp);
 			const idx = md.indexOf("## Core");
 			if (idx < 0) continue;
-			const cleaned = md
-				.slice(idx + "## Core".length)
-				.replace(/<!--[\s\S]*?-->/g, "")
-				.trim();
+			// Single-pass strip leaves <!-- when adjacent text creates new <!--
+			// substrings (e.g. "<!-- --><!--" → "<!--"). Loop until stable.
+			let cleaned = md.slice(idx + "## Core".length);
+			let prev;
+			do {
+				prev = cleaned;
+				cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, "");
+			} while (cleaned !== prev);
+			cleaned = cleaned.trim();
 			if (cleaned) {
 				return {
 					scope,

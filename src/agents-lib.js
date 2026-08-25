@@ -321,9 +321,16 @@ export function isFilled(content, kind) {
 			/##\s+Curated model catalog/.test(content)
 		);
 	}
-	const body = content
-		.replace(/<!--[\s\S]*?-->/g, "")
-		.replace(/^---[\s\S]*?---/, "");
+	// Loop-until-stable HTML comment strip — a single-pass regex leaves <!--
+	// behind when adjacent text creates new <!-- substrings (CodeQL
+	// js/incomplete-multi-character-sanitization flagged the old single-pass).
+	let stripped = content;
+	let prev;
+	do {
+		prev = stripped;
+		stripped = stripped.replace(/<!--[\s\S]*?-->/g, "");
+	} while (stripped !== prev);
+	const body = stripped.replace(/^---[\s\S]*?---/, "");
 	const parts = body.split(/^##\s+/m);
 	const sections = parts.slice(1);
 	if (sections.length === 0) return realTextLen(parts[0]) >= 40;

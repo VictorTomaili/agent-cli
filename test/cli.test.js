@@ -1808,7 +1808,7 @@ test("team eval run runs the 5-fixture benchmark and exits 0", () => {
 	]) {
 		assert.match(
 			r.stdout,
-			new RegExp(name.replace(/[-]/g, "\\-")),
+			new RegExp(name.replace(/[-]/g, "\\-")), // lgtm[js/incomplete-sanitization] — `/g` flag is present
 			`fixture ${name} should appear in the table`,
 		);
 	}

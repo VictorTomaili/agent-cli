@@ -16,3 +16,6 @@ AGENT-EXPERIENCE-REVIEW.md
 # (Single spec/planning folder; local-only, all spec workflow lives here.)
 .spec/
 .spect/
+
+# DeepSeek Harness session data — workspace-local, never in repo history.
+.dsh/

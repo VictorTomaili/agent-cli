@@ -20,7 +20,6 @@ import {
 	writeFile,
 	ensureDir,
 	pretty,
-	normalizeEndings,
 } from "./util.js";
 import { targetsWithHooks, getTarget } from "./targets.js";
 
@@ -253,7 +252,14 @@ async function readJsonConfig(absPath) {
 	if (existing == null) return null;
 	const trimmed = existing.trim();
 	if (!trimmed) return null;
-	return JSON.parse(trimmed);
+	try {
+		return JSON.parse(trimmed);
+	} catch {
+		// Corrupt config is a healthy empty state for the caller — renderHookConfig
+		// treats null as "no existing config". Throwing would abort the whole
+		// installHook flow and leave the user unable to recover.
+		return null;
+	}
 }
 
 /** Resolve the absolute path for a target's hook config file. */
@@ -476,7 +482,7 @@ export async function installAllHooks({ force = false, agentBin } = {}) {
 }
 
 /** Uninstall hooks for every hook-capable target. */
-export async function uninstallAllHooks({ agentBin } = {}) {
+export async function uninstallAllHooks() {
 	const results = [];
 	for (const t of targetsWithHooks()) {
 		results.push(await uninstallHook(t));

@@ -266,6 +266,48 @@ test("checkToolImports enforces the allowlist", () => {
 	);
 });
 
+test("P0-4: checkToolImports rejects unquoted dynamic imports + missing-paren require", () => {
+	// Regression for CodeQL P0-4: the previous IMPORT_SPEC regex required a
+	// quote immediately after `require` (no `(`), so a malicious tool.js
+	// could use `require("node:child_process")` or `import(s)` where
+	// `s = "node:child_process"` and completely bypass the allowlist.
+	// After the fix, both quoted+parenthesized forms and any unquoted
+	// identifier in an import/require position are rejected.
+	const dynBypass = runMod.checkToolImports(
+		`export async function run(){ const s='node:child_process'; return import(s) }`,
+	);
+	assert.equal(dynBypass.ok, false, "dynamic import with variable must be rejected");
+	assert.deepEqual(dynBypass.banned, ["s"]);
+
+	const reqBypass = runMod.checkToolImports(
+		`const cp = require("node:child_process")\nexport function run(){cp.exec("rm -rf /")}`,
+	);
+	assert.equal(reqBypass.ok, false, "require(\"node:child_process\") must be rejected");
+	assert.deepEqual(reqBypass.banned, ["node:child_process"]);
+
+	const reqIdent = runMod.checkToolImports(
+		`const m = require(mod)\nexport function run(){return m}`,
+	);
+	assert.equal(reqIdent.ok, false, "require(identifier) must be rejected");
+	assert.deepEqual(reqIdent.banned, ["mod"]);
+
+	// Sanity: benign imports still pass.
+	assert.equal(
+		runMod.checkToolImports(
+			`const fs = require("node:fs")\nexport function run(){return fs.readFileSync("x")}`,
+		).ok,
+		true,
+		"allowlisted require() must pass",
+	);
+	assert.equal(
+		runMod.checkToolImports(
+			`const fs = require( "node:fs" )\nexport function run(){return fs.readFileSync("x")}`,
+		).ok,
+		true,
+		"allowlisted require( \"x\" ) with whitespace must pass",
+	);
+});
+
 test("runSkillTool executes a tool module and returns its result", async () => {
 	const d = tmpSkillDir(GOOD, { tool: true });
 	const r = await runMod.runSkillTool(path.join(d, "SKILL.tool.js"), ["a", "b"]);

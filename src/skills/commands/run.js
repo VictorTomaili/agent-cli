@@ -15,8 +15,19 @@ export const TOOL_ALLOWLIST = new Set([
   'node:os', 'os', 'node:util', 'util', 'node:crypto', 'crypto',
   'node:url', 'url', 'node:stream', 'node:events', 'node:buffer',
 ])
-const FORBIDDEN_IMPORT = /(?:from\s*['"]|import\s*\(|require\s*\(|import\s+['"])/
-const IMPORT_SPEC = /(?:from\s*|\bimport\s+|\brequire\s*|\bimport\s*\()\s*['"]([^'"]+)['"]/g
+// Two capture groups:
+//   group 1 — static-form quoted spec ("x" after `from` or `import "x"`)
+//
+//   group 2 — dynamic-form quoted spec ("x" inside import()/require())
+//   group 3 — dynamic-form unquoted identifier (always banned)
+// The previous regex required `require` to be followed by a quote (no paren),
+// so even `require("node:child_process")` slipped through, and required a
+// quote after the static `import\s+` (so dynamic `import(s)` where
+// `s = "node:child_process"` slipped through too). This regex splits the
+// static and dynamic forms so static imports only ever carry a quoted spec,
+// while dynamic imports carry either — and an unquoted identifier in a
+// dynamic position is always banned.
+const IMPORT_SPEC = /(?:from\s+|\bimport\s+)\s*['"]([^'"]+)['"]|(?:\brequire\s*\(|\bimport\s*\()\s*(?:['"]([^'"]+)['"]|([A-Za-z_$][\w$.]*))/g
 
 // Static import allowlist check on the tool's source. Returns
 // { ok, banned: [specs] }.
@@ -25,8 +36,16 @@ export function checkToolImports(source) {
   let m
   IMPORT_SPEC.lastIndex = 0
   while ((m = IMPORT_SPEC.exec(source))) {
-    const spec = m[1]
-    if (!TOOL_ALLOWLIST.has(spec)) banned.add(spec)
+    if (m[3] !== undefined) {
+      // Unquoted identifier in a dynamic-import position — e.g.
+      //   const s = "node:child_process"; return import(s)
+      // The previous implementation accepted this and skipped the allowlist.
+      // Always banned.
+      banned.add(m[3])
+    } else {
+      const spec = m[1] ?? m[2]
+      if (!TOOL_ALLOWLIST.has(spec)) banned.add(spec)
+    }
   }
   return { ok: banned.size === 0, banned: [...banned] }
 }

@@ -11,7 +11,9 @@
 // The tool provides primitives only. All migration decisions are the using-agent's.
 
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
 	exists,
@@ -51,6 +53,29 @@ async function walk(relRoot, depth = 0) {
 		const full = path.join(relRoot, e.name);
 		if (e.isDirectory()) {
 			out.push(...(await walk(full, depth + 1)).map((p) => `${e.name}/${p}`));
+		} else if (e.isFile()) {
+			out.push(e.name);
+		}
+	}
+	return out;
+}
+
+/** Synchronous tree walk (bounded, same guards as walk) for the content-hash
+ *  helper, which must run inside the synchronous brief/doctor payload builders. */
+function walkSync(root, depth = 0) {
+	if (depth > SEED_MAX_DEPTH) return [];
+	let entries = [];
+	try {
+		entries = fsSync.readdirSync(root, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+	const out = [];
+	for (const e of entries) {
+		if (out.length >= SEED_MAX_ENTRIES) return out;
+		const full = path.join(root, e.name);
+		if (e.isDirectory()) {
+			out.push(...walkSync(full, depth + 1).map((p) => `${e.name}/${p}`));
 		} else if (e.isFile()) {
 			out.push(e.name);
 		}
@@ -330,5 +355,118 @@ export async function applyStaged(version, { home = AGENTS_DIR } = {}) {
 		skipped,
 		backedUp,
 		diffStat: { applied: applied.length, skipped: skipped.length },
+	};
+}
+
+// --- Content-hash staleness (P1, closes F1) ----------------------------------
+// The shipped-default update machinery used to compare VERSION STRINGS only, so
+// seed content could be newer than the installed live copy while
+// `seedVersion === latestVersion` still reported up to date. This is the content
+// signal that closes that gap: a deterministic SHA-256 over the `.md` files of a
+// tree (relative-path-keyed, content-only), plus a drive-by comparator that
+// flags when the live `~/.agents/skills/dev-team` tree lags the expected content
+// (the newest staged update payload, else the bundled seed).
+
+/**
+ * Deterministic SHA-256 over the `.md` files under `<root>/<subdir>`.
+ * Keyed by the file's POSIX relative path and its raw content only (no
+ * metadata, no mtime), so identical content always yields an identical hash
+ * and any change — content edit, add, rename, or removal — changes it.
+ *
+ * Returns `{ hash, files, contents }`:
+ *   - hash: hex digest, or null when no `.md` files exist under the tree.
+ *   - files: the sorted list of `.md` relative paths that were hashed.
+ *   - contents: `{ [rel]: content }` map, for per-file drift comparison.
+ */
+export function contentHashSync({ root, subdir = "" } = {}) {
+	const base = subdir ? path.join(root, subdir) : root;
+	const digest = crypto.createHash("sha256");
+	const contents = {};
+	const files = [];
+	for (const rel of walkSync(base).filter((r) => r.endsWith(".md")).sort()) {
+		let content;
+		try {
+			content = fsSync.readFileSync(path.join(base, ...rel.split("/")), "utf8");
+		} catch {
+			// unreadable (race or permission) — skip it rather than guess.
+			continue;
+		}
+		files.push(rel);
+		contents[rel] = content;
+		digest.update(rel);
+		digest.update("\0");
+		digest.update(content);
+		digest.update("\0");
+	}
+	return {
+		hash: files.length ? digest.digest("hex") : null,
+		files,
+		contents,
+	};
+}
+
+/** The newest staged-update payload dir under `home` (highest semver), or null
+ *  when none exists. Sync (no I/O beyond readdir) so the brief/doctor builders
+ *  can call it without an await. */
+function pickNewestStagedDir(home) {
+	let entries = [];
+	try {
+		entries = fsSync.readdirSync(home, { withFileTypes: true });
+	} catch {
+		return null;
+	}
+	const dirs = [];
+	for (const e of entries) {
+		if (!e.isDirectory()) continue;
+		const m = e.name.match(UPDATE_RE);
+		if (m) dirs.push({ version: m[1], dir: path.join(home, e.name) });
+	}
+	if (!dirs.length) return null;
+	dirs.sort((a, b) =>
+		a.version.localeCompare(b.version, undefined, { numeric: true }),
+	);
+	return dirs[dirs.length - 1].dir;
+}
+
+/**
+ * Detect drift between the LIVE `~/.agents/skills/dev-team` tree and the
+ * expected content: the newest staged update payload's dev-team tree when one
+ * exists (the next seed the user has not adopted), else the bundled seed.
+ *
+ * Returns `{ drift, count, files, source, message }`:
+ *   - drift: true when any relative path is present on only one side or has
+ *            different content.
+ *   - count: number of divergent files.
+ *   - files: the divergent relative paths (sorted).
+ *   - source: "staged" when compared against a staged payload, else "seed".
+ *   - message: a single human-readable line (null when no drift).
+ */
+export function detectDevTeamDrift({ home = AGENTS_DIR, seedDir = SEED_DIR } = {}) {
+	const subdir = path.join("skills", "dev-team");
+	const live = contentHashSync({ root: home, subdir });
+	const stagedDir = pickNewestStagedDir(home);
+	const expectedDir = stagedDir || seedDir;
+	const expected = contentHashSync({ root: expectedDir, subdir });
+	const files = [];
+	for (const rel of new Set([...Object.keys(live.contents), ...Object.keys(expected.contents)])) {
+		const inLive = Object.hasOwn(live.contents, rel);
+		const inExpected = Object.hasOwn(expected.contents, rel);
+		if (inLive !== inExpected || live.contents[rel] !== expected.contents[rel]) {
+			// report the path relative to home (…/skills/dev-team/SKILL.md), not
+			// just the file name, so the payload is unambiguous to a consumer.
+			files.push(`${subdir}/${rel}`);
+		}
+	}
+	files.sort();
+	const count = files.length;
+	const drift = count > 0;
+	return {
+		drift,
+		count,
+		files,
+		source: stagedDir ? "staged" : "seed",
+		message: drift
+			? `dev-team: live ~/.agents/skills/dev-team differs from seed (${count} files) - run agent-cli upgrade`
+			: null,
 	};
 }

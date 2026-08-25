@@ -20,7 +20,7 @@ import {
 } from "./agents-lib.js";
 import { MODELS_MD } from "./models.js";
 import { readProjectConfig as readProjectSkillConfig } from "./skills-gate.js";
-import { listStagedUpdates } from "./seed.js";
+import { listStagedUpdates, detectDevTeamDrift } from "./seed.js";
 import { shareHealth, SHARE_SOURCES, isOurLink } from "./share.js";
 import fsSync from "node:fs";
 
@@ -262,6 +262,19 @@ export async function buildDoctorReport(
 		issues.push(
 			`${staged.length} staged update payload(s) under ~/.agents/update-* — review with the user and migrate (see: agent-cli update list).`,
 		);
+	// P1 / F1: content-hash staleness. The version-compare machinery reports
+	// up-to-date when seed content moved but the version string didn't; this
+	// check flags a live dev-team tree that lags the expected (staged-or-seed)
+	// content so the gap is loud instead of silently stale.
+	const devTeam = detectDevTeamDrift();
+	checks.push({
+		check: "dev-team-drift",
+		ok: !devTeam.drift,
+		detail: devTeam.drift
+			? `${devTeam.count} file(s) diverge (${devTeam.files.join(", ")})`
+			: "matches seed",
+	});
+	if (devTeam.drift) issues.push(devTeam.message);
 
 	return { issues, checks };
 }

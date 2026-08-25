@@ -306,3 +306,127 @@ test("GAP-5: a malicious ../ rel cannot escape the home via readStagedFile/apply
 	);
 	assert.equal(existsSync(path.join(outside, "agents")), false);
 });
+
+// --- P1 / F1: content-hash staleness helper -----------------------------------
+
+/** A seed tree with the three dev-team markdown files (skill + workflow + roles). */
+function makeDevTeamSeedDir() {
+	const dir = mkdtempSync(path.join(tmpdir(), "agent-seed-devteam-"));
+	mkdirSync(path.join(dir, "skills", "dev-team"), { recursive: true });
+	writeFileSync(
+		path.join(dir, "skills", "dev-team", "SKILL.md"),
+		"# dev-team skill\n\n## Role\nx\n",
+	);
+	writeFileSync(
+		path.join(dir, "skills", "dev-team", "WORKFLOW.md"),
+		"# workflow\n\n1. plan\n",
+	);
+	writeFileSync(
+		path.join(dir, "skills", "dev-team", "ROLES.md"),
+		"# roles\n\norchestrator\n",
+	);
+	return dir;
+}
+
+/** The live counterpart: a `home` whose dev-team subtree can be seeded/inspected. */
+function makeDevTeamHome({ seedDir }) {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-seed-devteam-home-"));
+	const live = path.join(home, "skills", "dev-team");
+	mkdirSync(live, { recursive: true });
+	// seed the live copy straight from the seed (identical content → no drift)
+	for (const f of ["SKILL.md", "WORKFLOW.md", "ROLES.md"]) {
+		writeFileSync(
+			path.join(live, f),
+			readFileSync(path.join(seedDir, "skills", "dev-team", f), "utf8"),
+		);
+	}
+	return home;
+}
+
+test("contentHashSync: identical content yields the same hash", () => {
+	const a = seed.contentHashSync({ root: makeDevTeamSeedDir(), subdir: "skills/dev-team" });
+	const b = seed.contentHashSync({ root: makeDevTeamSeedDir(), subdir: "skills/dev-team" });
+	// different temp roots, same content → same digest (content-only, not path)
+	assert.equal(a.hash, b.hash);
+	assert.deepEqual(a.files.sort(), [
+		"ROLES.md",
+		"SKILL.md",
+		"WORKFLOW.md",
+	]);
+});
+
+test("contentHashSync: a content change changes the hash", () => {
+	const dir = makeDevTeamSeedDir();
+	const before = seed.contentHashSync({ root: dir, subdir: "skills/dev-team" });
+	writeFileSync(
+		path.join(dir, "skills", "dev-team", "SKILL.md"),
+		"# dev-team skill\n\n## Role\nEDITED\n",
+	);
+	const after = seed.contentHashSync({ root: dir, subdir: "skills/dev-team" });
+	assert.notEqual(before.hash, after.hash);
+	// the file set is unchanged — only the content differs
+	assert.deepEqual(before.files.sort(), after.files.sort());
+});
+
+test("contentHashSync: adding/removing a .md file changes the hash", () => {
+	const dir = makeDevTeamSeedDir();
+	const before = seed.contentHashSync({ root: dir, subdir: "skills/dev-team" });
+	writeFileSync(path.join(dir, "skills", "dev-team", "EXTRA.md"), "# extra\n");
+	const after = seed.contentHashSync({ root: dir, subdir: "skills/dev-team" });
+	assert.notEqual(before.hash, after.hash);
+	assert.ok(after.files.includes("EXTRA.md"));
+});
+
+test("contentHashSync: returns null hash + empty files when the tree has no .md files", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "agent-seed-devteam-empty-"));
+	const r = seed.contentHashSync({ root: dir, subdir: "skills/dev-team" });
+	assert.equal(r.hash, null);
+	assert.deepEqual(r.files, []);
+});
+
+test("detectDevTeamDrift: no staged payload → live vs seed only (clean when identical)", () => {
+	const seedDir = makeDevTeamSeedDir();
+	const home = makeDevTeamHome({ seedDir });
+	const r = seed.detectDevTeamDrift({ home, seedDir });
+	assert.equal(r.drift, false);
+	assert.equal(r.count, 0);
+	assert.deepEqual(r.files, []);
+	assert.equal(r.source, "seed");
+	assert.equal(r.message, null);
+});
+
+test("detectDevTeamDrift: modified live file flags drift with the divergent filename", () => {
+	const seedDir = makeDevTeamSeedDir();
+	const home = makeDevTeamHome({ seedDir });
+	writeFileSync(
+		path.join(home, "skills", "dev-team", "SKILL.md"),
+		"# dev-team skill\n\n## Role\nLOCAL OVERRIDE\n",
+	);
+	const r = seed.detectDevTeamDrift({ home, seedDir });
+	assert.equal(r.drift, true);
+	assert.equal(r.count, 1);
+	assert.deepEqual(r.files, ["skills/dev-team/SKILL.md"]);
+	assert.equal(r.source, "seed");
+	assert.match(r.message, /dev-team: live ~\/\.agents\/skills\/dev-team differs from seed \(1 files\) - run agent-cli upgrade/);
+});
+
+test("detectDevTeamDrift: a staged payload supersedes the bundled seed as the expectation", () => {
+	const seedDir = makeDevTeamSeedDir();
+	const home = makeDevTeamHome({ seedDir });
+	// a NEWER staged payload with different dev-team content, not yet applied
+	const stageDir = path.join(home, "update-9.9.9", "skills", "dev-team");
+	mkdirSync(stageDir, { recursive: true });
+	writeFileSync(path.join(stageDir, "SKILL.md"), "# staged NEWER skill\n");
+	writeFileSync(path.join(stageDir, "WORKFLOW.md"), "# staged NEWER workflow\n");
+	writeFileSync(path.join(stageDir, "ROLES.md"), "# staged NEWER roles\n");
+	// live matches the OLD seed → it lags the staged content → drift
+	const r = seed.detectDevTeamDrift({ home, seedDir });
+	assert.equal(r.drift, true);
+	assert.equal(r.source, "staged");
+	assert.equal(r.count, 3);
+	assert.deepEqual(r.files.sort(), [
+		"skills/dev-team/ROLES.md",
+		"skills/dev-team/SKILL.md",
+		"skills/dev-team/WORKFLOW.md",
+	]);
+});

@@ -11,6 +11,7 @@ import { hasAgentCliBlock } from "./blocks.js";
 import { isSkillAvailable, legacySkillFields } from "./skill.js";
 import { shareHealth, SHARE_SOURCES } from "./share.js";
 import { buildActions, suggestedStrings, computeEtag } from "./actions.js";
+import { detectDevTeamDrift } from "./seed.js";
 
 /**
  * @param {object} s - state from actions.js#collectState(...).
@@ -23,6 +24,10 @@ export function buildBriefPayload(s, { forTask = null, version } = {}) {
 	const actionsList = buildActions(s);
 	const suggested = suggestedStrings(actionsList);
 	const etag = computeEtag(s);
+	// P1 / F1: content-hash staleness — the version-compare machinery reports
+	// up-to-date when only the seed CONTENT moved. Surface a live-drift signal
+	// when the live dev-team tree lags the expected (staged-or-seed) content.
+	const devTeam = detectDevTeamDrift();
 
 	const blockers = [];
 	if (s.masterContent == null)
@@ -51,6 +56,10 @@ export function buildBriefPayload(s, { forTask = null, version } = {}) {
 				"/",
 			)} — run \`agent-cli skill migrate --apply\` (Agent Skills spec upgrade; dry-run without --apply)`,
 		);
+	// P1 / F1: seed content is newer than the installed live copy even when the
+	// version strings match — make it loud so the agent acts instead of trusting
+	// a false "up to date".
+	if (devTeam.drift) warnings.push(devTeam.message);
 
 	// Cross-tool sharing (manage once, use everywhere): enabled, share-capable
 	// tools whose agents/skills dir is not linked to the single source.
@@ -136,6 +145,16 @@ export function buildBriefPayload(s, { forTask = null, version } = {}) {
 			upToDate: s.upd.upToDate,
 			checkedAt: s.upd.checkedAt,
 			stagedUpdates: s.stagedUpdates,
+		},
+		// P1 / F1: content-level drift between the live dev-team tree and the
+		// expected seed (or staged payload). Files lists the divergent relpaths;
+		// message is the human-facing upgrade hint (also pushed to `warnings`).
+		liveDrift: {
+			drift: devTeam.drift,
+			count: devTeam.count,
+			files: devTeam.files,
+			source: devTeam.source,
+			message: devTeam.message,
 		},
 		onboarding: s.onboarding,
 		sessionStart: { load: s.sessionLoad },

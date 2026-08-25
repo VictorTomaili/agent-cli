@@ -1,6 +1,9 @@
 # agent-cli
 
 [![npm version](https://img.shields.io/npm/v/@victortomaili/agent-cli.svg)](https://www.npmjs.com/package/@victortomaili/agent-cli)
+[![CI](https://github.com/VictorTomaili/agent-cli/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/VictorTomaili/agent-cli/actions/workflows/ci.yml)
+[![node](https://img.shields.io/node/v/@victortomaili/agent-cli)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/@victortomaili/agent-cli)](LICENSE)
 
 > Manage `AGENTS.md` and sync it across all your AI coding agents — Claude Code, Codex, Gemini,
 > Cursor, Windsurf, Cline, Copilot, DeepSeek Harness, and more. One canonical source in

@@ -119,11 +119,11 @@ test("parseAgentCliHookEntry identifies our entries and rejects others", () => {
 test("pickWindowsAgentBin prefers a .exe/.cmd/.bat match over an extensionless POSIX shim (regression: `where agent` on Windows can list the shim first, which native shells can't execute)", () => {
 	assert.equal(
 		hooks.pickWindowsAgentBin([
-			"C:\\Users\\victor\\AppData\\Roaming\\npm\\agent",
-			"C:\\Users\\victor\\AppData\\Roaming\\npm\\agent.cmd",
-			"C:\\Users\\victor\\.grok\\bin\\agent.exe",
+			"C:\\Users\\example\\AppData\\Roaming\\npm\\agent",
+			"C:\\Users\\example\\AppData\\Roaming\\npm\\agent.cmd",
+			"C:\\Users\\example\\.grok\\bin\\agent.exe",
 		]),
-		"C:\\Users\\victor\\AppData\\Roaming\\npm\\agent.cmd",
+		"C:\\Users\\example\\AppData\\Roaming\\npm\\agent.cmd",
 	);
 	assert.equal(
 		hooks.pickWindowsAgentBin(["C:\\only\\extensionless\\agent"]),
@@ -153,13 +153,13 @@ test("renderHookConfig quotes a single-token agentBin as one path, args unquoted
 test("renderHookConfig quotes each path segment of a two-token agentBin (node.exe + cli.js fallback) individually", () => {
 	const codex = targets.getTarget("codex");
 	const r = hooks.renderHookConfig(codex, {
-		agentBin: { bin: "C:\\Program Files\\nodejs\\node.exe", extraArgs: ["C:\\Users\\victor\\AppData\\Roaming\\npm\\node_modules\\agent-cli\\src\\cli.js"] },
+		agentBin: { bin: "C:\\Program Files\\nodejs\\node.exe", extraArgs: ["C:\\Users\\example\\AppData\\Roaming\\npm\\node_modules\\agent-cli\\src\\cli.js"] },
 		briefArgs: "--oneline",
 	});
 	const command = r.json.hooks.SessionStart[0].hooks[0].command;
 	assert.equal(
 		command,
-		'"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\victor\\AppData\\Roaming\\npm\\node_modules\\agent-cli\\src\\cli.js" brief --oneline',
+		'"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\example\\AppData\\Roaming\\npm\\node_modules\\agent-cli\\src\\cli.js" brief --oneline',
 	);
 });
 

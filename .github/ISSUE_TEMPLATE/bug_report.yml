@@ -1,0 +1,52 @@
+name: Bug report
+description: Something behaves differently than documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please reproduce against a throwaway brain so nothing of yours is at risk:
+        `AGENT_CLI_HOME=$(mktemp -d) agent-cli <command>`
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, and what it did.
+      placeholder: |
+        $ AGENT_CLI_HOME=$(mktemp -d) agent-cli doctor
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `agent-cli --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Platform
+      options: [Linux, macOS, Windows, WSL, Other]
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version` (the project requires >= 22)
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: agent-cli doctor output
+      description: Optional, but it answers most questions at once. Redact anything private.
+      render: text

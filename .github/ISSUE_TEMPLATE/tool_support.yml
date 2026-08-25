@@ -1,0 +1,31 @@
+name: Support a new AI coding tool
+description: Ask for (or contribute) a new sync target.
+labels: [enhancement, target]
+body:
+  - type: input
+    id: tool
+    attributes:
+      label: Tool name
+      placeholder: e.g. Zed, Aider, Continue
+    validations:
+      required: true
+  - type: input
+    id: path
+    attributes:
+      label: Where it reads its instructions from
+      description: The global path, and the project-level one if it has one.
+      placeholder: "~/.toolname/INSTRUCTIONS.md"
+    validations:
+      required: true
+  - type: input
+    id: marker
+    attributes:
+      label: How to detect it is installed
+      description: A directory or file that exists only when the tool is installed.
+      placeholder: "~/.toolname/"
+    validations:
+      required: true
+  - type: input
+    id: docs
+    attributes:
+      label: Link to the tool's docs for that path

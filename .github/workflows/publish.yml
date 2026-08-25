@@ -74,10 +74,12 @@ jobs:
           fi
       - name: Publish ${{ steps.v.outputs.local }}
         if: steps.v.outputs.publish == 'true'
-        # No --provenance: this repo is PRIVATE, and npm rejects provenance
-        # bundles from private repos (E422). npm's OIDC handler auto-skips
-        # provenance for private repos when the flag is absent.
-        run: npm publish --access public
+        # --provenance signs the tarball with a verifiable link back to this
+        # workflow run and commit, and npm shows the resulting attestation on
+        # the package page. It requires a PUBLIC repo (npm rejects provenance
+        # bundles from private repos with E422) plus id-token: write, both of
+        # which hold here.
+        run: npm publish --access public --provenance
         env:
           # Trusted publishing (OIDC) only: setup-node still defaults
           # NODE_AUTH_TOKEN when registry-url is set (actions/setup-node#1440);

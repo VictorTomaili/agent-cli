@@ -3,11 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import c from "picocolors";
 import { resolveSkillTarget } from "./validate.js";
-import {
-  isPlainSkillFile,
-  readSkillMdBounded,
-  MAX_SKILL_MD_BYTES,
-} from "../lib/store.js";
+import { isPlainSkillFile, MAX_SKILL_MD_BYTES } from "../lib/store.js";
 
 // Tool modules may only import from this allowlist of Node builtins. Anything
 // that reaches the network or spawns processes (child_process, net, http,

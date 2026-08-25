@@ -41,7 +41,7 @@ jobs:
       # NODE_AUTH_TOKEN into registry auth, which blocks the OIDC exchange
       # (empty token -> ENEEDAUTH). publishConfig.registry in package.json
       # already targets registry.npmjs.org.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24 # trusted publishing needs npm >= 11.5.1
           cache: npm

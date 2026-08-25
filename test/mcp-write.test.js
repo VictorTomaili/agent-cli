@@ -288,8 +288,12 @@ test("brain_write ignores a host-supplied cwd; project scope resolves under the 
 	assert.equal(parsed.command, "brain_write");
 	assert.equal(parsed.apiVersion, "2.0.0");
 	assert.equal(parsed.data.scope, "project");
+	// Separator-agnostic: the A17 property is "resolved under the launch dir's
+	// .agents", not "spelled with a forward slash" — on Windows the resolved
+	// path legitimately comes back as `...\.agents\SOUL.md`.
 	assert.ok(
-		typeof parsed.data.path === "string" && parsed.data.path.endsWith(".agents/SOUL.md"),
+		typeof parsed.data.path === "string" &&
+			parsed.data.path.split(path.sep).join("/").endsWith(".agents/SOUL.md"),
 		`project scope must resolve to <.agents>/SOUL.md; got ${JSON.stringify(parsed.data.path)}`,
 	);
 	assert.ok(

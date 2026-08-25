@@ -443,6 +443,11 @@ function pickNewestStagedDir(home) {
  */
 export function detectDevTeamDrift({ home = AGENTS_DIR, seedDir = SEED_DIR } = {}) {
 	const subdir = path.join("skills", "dev-team");
+	// Report keys are POSIX-normalised: `subdir` carries the platform separator
+	// (Windows: `skills\dev-team`) because it feeds the filesystem walk, but a
+	// drift report is consumed as data (doctor/brief output, JSON, tests) and
+	// must read the same on every platform.
+	const reportPrefix = "skills/dev-team";
 	const live = contentHashSync({ root: home, subdir });
 	const stagedDir = pickNewestStagedDir(home);
 	const expectedDir = stagedDir || seedDir;
@@ -454,7 +459,7 @@ export function detectDevTeamDrift({ home = AGENTS_DIR, seedDir = SEED_DIR } = {
 		if (inLive !== inExpected || live.contents[rel] !== expected.contents[rel]) {
 			// report the path relative to home (…/skills/dev-team/SKILL.md), not
 			// just the file name, so the payload is unambiguous to a consumer.
-			files.push(`${subdir}/${rel}`);
+			files.push(`${reportPrefix}/${rel}`);
 		}
 	}
 	files.sort();

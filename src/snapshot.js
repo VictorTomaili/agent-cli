@@ -45,7 +45,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { HOME, writeFileSync } from "./util.js";
+import { HOME, writeFileSync, readFileNoFollow } from "./util.js";
 import { withOperationLock } from "./operation-lock.js";
 
 const BRAIN = path.join(HOME, ".agents");
@@ -225,8 +225,7 @@ function validateSnapshot(src) {
 	try {
 		if (!fs.statSync(src).isDirectory()) return false;
 		const metadata = path.join(src, ".snapshot.json");
-		if (!fs.lstatSync(metadata).isFile()) return false;
-		const parsed = JSON.parse(fs.readFileSync(metadata, "utf8"));
+		const parsed = JSON.parse(readFileNoFollow(metadata));
 		if (!parsed || typeof parsed !== "object") return false;
 		const stack = [src];
 		while (stack.length) {
@@ -310,7 +309,7 @@ function fileMap(dir) {
 				continue;
 			}
 			const rel = path.relative(dir, p).split(path.sep).join("/");
-			out[rel] = fs.readFileSync(p, "utf8");
+			out[rel] = readFileNoFollow(p);
 		}
 	}
 	return out;

@@ -5,7 +5,7 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
-import { AGENTS_DIR } from "./util.js";
+import { AGENTS_DIR, readFileNoFollow } from "./util.js";
 
 /** Files that must never leave the machine (default .gitignore entries). */
 export const SYNC_EXCLUDES = [
@@ -67,7 +67,14 @@ export async function syncInit({ remote = null } = {}) {
 	// core.autocrlf=true, a rollback would rewrite LF working files to CRLF.
 	git(["config", "core.autocrlf", "false"], { cwd: dir });
 	const giPath = path.join(dir, ".gitignore");
-	const existing = fs.existsSync(giPath) ? fs.readFileSync(giPath, "utf8") : "";
+	// CodeQL js/file-system-race: existsSync + readFileSync is a TOCTOU race.
+	// Let readFileNoFollow throw ENOENT and translate it to an empty read.
+	let existing = "";
+	try {
+		existing = readFileNoFollow(giPath);
+	} catch (err) {
+		if (err?.code !== "ENOENT") throw err;
+	}
 	const lines = existing ? existing.split(/\r?\n/) : [];
 	const added = [];
 	for (const pat of SYNC_EXCLUDES)

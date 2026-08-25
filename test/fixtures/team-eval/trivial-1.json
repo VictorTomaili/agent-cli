@@ -1,0 +1,7 @@
+{
+  "name": "trivial-1",
+  "description": "2 trivial lane — single role, single success.",
+  "dispatches": [
+    { "role": "dev", "task": "fix the one-line typo", "status": "succeeded", "ms": 150 }
+  ]
+}

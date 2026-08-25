@@ -1791,6 +1791,38 @@ test("evaluate session <name> rejects a path-traversal name instead of reading o
 	assert.match(jTraversal.error, /invalid session name/i);
 });
 
+test("team eval run runs the 5-fixture benchmark and exits 0", () => {
+	const home = run(["init"]).home;
+	const r = run(["team", "eval", "run"], { envHome: home });
+	ok(r);
+	// Human table names the fixtures; runBenchmark always returns all 5.
+	for (const name of ["trivial-1", "trivial-2", "medium-1", "medium-2", "complex-1"]) {
+		assert.match(
+			r.stdout,
+			new RegExp(name.replace(/[-]/g, "\\-")),
+			`fixture ${name} should appear in the table`,
+		);
+	}
+	// JSON contract also works and reports the count.
+	const rj = run(["team", "eval", "run", "--json"], { envHome: home });
+	ok(rj);
+	const j = parseJson(rj.stdout);
+	assert.equal(j.command, "team");
+	assert.equal(j.data.op, "run");
+	assert.equal(j.data.count, 5);
+	assert.equal(j.data.results.length, 5);
+});
+
+test("team eval report on a session with no ledger exits 0 and reports nothing", () => {
+	const home = run(["init"]).home;
+	const r = run(["team", "eval", "report"], { envHome: home });
+	ok(r);
+	const j = parseJson(run(["team", "eval", "report", "--json"], { envHome: home }).stdout);
+	assert.equal(j.command, "team");
+	assert.equal(j.data.op, "report");
+	assert.equal(j.data.noLedger, true);
+});
+
 test("brief warns when store skills carry legacy top-level extension fields", () => {
 	const home = run(["init"]).home;
 	// seed a legacy-layout skill directly into the skill store

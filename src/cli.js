@@ -92,6 +92,7 @@ import { registerSessionCoreCommands } from "./commands/session-core.js";
 import { registerBootstrapCommands } from "./commands/bootstrap.js";
 import { registerEvaluateCommands } from "./commands/evaluate.js";
 import { registerLedgerCommands } from "./commands/ledger.js";
+import { registerTeamEvalCommands } from "./commands/team-eval.js";
 import { registerMemoryUpgradeCommands } from "./commands/memory-upgrade.js";
 import { registerInstructionsCommand, suggestCommand } from "./commands/instructions.js";
 import { registerPromptCommand } from "./commands/prompt.js";
@@ -659,6 +660,12 @@ registerLedgerCommands(program, {
 	log,
 	c,
 	pretty,
+	isJson: () => JSON_MODE,
+});
+registerTeamEvalCommands(program, {
+	emit,
+	log,
+	c,
 	isJson: () => JSON_MODE,
 });
 program

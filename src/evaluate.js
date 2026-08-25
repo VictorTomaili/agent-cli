@@ -70,3 +70,51 @@ export function scoreSession(session) {
 	const score = breakdown.reduce((sum, b) => sum + b.points, 0);
 	return { score, max: MAX, breakdown, feedback };
 }
+
+/**
+ * Score a team-run summary (produced by src/team-eval.js `summarizeSession`)
+ * against the Aug-20 dev-team KPIs: routing accuracy, validation catch rate,
+ * and delegation ratio.
+ *
+ * Honesty rules (this is a scaffold, not a scorer):
+ *   - `routingAccuracy` is `null` when the expected-role table is absent or
+ *     empty — the honest "not yet measured" state. P8/P11 fill that table; only
+ *     once it exists is a non-null routing accuracy meaningful. (This function
+ *     does not look up expected roles itself; it only consults
+ *     `sessionSummary.expectedRoles`, which the summary carries once the table
+ *     lands.)
+ *   - `validationCatchRate` (failed / total dispatches) and `delegationRatio`
+ *     (unique roles / total dispatches) always compute from the summary, even
+ *     for a zeroed/empty-session summary (they return 0, never a NaN).
+ *
+ * Returned shape:
+ *   { routingAccuracy, validationCatchRate, delegationRatio, comment }
+ */
+export function scoreTeamRun({ sessionSummary } = {}) {
+	const s = sessionSummary || {};
+	const total = Number(s.runs ?? 0);
+	const status = s.dispatchesByStatus || {};
+	const failed = Number(status.failed ?? 0);
+	const uniqueRoles = Array.isArray(s.rolesActivated) ? s.rolesActivated.length : 0;
+
+	const validationCatchRate = total > 0 ? failed / total : 0;
+	const delegationRatio = total > 0 ? uniqueRoles / total : 0;
+
+	// expectedRoles is a table the harness has not filled yet. Present and
+	// non-empty → report the default 1.0 placeholder (real matching lands with
+	// P8/P11). Absent or empty → null, the honest "not yet measured" state.
+	const expected = s.expectedRoles;
+	const hasExpected =
+		expected &&
+		typeof expected === "object" &&
+		Array.isArray(expected) === false &&
+		Object.keys(expected).length > 0;
+	const routingAccuracy = hasExpected ? 1.0 : null;
+
+	const comment =
+		routingAccuracy === null
+			? "routingAccuracy is null: the expected-role table is empty (P8/P11); validationCatchRate and delegationRatio are measured."
+			: "routingAccuracy is a placeholder 1.0; the expected-role table exists but per-dispatch matching is not wired yet (P8/P11).";
+
+	return { routingAccuracy, validationCatchRate, delegationRatio, comment };
+}

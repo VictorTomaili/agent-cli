@@ -1,0 +1,8 @@
+{
+  "name": "trivial-2",
+  "description": "2 trivial lane — one role, two successes.",
+  "dispatches": [
+    { "role": "qa", "task": "run the gate", "status": "succeeded", "ms": 200 },
+    { "role": "qa", "task": "run regression", "status": "succeeded", "ms": 130 }
+  ]
+}

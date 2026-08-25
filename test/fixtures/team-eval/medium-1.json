@@ -1,0 +1,11 @@
+{
+  "name": "medium-1",
+  "description": "medium — 5 dispatches across 3 roles, 4 successes + 1 failure (validation catch).",
+  "dispatches": [
+    { "role": "dev", "task": "implement parser", "status": "succeeded", "ms": 400 },
+    { "role": "dev", "task": "write unit tests", "status": "succeeded", "ms": 250 },
+    { "role": "qa", "task": "integration gate", "status": "succeeded", "ms": 300 },
+    { "role": "sm", "task": "process review", "status": "succeeded", "ms": 120 },
+    { "role": "qa", "task": "security scan", "status": "failed", "ms": 90, "note": "validation caught it" }
+  ]
+}

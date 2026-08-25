@@ -1,0 +1,26 @@
+{
+  "name": "complex-1",
+  "description": "complex — 20 dispatches across 6 roles, 17 successes + 2 failures + 1 cancelled; one Risk: high annotation.",
+  "dispatches": [
+    { "role": "prod-owner", "task": "scope", "status": "succeeded", "ms": 100 },
+    { "role": "arch", "task": "write ADR", "status": "succeeded", "ms": 300 },
+    { "role": "dev", "task": "implement core", "status": "succeeded", "ms": 400 },
+    { "role": "dev", "task": "implement api", "status": "succeeded", "ms": 350 },
+    { "role": "dev", "task": "implement ui", "status": "succeeded", "ms": 250 },
+    { "role": "dev", "task": "implement adapters", "status": "succeeded", "ms": 220 },
+    { "role": "qa", "task": "acceptance gate", "status": "succeeded", "ms": 180 },
+    { "role": "qa", "task": "regression", "status": "succeeded", "ms": 160 },
+    { "role": "qa", "task": "security review", "status": "succeeded", "ms": 140 },
+    { "role": "sm", "task": "retro", "status": "succeeded", "ms": 60 },
+    { "role": "pm", "task": "track progress", "status": "succeeded", "ms": 70 },
+    { "role": "dev", "task": "data migration", "status": "failed", "ms": 200, "note": "Risk: high" },
+    { "role": "arch", "task": "schema design", "status": "succeeded", "ms": 260 },
+    { "role": "qa", "task": "refute pass", "status": "succeeded", "ms": 150 },
+    { "role": "dev", "task": "implement rollout", "status": "succeeded", "ms": 230 },
+    { "role": "pm", "task": "plan release", "status": "succeeded", "ms": 90 },
+    { "role": "prod-owner", "task": "prioritize", "status": "succeeded", "ms": 80 },
+    { "role": "dev", "task": "implement migration", "status": "failed", "ms": 180, "note": "validation caught it" },
+    { "role": "dev", "task": "implement telemetry", "status": "cancelled", "ms": 20 },
+    { "role": "sm", "task": "process audit", "status": "succeeded", "ms": 55 }
+  ]
+}

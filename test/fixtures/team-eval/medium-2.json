@@ -1,0 +1,14 @@
+{
+  "name": "medium-2",
+  "description": "medium — 8 dispatches across 4 roles, 6 successes + 1 failure + 1 cancelled.",
+  "dispatches": [
+    { "role": "dev", "task": "task a", "status": "succeeded", "ms": 100 },
+    { "role": "dev", "task": "task b", "status": "succeeded", "ms": 110 },
+    { "role": "qa", "task": "task c", "status": "succeeded", "ms": 120 },
+    { "role": "qa", "task": "task d", "status": "failed", "ms": 90 },
+    { "role": "sm", "task": "task e", "status": "succeeded", "ms": 80 },
+    { "role": "arch", "task": "task f", "status": "succeeded", "ms": 200 },
+    { "role": "dev", "task": "task g", "status": "cancelled", "ms": 30 },
+    { "role": "arch", "task": "task h", "status": "succeeded", "ms": 150 }
+  ]
+}

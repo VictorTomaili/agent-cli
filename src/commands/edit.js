@@ -31,7 +31,7 @@ export function registerEditCommands(
 	program
 		.command("edit [kind]")
 		.description(
-			"Open a unified home file in $EDITOR. kind: agents (default) | soul | identity | user | lessons | environments | models",
+			"Open a unified home file in $EDITOR. kind: agents (default) | soul | identity | user | lessons | environments | models | workflow",
 		)
 		.option("--print-path", "Just print the resolved path and exit (creates no file)")
 		.option(
@@ -49,7 +49,7 @@ export function registerEditCommands(
 				target = identityFilePath(kind, scope);
 				if (!target) {
 					fail(
-						`Unknown kind: ${kind}. Use: agents|soul|identity|user|lessons|environments|models`,
+						`Unknown kind: ${kind}. Use: agents|soul|identity|user|lessons|environments|models|workflow`,
 					);
 				}
 				// --print-path only computes the path — it must not create the file.
@@ -59,6 +59,9 @@ export function registerEditCommands(
 					if (kind === "identity") tpl = arc.identityContent("general-purpose");
 					else if (kind === "soul") tpl = arc.soulContent("pragmatist");
 					else if (kind === "user") tpl = arc.userContent();
+					// Minimal starter only — the curated WORKFLOW.md seed lives in seed/.
+					else if (kind === "workflow")
+						tpl = `# WORKFLOW.md\n\nReusable task workflows — recorded, replayable recipes for work you repeat.\n`;
 					await writeFile(target, tpl);
 				}
 			}

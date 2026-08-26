@@ -379,6 +379,8 @@ export function registerSessionCommands(
 					["USER.md", arc.userContent()],
 					["LESSONS.md", arc.lessonsContent()],
 					["ENVIRONMENTS.md", arc.environmentsContent()],
+					// last, mirroring IDENTITY_FILES: WORKFLOW.md is read after MODELS.md.
+					["WORKFLOW.md", arc.workflowContent()],
 				];
 				for (const [name, content] of files) {
 					const fp = path.join(path.dirname(masterPath), name);

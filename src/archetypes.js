@@ -200,6 +200,120 @@ export function lessonsContent() {
 `;
 }
 
+export function workflowContent() {
+	return `# WORKFLOW.md
+
+Recorded task recipes. A workflow is a sequence that already worked, written
+down so the next identical request runs faster and the same way twice.
+
+This file is read at every session start, last in the read order, because
+workflow steps refer to model aliases that MODELS.md defines.
+
+## Using a workflow
+
+Before decomposing any request, scan the **Trigger** lines below. If one
+matches the user's intent, follow that workflow instead of planning from
+scratch, and say which one you are using in one short line.
+
+A match is on intent, not wording. "check my emails", "any new mail?" and
+"what came in overnight?" are the same trigger.
+
+Rules when running one:
+
+- Steps are a plan, not a licence. Every confirmation gate still applies at run
+  time — a recorded workflow never pre-approves an irreversible or externally
+  visible step, however many times it has run before.
+- Inputs listed as required must be known before step 1. Ask for missing ones
+  in a single batched question.
+- If a step fails because reality changed (a renamed tool, a moved file, a new
+  auth prompt), fix the step and update the entry. A workflow that no longer
+  matches reality is worse than none.
+- If the request is close to a workflow but not the same, use it as a starting
+  point and record the variant separately rather than bending the original.
+
+## Recording a workflow
+
+Record after a task **succeeds**, when both hold:
+
+1. It took more than one step, or more than one tool or surface.
+2. It could plausibly be asked again — by shape, not by exact wording.
+
+Do not record: one-off investigations, anything that failed or was abandoned,
+trivial single-command answers, or a sequence you have not actually run end to
+end.
+
+"One-off" has a narrow meaning here: the surface will not exist next month. A
+question you could plausibly be asked again in different words is not one-off,
+however specific this instance felt. That exclusion is the easiest of these to
+talk yourself into, so apply the test rather than the label.
+
+Never write into a workflow: passwords, tokens, API keys, personal data, or the
+literal contents of private messages. Record *where* a value comes from
+("the token in the secret store as DEPLOY_TOKEN"), never the value.
+
+Update \`Runs\` and \`Last run\` when you reuse one. Retire an entry that has not
+matched in a long time or whose surface no longer exists.
+
+## Entry format
+
+Copy this shape exactly so entries stay greppable.
+
+\`\`\`
+### <short-kebab-name>
+- **Trigger:** the intents that select this, comma separated
+- **Inputs:** what must be known before step 1 (ask if missing) — or "none"
+- **Risk:** none | reversible | irreversible (needs confirmation at step N)
+- **Steps:**
+  1. <action> — <tool or surface>, delegated to \`<model-alias>\` if delegated
+  2. ...
+- **Verify:** how you know it actually worked
+- **Recorded:** YYYY-MM-DD · **Runs:** n · **Last run:** YYYY-MM-DD
+\`\`\`
+
+---
+
+## Workflows
+
+### triage-inbox
+- **Trigger:** check my emails, any new mail, what came in overnight, inbox status
+- **Inputs:** none — the mail source is discovered, not assumed
+- **Risk:** none (read only; replying or accepting is a separate workflow)
+- **Steps:**
+  1. Resolve the mail source once: use the connected mail tool if the harness
+     has one, otherwise ask which account to read. Record the answer in this
+     entry's Inputs so the next run skips the question.
+  2. Fetch unread or since-last-check messages.
+  3. Group them: needs a reply, needs a decision, FYI, and noise.
+  4. Report the groups, newest first, with sender and one-line subject each.
+     Do not paste message bodies unless asked.
+- **Verify:** every unread message appears in exactly one group and the counts
+  add up to the fetched total.
+- **Recorded:** 2026-08-27 · **Runs:** 0 · **Last run:** —
+
+### accept-meeting-invitations
+- **Trigger:** accept the invites, accept meeting invitations, respond to those invites
+- **Inputs:** which invitations (all, or a named subset from a prior triage)
+- **Risk:** irreversible — sends a response to other people. Confirm at step 3.
+- **Steps:**
+  1. List the pending invitations: organiser, title, start time, and any clash
+     with an existing calendar entry.
+  2. Flag conflicts and double bookings rather than resolving them silently.
+  3. Show the exact list about to be accepted and get explicit confirmation.
+  4. Accept only the confirmed ones; report each result individually.
+- **Verify:** each accepted invitation shows as accepted in the calendar, and
+  nothing outside the confirmed list was touched.
+- **Recorded:** 2026-08-27 · **Runs:** 0 · **Last run:** —
+
+<!--
+These two entries also show the intended split. "Check my emails" and "accept
+the invitations" arrived as separate requests in the same conversation, so they
+are two workflows, not one: the first is read-only and safe to repeat, the
+second sends mail on the user's behalf and must keep its confirmation gate.
+Chain them when the user asks for both; keep the gate either way.
+-->
+`;
+}
+
 export const ONBOARD_QUESTION = "What kind of agent do you want me to be?";
 export function onboardOptions() {
 	return Object.entries(IDENTITIES).map(([k, v]) => ({

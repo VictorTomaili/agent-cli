@@ -34,8 +34,9 @@ You are driving an end-user's AI tooling configuration through \`agent-cli\`.
 The user has one master instructions file (\`~/.agents/AGENTS.md\` for global,
 \`[cwd]/.agents/AGENTS.md\` for a project) plus a "brain" of supporting files
 (IDENTITY.md, SOUL.md, USER.md, LESSONS.md, ENVIRONMENTS.md, MODELS.md,
-agents/, skills/). Every AI coding tool they use gets a small pointer stub
-redirecting to that master, so the user never edits the same prose twice.
+WORKFLOW.md, agents/, skills/). Every AI coding tool they use gets a small
+pointer stub redirecting to that master, so the user never edits the same
+prose twice.
 
 \`agent-cli\` is the lifecycle tool for that brain: bootstrap, link to new
 tools, snapshot, upgrade, audit, repair.

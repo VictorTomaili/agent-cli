@@ -143,6 +143,8 @@ export function registerBootstrapCommands(
 				["USER.md", arc.userContent()],
 				["LESSONS.md", arc.lessonsContent()],
 				["ENVIRONMENTS.md", arc.environmentsContent()],
+				// last, mirroring IDENTITY_FILES: WORKFLOW.md is read after MODELS.md.
+				["WORKFLOW.md", arc.workflowContent()],
 			];
 			const idCreated = [];
 			const idSkipped = [];

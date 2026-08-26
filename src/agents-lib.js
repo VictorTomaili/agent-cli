@@ -69,6 +69,13 @@ export const IDENTITY_FILES = [
 		desc: "Model aliases + curated catalog (provider/model + category + thinking)",
 		globalOnly: true,
 	},
+	// LAST on purpose: a workflow step may reference a model alias, so MODELS.md
+	// has to be read before WORKFLOW.md for those aliases to resolve.
+	{
+		kind: "workflow",
+		file: "WORKFLOW.md",
+		desc: "Reusable task workflows (recorded, replayable recipes)",
+	},
 ];
 
 export function identityBase(scope = "global", cwd = process.cwd()) {

@@ -529,7 +529,7 @@ test("brief manifest: globalOnly kinds get only the global entry; project-overri
 	}
 
 	// Project-overridable kinds: exactly 2 entries (global + project).
-	for (const kind of ["agents", "soul", "lessons", "environments"]) {
+	for (const kind of ["agents", "soul", "lessons", "environments", "workflow"]) {
 		const entries = load.filter((f) => f.kind === kind);
 		assert.equal(
 			entries.length,
@@ -680,6 +680,9 @@ test("command help advertises the actual AX command surface", () => {
 	assert.match(update.stdout, /diff <version>/);
 	assert.match(models.stdout, /global .*MODELS\.md/i);
 	assert.match(edit.stdout, /environments/);
+	// `workflow` is a first-class brain-file kind — it must be discoverable
+	// from `edit --help`, not only from the IDENTITY_FILES source.
+	assert.match(edit.stdout, /workflow/);
 });
 
 test("update diff reports no differences without dumping files", () => {

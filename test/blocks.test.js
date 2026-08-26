@@ -96,7 +96,9 @@ test("agent-cli block teaches the agent-cli run sub-agent dispatch", () => {
 	assert.ok(AGENT_CLI_BLOCK.includes("--tool <pi|codex>"));
 	assert.ok(AGENT_CLI_BLOCK.includes("--read-only"));
 	assert.ok(AGENT_CLI_BLOCK.includes("--timeout <seconds>"));
-	assert.ok(AGENT_CLI_BLOCK.includes("agent-cli configure run pi --provider zai"));
+	// Genericized deliberately: the contract forbids naming a concrete provider
+	// or model anywhere in AGENTS.md, so the example is a placeholder shape.
+	assert.ok(AGENT_CLI_BLOCK.includes("agent-cli configure run <tool> --provider <provider>"));
 	assert.ok(AGENT_CLI_BLOCK.includes("tool:provider/model[:thinking]"));
 	assert.ok(AGENT_CLI_BLOCK.includes("never silently"));
 });
@@ -110,7 +112,16 @@ test("communication block carries the contract verbatim", () => {
 	assert.ok(block.includes("## Communication Contract"));
 	assert.ok(
 		block.includes(
-			"No-BS, clear, concise, actionable. We are here to solve problems and create value; every reply reflects that.",
+			"Concise by default. Lead with the result. No preamble, no narration of what you",
+		),
+	);
+	// The exceptions carve-out must survive any future trimming of the contract:
+	// truncating an error or a destructive-action preview is the one way
+	// "be concise" turns into a safety problem.
+	assert.ok(block.includes("error messages and stack traces"));
+	assert.ok(
+		block.includes(
+			"the exact effect of a destructive or irreversible action awaiting confirmation",
 		),
 	);
 	assert.ok(block.includes("## Style"));
@@ -118,7 +129,20 @@ test("communication block carries the contract verbatim", () => {
 	assert.ok(block.includes("## Boundaries"));
 	assert.ok(block.includes("## Aliases"));
 	assert.ok(block.includes("## Example"));
-	assert.ok(block.includes("Never add a co-author to a commit message."));
+	// Self-attribution ban. Worded to survive a harness that issues its own
+	// trailer rule imperatively rather than as a default — an earlier version
+	// said only "never add a co-author", which a model reads as beaten by a
+	// direct system-prompt instruction, and which also blocked a legitimate
+	// human co-author the user asked for.
+	assert.ok(block.includes("Never attribute a commit to yourself."));
+	assert.ok(
+		block.includes("as a default, a convention, or a direct\n  instruction"),
+		"the ban must bind regardless of how the harness phrases its own rule",
+	);
+	assert.ok(
+		block.includes("human co-author the user\n  names in this session"),
+		"a human co-author the user names must stay permitted",
+	);
 });
 
 test("injectCommunicationBlock replaces a stale region in place", () => {

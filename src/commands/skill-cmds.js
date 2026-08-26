@@ -72,6 +72,7 @@ export function registerSkillCommands(
 			}
 			if (sub === "active") {
 				const sg = await import("../skills-gate.js");
+				const { GATE_DECIDE_HINT } = await import("../skill.js");
 				const effective = sg.effectiveSkills(process.cwd());
 				const installed = sg.listSkills();
 				const active = installed.filter((s) => effective.includes(s.name));
@@ -85,12 +86,23 @@ export function registerSkillCommands(
 						triggers: s.triggers,
 					})),
 					effective,
+					hint: GATE_DECIDE_HINT,
 				});
-				if (!isJson())
+				if (!isJson()) {
 					for (const s of active)
 						log.raw(
 							`  ${c.bold(s.name.padEnd(18))} ${s.description} ${c.gray("[" + s.activation.mode + "]")}`,
 						);
+					// The START GATE in AGENTS.md tells the agent to run this command
+					// and then classify what comes back. Without the hint it gets a
+					// bare list and no instruction to act on, so the gate does
+					// nothing. Rendered from the shared constant, never a local copy.
+					if (active.length) {
+						log.raw("");
+						for (const line of GATE_DECIDE_HINT.split("\n"))
+							log.raw(line.startsWith("→") ? c.bold(line) : c.gray(line));
+					}
+				}
 				return;
 			}
 			if (sub === "gate") {

@@ -363,7 +363,7 @@ test("AGENTS_BLOCK is single-sourced from gate-policy", () => {
 	assert.ok(
 		agentsMd.AGENTS_BLOCK.includes(gate.GATE_POLICY_TEXT.trim().slice(0, 40)),
 	);
-	assert.ok(gate.GATE_POLICY_TEXT.includes("START GATE (mandatory)"));
+	assert.ok(gate.GATE_POLICY_TEXT.includes("START GATE"));
 	assert.ok(gate.GATE_DECIDE_HINT.includes("PROPOSE"));
 	// cmdActive renders from the shared hint, not its own copy.
 	const src = readFileSync(
@@ -372,10 +372,35 @@ test("AGENTS_BLOCK is single-sourced from gate-policy", () => {
 	);
 	assert.ok(src.includes("GATE_DECIDE_HINT"));
 	assert.ok(
-		!/→ For EACH skill above, decide in your reply:\n/.test(
+		!/→ Decide for each skill above, in this reply:\n/.test(
 			src.replace(/GATE_DECIDE_HINT/g, ""),
 		),
 	);
+});
+
+test("the gate names a degraded mode for harnesses that forbid blocking", () => {
+	// The gate used to demand a question-only turn unconditionally. Several
+	// harness system prompts instruct the opposite (never block on a permission
+	// question before doing the work), and on those the gate lost silently.
+	// Both renderings must therefore carry a fallback that still surfaces the
+	// proposal, so a conflict degrades to a visible note instead of nothing.
+	for (const [name, text] of [
+		["GATE_POLICY_TEXT", gate.GATE_POLICY_TEXT],
+		["GATE_DECIDE_HINT", gate.GATE_DECIDE_HINT],
+	]) {
+		assert.ok(
+			/harness forbids blocking/.test(text),
+			`${name} must name the harness-conflict case`,
+		);
+		assert.ok(
+			/silently/.test(text),
+			`${name} must forbid resolving that conflict silently`,
+		);
+	}
+	// And the shouted absolutes are gone: an all-caps FORBIDDEN list reads as a
+	// rule fighting the harness rather than one it can follow.
+	assert.ok(!/FORBIDDEN/.test(gate.GATE_POLICY_TEXT));
+	assert.ok(!/END YOUR TURN/.test(gate.GATE_POLICY_TEXT));
 });
 
 test("cmdDefaults lists global defaults via computeDefaults (verb merge)", () => {

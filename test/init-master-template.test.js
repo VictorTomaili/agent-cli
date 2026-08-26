@@ -36,6 +36,9 @@ const CANONICAL_ORDER = [
 	"5. LESSONS.md",
 	"6. ENVIRONMENTS.md",
 	"7. MODELS.md",
+	// WORKFLOW.md is last on purpose: a recorded step may cite a model alias,
+	// so MODELS.md has to be read before it for those aliases to resolve.
+	"8. WORKFLOW.md",
 ];
 
 function readAgentCliBlock(content) {
@@ -93,16 +96,28 @@ test("agent-cli block contains the 'Session start read order' section", () => {
 	);
 });
 
-test("agent-cli block tags the rule as MANDATORY", () => {
+test("agent-cli block binds the whole file instead of tagging sections MANDATORY", () => {
 	const block = readAgentCliBlock(master);
 	assert.ok(block !== null);
+	// Per-section "(MANDATORY)" tags were removed deliberately: when five
+	// sections all claim it, an agent under pressure picks among them
+	// arbitrarily. The binding statement now covers the file once, so the
+	// tags must NOT come back.
 	assert.ok(
-		/Session start read order \(MANDATORY\)/.test(block),
-		"rule heading must be tagged '(MANDATORY)'",
+		/The whole file is binding/.test(block),
+		"agent-cli block must state that the whole file is binding",
+	);
+	assert.ok(
+		!/\(MANDATORY\)/.test(block),
+		"no section may re-introduce a '(MANDATORY)' tag",
+	);
+	assert.ok(
+		/Session start read order/.test(block),
+		"the read-order rule must still be present",
 	);
 });
 
-test("agent-cli block lists all 7 canonical files in strict order", () => {
+test("agent-cli block lists all 8 canonical files in strict order", () => {
 	const block = readAgentCliBlock(master);
 	assert.ok(block !== null);
 	const positions = CANONICAL_ORDER.map((s) => block.indexOf(s));

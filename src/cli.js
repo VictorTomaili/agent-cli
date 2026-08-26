@@ -7,6 +7,10 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { Command } from "commander";
 import path from "node:path";
+// Must stay above ./util.js: picocolors (imported there) latches its
+// color-support decision at import time, and force-enables color on win32 even
+// for a piped stdout. This side-effect import settles NO_COLOR first.
+import "./color.js";
 import {
 	c,
 	log,
@@ -314,6 +318,8 @@ registerInspectCommands(program, {
 registerProtocolCommands(program, {
 	emit,
 	fail,
+	log,
+	c,
 	program,
 	collectCommands,
 	EXIT,
@@ -690,6 +696,9 @@ program
 	.option("--compact", "With --json: emit compact (single-line) JSON")
 	.option("-q, --quiet", "Suppress informational output (errors still print)")
 	.option("--silent", "Alias for --quiet")
+	// Declared so commander accepts the conventional flag; the color decision
+	// itself is made in ./color.js before picocolors loads (also: NO_COLOR=1).
+	.option("--no-color", "Disable ANSI color (also: NO_COLOR=1)")
 	.option(
 		"--no-update-check",
 		"skip the npm-update freshness check (also: AGENT_CLI_NO_UPDATE_CHECK=1)",
@@ -859,6 +868,16 @@ program.action((opts, cmd) => {
 	log.raw("");
 	log.dim(`Run ${c.cyan("agent-cli --help")} for the full command list.`);
 });
+
+// Let the root action see an unmatched operand instead of commander aborting
+// first with "too many arguments. Expected 0 arguments but got 1: frobnicate"
+// — a misleading arity error for what is really an unknown command. The root
+// action (above) turns it into `Unknown command: <name>` + a suggestion.
+// MUST stay here, after every subcommand is registered: commander copies
+// `_allowExcessArguments` into each subcommand at `.command()` time, so
+// setting it earlier would also silence the real "too many arguments for
+// '<sub>'" errors (e.g. `agent-cli link claude`).
+program.allowExcessArguments(true);
 
 program.parseAsync(process.argv).catch((e) => {
 	// Commander raises CommanderError for --help/--version and for parse/usage

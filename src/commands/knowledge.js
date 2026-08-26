@@ -12,7 +12,7 @@ export function registerKnowledgeCommands(
 	program
 		.command("lessons [action] [name]")
 		.description(
-			"Lessons (agent-driven): list | add <topic/descriptive-name> [--body TEXT] | show <name> | inbox | triage. -p for project.",
+			"Lessons (agent-driven): list | add <topic/descriptive-name> [--body TEXT] | capture <topic> [--inbox] | show <name> | search <query> | inbox | triage. -p for project.",
 		)
 		.option("-p, --project", "project scope")
 		.option("-b, --body <text>", "lesson body (for add)")

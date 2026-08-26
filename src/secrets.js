@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { HOME, AGENTS_DIR, writeFileSync } from "./util.js";
+import { HOME, AGENTS_DIR, writeFileSync, writeFileIfAbsent } from "./util.js";
 
 export const SECRETS_FILE = ".secrets.json";
 export const SECRETS_KEY = ".secrets.key";
@@ -49,36 +49,45 @@ export function loadKey(scope = "global", cwd = process.cwd()) {
 	if (existing) return existing;
 
 	const key = crypto.randomBytes(32);
+	// writeFileIfAbsent is the shared exclusive-create primitive ('wx' refuses to
+	// follow a symlink pre-planted at kp, and reports EEXIST as created:false).
+	if (writeFileIfAbsent(kp, key, { mode: 0o600 }).created) return key;
+
+	// Something is already there. Prefer whatever is on disk — overwriting is what
+	// destroys secrets — so re-read in case we simply lost the create race.
+	const raced = readExisting();
+	if (raced) return raced;
+
+	// It did not read back as a 32-byte key. Replace it only when it is provably
+	// unusable: a SYMLINK (remove the link, never its target, so the exclusive
+	// re-create below cannot be redirected through it) or a regular file of the
+	// wrong size (truncated/corrupt).
+	//
+	// A right-sized file that merely failed to READ is a PERMISSION problem, not a
+	// corrupt key — readExisting() swallows every read error, so it looks the same
+	// from here. Deleting it would throw away secrets its owner can still decrypt,
+	// and unlike the in-place write this replaced, rmSync needs only directory
+	// write permission, so it would succeed where the old code correctly failed.
+	let st = null;
 	try {
-		fs.writeFileSync(kp, key, { mode: 0o600, flag: "wx" });
-		return key;
-	} catch (err) {
-		if (err && err.code === "EEXIST") {
-			// Someone created it between our read and our write, or it exists but
-			// was the wrong length. Prefer whatever is on disk — overwriting is
-			// what destroys secrets.
-			const raced = readExisting();
-			if (raced) return raced;
-			// On disk but unusable (truncated/corrupt, or a planted symlink):
-			// replace it deliberately WITHOUT following a symlink. A plain 'w'
-			// write here would traverse a symlinked .secrets.key and clobber its
-			// target; instead unlink the existing entry (a symlink is removed, its
-			// target untouched) and exclusively re-create the key. If we lose a
-			// concurrent re-create, prefer the winner's key on disk.
-			fs.rmSync(kp, { force: true });
-			try {
-				fs.writeFileSync(kp, key, { mode: 0o600, flag: "wx" });
-				return key;
-			} catch (err2) {
-				if (err2 && err2.code === "EEXIST") {
-					const raced2 = readExisting();
-					if (raced2) return raced2;
-				}
-				throw err2;
-			}
-		}
-		throw err;
+		st = fs.lstatSync(kp);
+	} catch {
+		st = null; // vanished under us — fall through and re-create
 	}
+	if (st && st.isFile() && !st.isSymbolicLink() && st.size === 32) {
+		throw new Error(
+			`secrets key at ${kp} exists but could not be read — refusing to replace it (check permissions)`,
+		);
+	}
+	if (st) fs.rmSync(kp, { force: true });
+
+	if (writeFileIfAbsent(kp, key, { mode: 0o600 }).created) return key;
+	// Lost a concurrent re-create: the winner's key is authoritative.
+	const raced2 = readExisting();
+	if (raced2) return raced2;
+	throw new Error(
+		`could not create the secrets key at ${kp} — it exists but is not a usable 32-byte key`,
+	);
 }
 
 function readStore(scope, cwd) {

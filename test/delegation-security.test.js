@@ -291,3 +291,115 @@ test.after(() => {
 		}
 	}
 });
+
+// -----------------------------------------------------------------------------
+// SEC-2b — the refute pass defeated the first fix. `resolveContained` is purely
+// LEXICAL, so a name that stays "inside" the agents dir on paper can still be
+// redirected by a symlink, and the write itself followed links. A checked-out
+// repo controls .agents/agents, and git materializes symlinks on checkout (a
+// Windows junction needs no elevation), so these are repo-shippable.
+// -----------------------------------------------------------------------------
+
+/** Plant a link, or null when the OS refuses (unprivileged Windows). */
+function tryLink(target, linkPath, type) {
+	try {
+		fs.rmSync(linkPath, { recursive: true, force: true });
+	} catch {
+		/* nothing to clear */
+	}
+	try {
+		fs.symlinkSync(target, linkPath, type);
+		return linkPath;
+	} catch (e) {
+		if (["EPERM", "EACCES", "ENOSYS", "UNKNOWN"].includes(e.code)) return null;
+		throw e;
+	}
+}
+
+test("SEC-2b: a symlinked DIRECTORY component cannot redirect the import (`name: shared/CLAUDE`)", (t) => {
+	const proj = scratch("agent-delegsec-linkdir-");
+	const agentsDir = path.join(proj, ".agents", "agents");
+	fs.mkdirSync(agentsDir, { recursive: true });
+	const victimDir = path.join(SANDBOX_HOME, ".claude");
+	fs.mkdirSync(victimDir, { recursive: true });
+	const victim = path.join(victimDir, "CLAUDE.md");
+	const original = "# Real user instructions\n";
+	fs.writeFileSync(victim, original);
+
+	if (
+		!tryLink(
+			victimDir,
+			path.join(agentsDir, "shared"),
+			process.platform === "win32" ? "junction" : "dir",
+		)
+	) {
+		t.skip("OS refused link creation (no privilege)");
+		return;
+	}
+
+	const src = path.join(proj, "friendly.md");
+	fs.writeFileSync(src, persona("shared/CLAUDE", "# OWNED\n"));
+	const r = runCli(["agents", "import", src], { cwd: proj });
+
+	assert.notEqual(r.status, 0, "a name with a path separator must be refused");
+	assert.equal(
+		fs.readFileSync(victim, "utf8"),
+		original,
+		"the instruction file behind the symlinked dir must be untouched",
+	);
+});
+
+test("SEC-2b: a symlink AT the destination is replaced, not written through (`name: notes`)", (t) => {
+	const proj = scratch("agent-delegsec-linkfile-");
+	const agentsDir = path.join(proj, ".agents", "agents");
+	fs.mkdirSync(agentsDir, { recursive: true });
+	const victim = path.join(SANDBOX_HOME, "victim-notes.md");
+	const original = "# do not touch\n";
+	fs.writeFileSync(victim, original);
+
+	// No path separators and no '..' — the name itself is entirely innocent, so
+	// only a symlink-safe WRITE can stop this one.
+	if (!tryLink(victim, path.join(agentsDir, "notes.md"), "file")) {
+		t.skip("OS refused link creation (no privilege)");
+		return;
+	}
+
+	const src = path.join(proj, "notes-src.md");
+	fs.writeFileSync(src, persona("notes", "# OWNED\n"));
+	runCli(["agents", "import", src], { cwd: proj });
+
+	assert.equal(
+		fs.readFileSync(victim, "utf8"),
+		original,
+		"the symlink target must not be written through",
+	);
+	assert.equal(
+		fs.lstatSync(path.join(agentsDir, "notes.md")).isSymbolicLink(),
+		false,
+		"the link must have been replaced by a real file",
+	);
+});
+
+test("SEC-2b: `agents rename` refuses a traversal new-name", () => {
+	const proj = scratch("agent-delegsec-rename-");
+	const agentsDir = path.join(proj, ".agents", "agents");
+	fs.mkdirSync(agentsDir, { recursive: true });
+	fs.writeFileSync(path.join(agentsDir, "victim.md"), persona("victim"));
+	const victim = path.join(SANDBOX_HOME, "rename-target.md");
+	const original = "# untouched\n";
+	fs.writeFileSync(victim, original);
+
+	const rel = path
+		.relative(agentsDir, victim)
+		.split(path.sep)
+		.join("/")
+		.replace(/\.md$/, "");
+	const r = runCli(["agents", "rename", "victim", rel], { cwd: proj });
+
+	assert.notEqual(r.status, 0, "a traversal rename must be refused");
+	assert.equal(fs.readFileSync(victim, "utf8"), original);
+	assert.ok(
+		fs.existsSync(path.join(agentsDir, "victim.md")),
+		"a refused rename must not delete the original",
+	);
+});

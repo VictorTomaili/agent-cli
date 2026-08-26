@@ -16,6 +16,25 @@ process.env.AGENT_CLI_HOME = TMP;
 
 const util = await import("../src/util.js");
 
+/**
+ * Create a symlink, returning false when the platform refuses to make one.
+ *
+ * The symlink tests used to `return` unconditionally on win32, which node:test
+ * counts as a PASS — so the Windows-specific half of readFileNoFollow's symlink
+ * guard had zero coverage on the only platform it exists for, and could be
+ * deleted with the suite green. Windows CAN create symlinks (Developer Mode or
+ * admin), so attempt it and skip ONLY when the OS actually refuses.
+ */
+function trySymlink(target, linkPath, type) {
+	try {
+		symlinkSync(target, linkPath, type);
+		return true;
+	} catch (e) {
+		if (["EPERM", "EACCES", "ENOSYS", "UNKNOWN"].includes(e.code)) return false;
+		throw e;
+	}
+}
+
 test("HOME is overridden by AGENT_CLI_HOME", () => {
 	assert.equal(util.HOME, TMP);
 });
@@ -218,17 +237,16 @@ test("writeFileIfAbsent: created:false on EEXIST — never overwrites", () => {
 	assert.equal(fs.readFileSync(f, "utf8"), "first");
 });
 
-test("writeFileIfAbsent: refuses to follow a pre-planted symlink (wx is atomic)", () => {
-	if (process.platform === "win32") {
-		// skip — symlink privilege differs; covered by an integration test
-		return;
-	}
+test("writeFileIfAbsent: refuses to follow a pre-planted symlink (wx is atomic)", (t) => {
 	const dir = path.join(TMP, "wia-sym");
 	mkdirSync(dir, { recursive: true });
 	const real = path.join(dir, "victim.txt");
 	const link = path.join(dir, "sneaky.txt");
 	fs.writeFileSync(real, "do-not-touch");
-	symlinkSync(real, link);
+	if (!trySymlink(real, link, "file")) {
+		t.skip("OS refused symlink creation (no privilege)");
+		return;
+	}
 	const r = util.writeFileIfAbsent(link, "hijack");
 	assert.equal(r.created, false, "wx must EEXIST before following the symlink");
 	assert.equal(fs.readFileSync(real, "utf8"), "do-not-touch");
@@ -251,17 +269,39 @@ test("readFileNoFollow: roundtrips a regular file", () => {
 	assert.equal(util.readFileNoFollow(f), "hello");
 });
 
-test("readFileNoFollow: refuses a symlink", () => {
-	if (process.platform === "win32") return;
+test("readFileNoFollow: refuses a symlink", (t) => {
 	const dir = path.join(TMP, "rfn-sym");
 	mkdirSync(dir, { recursive: true });
 	const real = path.join(dir, "real.txt");
 	const link = path.join(dir, "link.txt");
 	fs.writeFileSync(real, "secret");
-	symlinkSync(real, link);
+	if (!trySymlink(real, link, "file")) {
+		t.skip("OS refused symlink creation (no privilege)");
+		return;
+	}
 	assert.throws(() => util.readFileNoFollow(link), /symlink/);
+	// the refusal carries a stable code so callers can fail closed on it
+	assert.throws(() => util.readFileNoFollow(link), {
+		code: "ESYMLINKREFUSED",
+	});
 	// and the victim is untouched
 	assert.equal(fs.readFileSync(real, "utf8"), "secret");
+});
+
+test("readFileNoFollow: refuses a directory junction/symlink (win32 reparse point)", (t) => {
+	const dir = path.join(TMP, "rfn-junction");
+	mkdirSync(dir, { recursive: true });
+	const realDir = path.join(dir, "realdir");
+	mkdirSync(realDir, { recursive: true });
+	fs.writeFileSync(path.join(realDir, "inner.txt"), "inner-secret");
+	const link = path.join(dir, "linkdir");
+	// "junction" needs no privilege on Windows; ignored/aliased elsewhere.
+	if (!trySymlink(realDir, link, process.platform === "win32" ? "junction" : "dir")) {
+		t.skip("OS refused junction/dir-symlink creation");
+		return;
+	}
+	// Opening the reparse point itself must never yield file content.
+	assert.throws(() => util.readFileNoFollow(link), /symlink|not a regular file/);
 });
 
 test("readFileNoFollow: refuses a directory", () => {

@@ -624,7 +624,16 @@ export async function handleMessage(msg) {
 		}
 		let raw;
 		try {
-			raw = await produce(uri, params);
+			// A17 trust boundary, read side. Per the MCP spec resources/read params
+			// carry only `uri`, but the raw host params object used to be forwarded
+			// into the producers — and several of them (brainFile, lessonsCore,
+			// inboxList) honor `scope` and `cwd`, so a host could read `.agents`
+			// brain/lesson files from an arbitrary directory, escaping the
+			// global-only contract those producers document. The write path already
+			// pins LAUNCH_CWD and drops caller `cwd` (api/write.js, T6.2.7 F1); the
+			// other two produce() call sites already pass {}. Read side now matches:
+			// producers get no caller-controlled scope or cwd.
+			raw = await produce(uri, {});
 		} catch (e) {
 			// A15 least-disclosure: surface structured error.reason only —
 			// no absolute paths, no stacks, no raw fs errors.

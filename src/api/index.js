@@ -322,7 +322,11 @@ function brainFilePath(kind, scope, cwd) {
  * Scope: accepts both `global` (default) and `project`. The serve.js wire-up
  * restricts the v0.8.0 resource URIs to global per the open follow-up in the
  * Phase 6 spec (project-scoped reads are not exposed in v0.8.0), but this
- * SDK function itself honours both scopes.
+ * SDK function itself honours both scopes. That restriction is ENFORCED by
+ * resources/read calling `produce(uri, {})` — it must never forward the raw
+ * host params, or a caller-supplied `scope`/`cwd` would reach this function and
+ * read `.agents` files from an arbitrary directory (A17 trust boundary, read
+ * side; the write path pins LAUNCH_CWD for the same reason).
  *
  * Invalid `kind` throws a structured error
  * `{ code: "INVALID_KIND", kind, allowed: [...BRAIN_FILE_KINDS] }` — never

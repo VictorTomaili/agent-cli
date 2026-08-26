@@ -5,11 +5,25 @@ import c from "picocolors";
 import { resolveSkillTarget } from "./validate.js";
 import { isPlainSkillFile, MAX_SKILL_MD_BYTES } from "../lib/store.js";
 
-// Tool modules may only import from this allowlist of Node builtins. Anything
-// that reaches the network or spawns processes (child_process, net, http,
-// https, dns, tls, worker_threads, vm, repl) is rejected — a skill is
-// instructions + a small pure helper, not an arbitrary script. We ALSO statically
-// reject dynamic `import()`/`require()` so the allowlist can't be bypassed.
+// Tool modules may only import from this list of Node builtins: anything that
+// reaches the network or spawns processes (child_process, net, http, https,
+// dns, tls, worker_threads, vm, repl) is rejected.
+//
+// THIS IS A HYGIENE CHECK, NOT A SECURITY BOUNDARY. It used to be described as
+// a sandbox; it is not one, and treating it as one is the actual danger. The
+// tool is imported IN-PROCESS with full privileges, and a regex over source
+// text cannot constrain what arbitrary JavaScript does at runtime:
+//
+//   - `process` is a global that needs no import at all, so
+//     `process.getBuiltinModule('child_process')` (Node >=22.3) carries no
+//     import token for the regex to match.
+//   - Even a perfect regex would not help: `fs` is ON this list, and arbitrary
+//     file write reaches code execution by other means (overwriting a config
+//     whose hook runs a command).
+//
+// So this catches careless or accidental imports and keeps tools small. It does
+// NOT contain a hostile skill. Running a skill's tool runs its author's code
+// with your privileges — install and run only skills you trust.
 export const TOOL_ALLOWLIST = new Set([
   "node:fs",
   "fs",
@@ -66,8 +80,9 @@ export function checkToolImports(source) {
 
 // Load + execute a skill's SKILL.tool.js with the given argv. The module must
 // export `run(argv) -> { ok, output }`. `run()` is called in-process after a
-// static allowlist check (no network/child_process imports). `toolPath` must be
-// inside the skill dir. Returns { ok, output, error }.
+// static import check (a hygiene lint, NOT containment — see TOOL_ALLOWLIST
+// above: this runs the author's code in-process with full privileges).
+// `toolPath` must be inside the skill dir. Returns { ok, output, error }.
 export async function runSkillTool(toolPath, argv = []) {
   // M5: the executed tool source is attacker-controlled (a fetched skill) —
   // refuse anything over the SKILL.md cap instead of slurping a multi-GB file.
@@ -114,7 +129,12 @@ export async function cmdRun(args) {
     console.error(c.red("Usage: skill run <name> [-- args...]"));
     console.error(
       c.gray(
-        "  Executes the skill's SKILL.tool.js (if present) with the given args.",
+        "  Executes the skill's SKILL.tool.js (if present) with the given args —",
+      ),
+    );
+    console.error(
+      c.gray(
+        "  the skill author's code, in-process with your privileges. Run only skills you trust.",
       ),
     );
     process.exit(1);

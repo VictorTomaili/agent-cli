@@ -5,13 +5,17 @@ import { resolveSkillTarget, validateSkill } from './validate.js'
 import { runSkillTool } from './run.js'
 import { isPlainSkillFile } from '../lib/store.js'
 
-// `skill test <name|path>` — validate the skill, then execute SKILL.tool.js (if
-// present) in the allowlisted sandbox. Exits 0 on PASS, 1 on FAIL/invalid.
+// `skill test <name|path>` — validate the skill, then EXECUTE SKILL.tool.js (if
+// present) in-process with full privileges. The import check this runs behind is
+// a hygiene lint, not a sandbox (see TOOL_ALLOWLIST in run.js) — `skill test`
+// runs the skill author's code just as `skill run` does.
+// Exits 0 on PASS, 1 on FAIL/invalid.
 export async function cmdTest(args) {
   const target = args.find(a => !a.startsWith('-'))
   if (!target) {
     console.error(c.red('Usage: skill test <name|path>'))
-    console.error(c.gray('  Validates SKILL.md + runs SKILL.tool.js (allowlisted builtins only).'))
+    console.error(c.gray('  Validates SKILL.md, then RUNS SKILL.tool.js — the skill author\'s code,'))
+    console.error(c.gray('  in-process with your privileges. Only test skills you trust.'))
     process.exit(1)
   }
   const res = resolveSkillTarget(target)

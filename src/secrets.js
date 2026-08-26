@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { HOME, AGENTS_DIR } from "./util.js";
+import { HOME, AGENTS_DIR, writeFileSync } from "./util.js";
 
 export const SECRETS_FILE = ".secrets.json";
 export const SECRETS_KEY = ".secrets.key";
@@ -59,10 +59,23 @@ export function loadKey(scope = "global", cwd = process.cwd()) {
 			// what destroys secrets.
 			const raced = readExisting();
 			if (raced) return raced;
-			// On disk but unusable (truncated/corrupt): replace it deliberately,
-			// which is no worse than the state we are already in.
-			fs.writeFileSync(kp, key, { mode: 0o600 });
-			return key;
+			// On disk but unusable (truncated/corrupt, or a planted symlink):
+			// replace it deliberately WITHOUT following a symlink. A plain 'w'
+			// write here would traverse a symlinked .secrets.key and clobber its
+			// target; instead unlink the existing entry (a symlink is removed, its
+			// target untouched) and exclusively re-create the key. If we lose a
+			// concurrent re-create, prefer the winner's key on disk.
+			fs.rmSync(kp, { force: true });
+			try {
+				fs.writeFileSync(kp, key, { mode: 0o600, flag: "wx" });
+				return key;
+			} catch (err2) {
+				if (err2 && err2.code === "EEXIST") {
+					const raced2 = readExisting();
+					if (raced2) return raced2;
+				}
+				throw err2;
+			}
 		}
 		throw err;
 	}
@@ -82,10 +95,12 @@ function readStore(scope, cwd) {
 
 function writeStore(store, scope, cwd) {
 	const p = secretsPath(scope, cwd);
-	fs.mkdirSync(path.dirname(p), { recursive: true });
-	fs.writeFileSync(p, JSON.stringify(store, null, 2) + "\n", {
-		mode: 0o600,
-	});
+	// Route through the symlink-safe atomic writer (temp + exclusive 'wx' create
+	// + rename-over). A plain 'w' write followed a symlink pre-planted at
+	// [cwd]/.agents/.secrets.json in an untrusted repo and truncated its target;
+	// rename-over replaces the symlink itself, leaving the target untouched. Keep
+	// the 0600 mode so the store is never briefly world-readable.
+	writeFileSync(p, JSON.stringify(store, null, 2) + "\n", { mode: 0o600 });
 }
 
 function encrypt(key, value) {

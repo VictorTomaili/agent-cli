@@ -1,7 +1,8 @@
 // src/commands/delegation.js — handoff + agents, extracted from cli.js (HIGH-3).
 // Injected deps: { emit, fail, log, c, pretty, EXIT, isJson, listAgents,
 //   showAgent, scaffoldAgent, validateAgent, GLOBAL_AGENTS_DIR,
-//   projectAgentsDir, readFile, spawnSync, path }.
+//   projectAgentsDir, readFile, spawnSync, path, parseEditorCommand,
+//   cmdShimSpawnSync, resolveContained }.
 
 /** Register the handoff + agents commands. */
 export function registerDelegationCommands(
@@ -23,6 +24,9 @@ export function registerDelegationCommands(
 		readFile,
 		spawnSync,
 		path,
+		parseEditorCommand,
+		cmdShimSpawnSync,
+		resolveContained,
 	},
 ) {
 	// agent-cli handoff / whoami — delegation artifacts + identity summary
@@ -243,14 +247,34 @@ export function registerDelegationCommands(
 				const a = await showAgent(name, { cwd });
 				if (!a) fail(`No agent named '${name}'`);
 				emit({ command: "agents", action: "edit", name, path: a.path });
-				const editor =
+				// L1: never hand the editor string OR the repo-controlled agent path
+				// to a shell. `a.path` is a *.md filename read straight from the
+				// project agents dir, so a checked-out repo controls it; with
+				// shell:true a name like `x&calc&.md` / `$(…)` would execute. Parse
+				// $VISUAL/$EDITOR into argv (quote-aware) and spawn directly — same
+				// hardening as `edit` (src/commands/edit.js).
+				const rawEditor =
 					process.env.VISUAL ||
 					process.env.EDITOR ||
 					(process.platform === "win32" ? "notepad" : "vi");
-				const r = spawnSync(editor, [a.path], {
+				const editorArgs = parseEditorCommand(rawEditor);
+				if (!editorArgs)
+					fail(
+						`Cannot parse $VISUAL/$EDITOR (${JSON.stringify(rawEditor)}) — fix the variable (balanced quotes) or unset it.`,
+					);
+				let r = spawnSync(editorArgs[0], [...editorArgs.slice(1), a.path], {
 					stdio: "inherit",
-					shell: true,
 				});
+				if (
+					process.platform === "win32" &&
+					r.error &&
+					(r.error.code === "ENOENT" || r.error.code === "EINVAL")
+				) {
+					// Windows .cmd/.bat shims can't be CreateProcess'd directly — try
+					// the guarded cmd.exe fallback (null when args carry metacharacters).
+					const viaCmd = cmdShimSpawnSync(spawnSync, editorArgs, a.path);
+					if (viaCmd) r = viaCmd;
+				}
 				if (r.error || r.status !== 0)
 					process.exit(r.status != null ? r.status : 1);
 				return;
@@ -312,8 +336,16 @@ export function registerDelegationCommands(
 				const m = /^name:\s*(\S+)/m.exec(content);
 				if (m && !opts.name) finalName = m[1];
 				const targetDir = projectAgentsDir(cwd);
+				// The destination name may come from the UNTRUSTED imported file's own
+				// frontmatter (`\S+` matches `/`, `\`, `..`), so a crafted
+				// `name: ../../../.claude/CLAUDE` must not escape the project agents
+				// dir and overwrite an instruction file. Fail closed on any traversal.
+				const target = resolveContained(targetDir, `${finalName}.md`);
+				if (!target)
+					fail(
+						`Refusing import: unsafe agent name ${JSON.stringify(finalName)} — names may not contain path separators or '..'.`,
+					);
 				await (await import("../util.js")).ensureDir(targetDir);
-				const target = path.join(targetDir, `${finalName}.md`);
 				await fspMod.writeFile(target, content, "utf8");
 				emit({
 					command: "agents",

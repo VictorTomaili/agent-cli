@@ -122,15 +122,17 @@ export async function ensureDir(p) {
  *  modules that cannot await (models.js). HIGH-6: replaces the per-module
  *  duplicates that drifted (e.g. models.js lacked the random suffix). M3: same
  *  exclusive-create/fsync/rename-over-existing guarantees as writeFile. */
-export function writeFileSync(p, content) {
+export function writeFileSync(p, content, { mode } = {}) {
 	fs.mkdirSync(path.dirname(p), { recursive: true });
 	let tmp;
 	for (let attempt = 0; ; attempt++) {
 		tmp = `${p}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
 		try {
 			// 'wx' exclusive create: a pre-planted symlink at the tmp path is
-			// never followed (EEXIST → fresh random name).
-			const fd = fs.openSync(tmp, "wx");
+			// never followed (EEXIST → fresh random name). `mode` is applied at
+			// creation so a confidential target (e.g. a 0600 secrets store) never
+			// exists on disk with looser permissions.
+			const fd = fs.openSync(tmp, "wx", mode);
 			try {
 				fs.writeFileSync(fd, content, "utf8");
 				fs.fsyncSync(fd);

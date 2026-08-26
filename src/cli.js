@@ -481,6 +481,9 @@ registerDelegationCommands(program, {
 	readFile,
 	spawnSync,
 	path,
+	parseEditorCommand,
+	cmdShimSpawnSync,
+	resolveContained,
 });
 registerKnowledgeCommands(program, {
 	emit,

@@ -210,6 +210,141 @@ function symlinkRefusal(p) {
 	return err;
 }
 
+/** Cached result of probeFdIdentity(); null until first probed. */
+let fdIdentityReliable = null;
+
+/**
+ * Does this runtime report the same dev/ino from fstat(fd) and lstat(path) for
+ * one ordinary, unmoved file?
+ *
+ * It is supposed to. On Windows + Node 22.13.0 it does not, and readFileNoFollow's
+ * identity guard consequently refused every regular file — which is a denial of
+ * service, not a security control. But "these two disagree" is also exactly what
+ * a swapped path looks like, so the disagreement cannot simply be tolerated: the
+ * two cases have to be told apart, and that is what this answers.
+ *
+ * The probe runs on a file it creates itself, inside a directory it creates
+ * exclusively — so nothing about the caller's file, its directory, or its
+ * contents is involved, and no probe file is ever left behind.
+ *
+ * The private directory is load-bearing, not tidiness. Writing the probe file
+ * directly into the shared temp directory leaves a write→lstat→open window in a
+ * world-writable location, and winning it makes the two identities differ, which
+ * this function reports as "unreliable" — CACHED FOR THE PROCESS. That turns the
+ * probe into a downgrade oracle: win one race on a throwaway file and the strong
+ * check is disabled everywhere for the rest of the run, on a healthy runtime,
+ * after which the revert attack the strong check exists to catch goes through
+ * against the real secrets. Same attacker as the one who plants a symlink at
+ * `.agents/.secrets.json` — local execution and directory-watch timing — so it
+ * is squarely in this repo's threat model. mkdtemp creates the directory
+ * atomically and privately, which closes the window rather than narrowing it.
+ *
+ * EVERY answer other than "measured, and they disagree" is `true`, i.e. "the
+ * comparison is meaningful", which makes the caller refuse rather than read.
+ * There are two such answers and they are easy to conflate: the probe throwing,
+ * and the probe running on a volume that reports no usable inode. The second one
+ * is not a disagreement — there is nothing to disagree about — and reporting it
+ * as one would silently downgrade the caller's guard for the rest of the process.
+ *
+ * KNOWN LIMIT, deliberate: this measures the TEMP filesystem and caches one
+ * verdict for every later read on every volume. That is sound for the bug it
+ * exists for, which is a property of the Node build rather than of a disk. But
+ * identity reporting does also vary by volume — the caller's own guard opts out
+ * when a volume reports ino 0 — so the probe is a per-process approximation of a
+ * per-volume property, and generalizes toward refusing. Do not read it as
+ * measuring the file being opened.
+ *
+ * @returns {boolean} true when fd identity can be trusted to mean something
+ */
+function probeFdIdentity() {
+	let dir;
+	let fd;
+	try {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-cli-fdid-"));
+		const p = path.join(dir, "probe");
+		// wx as well: the directory is already private, but adopting a file this
+		// function did not create is never what it wants.
+		fs.writeFileSync(p, "x", { flag: "wx" });
+		// Open FIRST, then measure both ways. Ordering matters here for one reason
+		// only: stat-then-open is a check-then-use pattern, and there is nothing to
+		// check. The file was just created with `wx` in a directory this call made,
+		// so the lstat cannot inform the open — it only creates a window between
+		// them. Taking the fd first removes the window and the pattern together.
+		//
+		// Note what does NOT justify this branch: mkdtemp's mode. This code is
+		// win32-only (`pre` is null on POSIX, so the probe never runs there) and
+		// Windows largely ignores that mode, inheriting the parent's ACLs instead —
+		// private for a per-user %TEMP%, not established for a service identity on
+		// C:\Windows\Temp. Arguing 0700 would be POSIX reasoning about a path that
+		// never runs on POSIX. What actually makes a swap here worthless is
+		// probeFdIdentityCorroborated: only the "unreliable" answer helps an
+		// attacker, and it must be reproduced in PROBE_CORROBORATION separately
+		// created, unpredictably named directories before it is believed.
+		fd = fs.openSync(p, fs.constants.O_RDONLY);
+		const viaFd = fs.fstatSync(fd);
+		const viaPath = fs.lstatSync(p);
+		// No usable inode here means the probe could not measure, not that the
+		// two disagreed. os.tmpdir() follows TMP/TEMP and can land on exFAT,
+		// a UNC share or a RAM disk while the caller's file sits on NTFS, so
+		// this is an ordinary configuration rather than a contrived one.
+		if (!viaPath.ino || !viaFd.ino) return true;
+		return viaPath.ino === viaFd.ino && viaPath.dev === viaFd.dev;
+	} catch {
+		return true;
+	} finally {
+		if (fd !== undefined) {
+			try {
+				fs.closeSync(fd);
+			} catch {}
+		}
+		if (dir !== undefined) {
+			try {
+				fs.rmSync(dir, { recursive: true, force: true });
+			} catch {}
+		}
+	}
+}
+
+/** How many independent probes must agree before fd identity is called useless. */
+const PROBE_CORROBORATION = 3;
+
+/**
+ * probeFdIdentity, but "unreliable" has to be corroborated.
+ *
+ * A single probe is racy by construction: it lstats a path and then opens it,
+ * and CodeQL flags that ordering (js/file-system-race) correctly. mkdtemp makes
+ * the directory unpredictable, but this branch is win32-only and Windows largely
+ * ignores mkdtemp's mode — the new directory inherits its parent's ACLs, which
+ * are private for a per-user %TEMP% and not necessarily private for a service
+ * identity on C:\Windows\Temp. Justifying the single probe with "0700" would be
+ * POSIX reasoning applied to a code path that never runs on POSIX.
+ *
+ * So instead of arguing the race cannot be won, remove the reason to win it.
+ * Only ONE verdict helps an attacker — "unreliable", which downgrades the caller
+ * to the weaker check for the rest of the process — and it is now the verdict
+ * that has to be reproduced N times, in N separately created directories, before
+ * it is believed. A single won race no longer changes anything; the attacker has
+ * to win every one of them, back to back, at unpredictable paths. "Reliable" is
+ * the fail-closed answer and is taken from the first probe that reports it.
+ *
+ * Bounded cost: at most N probes, once per process, and only when a mismatch was
+ * observed in the first place.
+ *
+ * @returns {boolean} true when fd identity can be trusted to mean something
+ */
+function probeFdIdentityCorroborated() {
+	for (let i = 0; i < PROBE_CORROBORATION; i++) {
+		if (probeFdIdentity()) return true;
+	}
+	return false;
+}
+
+/** Test-only: forget the cached probe result so a suite can exercise both the
+ *  reliable and unreliable branches in one process. Not part of the CLI surface. */
+export function __resetFdIdentityProbe() {
+	fdIdentityReliable = null;
+}
+
 /**
  * Read `p`, refusing to follow symlinks or read non-regular files.
  *
@@ -269,8 +404,48 @@ export function readFileNoFollow(p, { maxBytes, encoding = "utf8" } = {}) {
 		// win32: the fd must still be the file lstat approved above, or the path
 		// was swapped between the two calls. Compared only when the filesystem
 		// reports a usable identity (some volumes report ino 0).
+		//
+		// A mismatch normally means the path was swapped, and refusing is right.
+		// But on Windows + Node 22.13.0 fstat and lstat report different dev/ino
+		// for ordinary, unmoved files, so this refused every regular file and made
+		// the tool unusable — 27 tests, secrets and MCP included. That is a denial
+		// of service, not a security control.
+		//
+		// So the mismatch is only trusted where it means something. probeFdIdentity
+		// asks the runtime, on a file of its own making, whether it reports fd and
+		// path identity consistently at all:
+		//
+		//   reliable   -> a mismatch is a real swap. Refuse, as before. This is the
+		//                 case on every healthy runtime, and NOTHING is given up
+		//                 here — including against a swap reverted before the read.
+		//   unreliable -> the comparison carries no signal on this build, so it
+		//                 cannot be the check. Fall back to confirming with a second
+		//                 lstat that the path did not move, which is same-family and
+		//                 so agrees by construction whatever fstat reports.
+		//
+		// The fallback is weaker, and deliberately so: it catches a swap that
+		// PERSISTS, but not one reverted between the open and the confirming lstat,
+		// because it asks whether the path moved rather than what the fd points at.
+		// That residual window is accepted ONLY on builds that cannot express the
+		// stronger question — Windows has no O_NOFOLLOW and no portable fd-to-path
+		// identity comparison, so on such a build there is nothing better to ask.
+		// A symlink planted in the window is checked for explicitly rather than
+		// inferred from the numbers, since a swap preserving dev/ino would slip
+		// past a numeric comparison alone.
 		if (pre && pre.ino && st.ino && (pre.ino !== st.ino || pre.dev !== st.dev)) {
-			throw symlinkRefusal(p);
+			if (fdIdentityReliable === null)
+				fdIdentityReliable = probeFdIdentityCorroborated();
+			if (fdIdentityReliable) {
+				throw symlinkRefusal(p);
+			}
+			const post = fs.lstatSync(p);
+			if (
+				post.isSymbolicLink() ||
+				post.ino !== pre.ino ||
+				post.dev !== pre.dev
+			) {
+				throw symlinkRefusal(p);
+			}
 		}
 		if (!st.isFile()) {
 			throw new Error(`not a regular file: ${p}`);

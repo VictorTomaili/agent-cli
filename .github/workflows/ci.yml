@@ -20,7 +20,24 @@ jobs:
         # needs the runner's own pattern expansion (Node 21+, cmd.exe doesn't
         # glob), and skill tool modules are ESM-in-.js relying on module
         # syntax detection. 18 and 20 are both EOL.
-        node: [22, 24]
+        #
+        # 22.13.0 is pinned as its own leg because setup-node resolves a bare
+        # `22` to the newest 22.x, so no floor is ever actually executed here:
+        # whatever the package claims to support, CI only ever ran two recent
+        # releases. 22.13.0 is the lowest 22.x the dependency tree accepts -
+        # every @inquirer/* package declares `^22.13.0` on this line and
+        # commander declares `>=22.12.0`. (engines.node still says >=22.0.0;
+        # raising it is a separate change, and this leg is what makes any such
+        # claim checkable rather than asserted.)
+        #
+        # This is not hypothetical coverage. Adding this leg is what found that
+        # readFileNoFollow refused every ordinary file on Windows + Node
+        # 22.13.0 - 27 tests, secrets and MCP included - because lstat and
+        # fstat report different dev/ino there. This job is now the only thing
+        # that runs the repaired path on the runtime it was written for; the
+        # unit tests around it simulate that divergence rather than meet it.
+        # If this job goes red, the fix regressed on a real runtime.
+        node: [22.13.0, 22, 24]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

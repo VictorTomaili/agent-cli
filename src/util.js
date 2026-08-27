@@ -302,6 +302,61 @@ export function resolveScope(rel, scope) {
 	return path.resolve(base, rel);
 }
 
+/**
+ * Resolve `<cwd>/.agents` for project scope, refusing a redirected base.
+ *
+ * Project scope trusts the CHECKOUT to say where its brain lives, and a checkout
+ * can be hostile: `.agents` is committable as a symlink (mode 120000), and on
+ * Windows a junction needs no privilege to create. Point it at `~/.agents` and
+ * every project-scope write lands on the GLOBAL brain instead — which matters
+ * more than a normal path escape, because SOUL.md and LESSONS.md are loaded into
+ * every session on the machine. Repo-scoped text would be promoted to standing,
+ * machine-wide agent instructions. Point it anywhere else and the same writes
+ * drop brain files into that directory.
+ *
+ * Reads are guarded for the mirror-image reason: readFileNoFollow only refuses a
+ * link at the FINAL component, so a linked `.agents` would let a project-scope
+ * read serve the global file's contents while reporting a project-scope path.
+ *
+ * Mirrors guardStageDir (seed.js) and guardStoreBase (skills/lib/store.js): lstat
+ * first, since Node reports Windows junctions as symlinks, then realpath
+ * containment as the fallback for reparse points that report differently.
+ *
+ * @returns {string} the resolved `<cwd>/.agents`
+ * @throws {Error} code EPROJECTBASEREDIRECTED when the base escapes cwd
+ */
+export function projectBrainDir(cwd = process.cwd()) {
+	const base = path.join(cwd, ".agents");
+	let st = null;
+	try {
+		st = fs.lstatSync(base);
+	} catch (err) {
+		// Absent is fine — it will be created inside cwd by the caller.
+		if (err?.code === "ENOENT") return base;
+		throw err;
+	}
+	const refuse = (why) => {
+		const e = new Error(
+			`refusing to use project scope: ${base} ${why}. Remove the link and re-run, or use global scope (-g).`,
+		);
+		e.code = "EPROJECTBASEREDIRECTED";
+		throw e;
+	};
+	if (st.isSymbolicLink()) refuse("is a symlink or reparse point (junction)");
+	let realBase;
+	let realCwd;
+	try {
+		realBase = fs.realpathSync(base);
+		realCwd = fs.realpathSync(cwd);
+	} catch {
+		// Unresolvable is not evidence of an escape; the lstat check above stands.
+		return base;
+	}
+	if (realBase !== path.join(realCwd, ".agents"))
+		refuse(`resolves outside ${cwd} (to ${realBase})`);
+	return base;
+}
+
 /** Resolve a user-provided relative path while enforcing a filesystem root. */
 export function resolveContained(root, rel) {
 	if (typeof rel !== "string") return null;

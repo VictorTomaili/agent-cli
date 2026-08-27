@@ -308,3 +308,50 @@ test("SEC-4: loadKey refuses to remove an entry that is neither file nor symlink
 		"the directory and its contents must survive untouched",
 	);
 });
+
+// SEC-4b: the WRITE side was symlink-safe but the READ side was not. loadKey()
+// short-circuits on an existing 32-byte key, and it read that key with a plain
+// readFileSync — so an untrusted repo could point [cwd]/.agents/.secrets.key at
+// any 32-byte file on the machine and have agent-cli silently adopt those bytes
+// as the project's encryption key. The earlier SEC-4 test could not catch this:
+// its victim is a text file whose length is not 32, so the read returned null
+// and fell through to the replace path by accident rather than by guard.
+test("SEC-4b: loadKey must not read a key THROUGH a symlink to a 32-byte file", (t) => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-key-read-proj-"));
+	mkdirSync(path.join(cwd, ".agents"), { recursive: true });
+	const kp = path.join(cwd, ".agents", ".secrets.key");
+
+	// A 32-byte victim: exactly the shape loadKey accepts as a valid key.
+	const victimDir = mkdtempSync(path.join(tmpdir(), "agent-key-read-victim-"));
+	const victim = path.join(victimDir, "someone-elses-32-bytes");
+	const VICTIM_KEY = Buffer.alloc(32, 0xab);
+	writeFileSync(victim, VICTIM_KEY);
+
+	const refused = plantSymlink(victim, kp);
+	if (refused) {
+		t.skip(SKIP_REASON(refused));
+		return;
+	}
+
+	const key = secrets.loadKey("project", cwd);
+	assert.equal(Buffer.isBuffer(key), true, "loadKey must still return a Buffer");
+	assert.equal(key.length, 32, "loadKey must still return a usable key");
+	assert.notDeepEqual(
+		key,
+		VICTIM_KEY,
+		"SEC-4b: the victim's bytes must never become the project's key",
+	);
+	assert.deepEqual(
+		readFileSync(victim),
+		VICTIM_KEY,
+		"SEC-4b: the victim file itself must be untouched",
+	);
+	// Asked last: no path use follows it, so this stays a plain assertion rather
+	// than a check-then-use.
+	assert.equal(
+		lstatSync(kp).isSymbolicLink(),
+		false,
+		"SEC-4b: the planted symlink must have been replaced by a real key file",
+	);
+});
+

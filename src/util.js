@@ -233,7 +233,7 @@ function symlinkRefusal(p) {
 	return err;
 }
 
-export function readFileNoFollow(p, { maxBytes } = {}) {
+export function readFileNoFollow(p, { maxBytes, encoding = "utf8" } = {}) {
 	const isWin = process.platform === "win32";
 	const flags = isWin
 		? fs.constants.O_RDONLY
@@ -274,7 +274,9 @@ export function readFileNoFollow(p, { maxBytes } = {}) {
 		if (maxBytes != null && st.size > maxBytes) {
 			throw new Error(`file exceeds ${maxBytes}-byte cap: ${p}`);
 		}
-		return fs.readFileSync(fd, "utf8");
+		// `encoding: null` returns a Buffer — required for binary content such as
+		// the 32-byte secrets key, which utf8 decoding would silently corrupt.
+		return fs.readFileSync(fd, encoding);
 	} finally {
 		fs.closeSync(fd);
 	}

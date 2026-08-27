@@ -6,7 +6,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { HOME, AGENTS_DIR, writeFileSync, writeFileIfAbsent } from "./util.js";
+import {
+	HOME,
+	AGENTS_DIR,
+	writeFileSync,
+	writeFileIfAbsent,
+	readFileNoFollow,
+} from "./util.js";
 
 export const SECRETS_FILE = ".secrets.json";
 export const SECRETS_KEY = ".secrets.key";
@@ -36,9 +42,15 @@ export function keyPath(scope = "global", cwd = process.cwd()) {
 export function loadKey(scope = "global", cwd = process.cwd()) {
 	const kp = keyPath(scope, cwd);
 	fs.mkdirSync(path.dirname(kp), { recursive: true });
+	// Symlink-safe READ, not just a symlink-safe write. writeFileIfAbsent's 'wx'
+	// refuses to follow a planted link, but a plain readFileSync here would
+	// happily follow one — so an untrusted repo could point [cwd]/.agents/
+	// .secrets.key at any 32-byte file on the machine and have agent-cli adopt
+	// its bytes as the project's encryption key. A refusal returns null, which
+	// falls through to the replace path below and removes the link.
 	const readExisting = () => {
 		try {
-			const buf = fs.readFileSync(kp);
+			const buf = readFileNoFollow(kp, { encoding: null, maxBytes: 1024 });
 			return buf.length === 32 ? buf : null;
 		} catch {
 			return null;

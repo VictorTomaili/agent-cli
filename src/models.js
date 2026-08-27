@@ -3,7 +3,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { HOME, writeFileSync } from "./util.js";
+import { HOME, writeFileSync, escapeRegExp } from "./util.js";
 import {
 	loadConfigSync,
 	saveConfigSync,
@@ -104,7 +104,15 @@ export function setAlias(name, { model, category, thinking, fallbacks }) {
 	const cfg = readConfig();
 	cfg.models = cfg.models || {};
 	cfg.models.aliases = cfg.models.aliases || {};
-	const prev = cfg.models.aliases[name] || {};
+	// MODELS.md is the durable, hand-editable record of the alias set and is
+	// not tracked by git; config.json is the machine mirror. The two can drift
+	// (a hand-edited file, a restored MODELS.md, a repaired/reset config.json),
+	// so fill the gaps from the file before merging. config.json still wins
+	// field-by-field — an explicitly cleared `fallbacks: []` stays cleared.
+	const prev = {
+		...(getModelsMdAlias(name) || {}),
+		...(cfg.models.aliases[name] || {}),
+	};
 	cfg.models.aliases[name] = {
 		...prev,
 		...(category == null ? {} : { category }),
@@ -118,6 +126,177 @@ export function setAlias(name, { model, category, thinking, fallbacks }) {
 	saveConfigSync(cfg);
 	return cfg.models.aliases[name];
 }
+// --- MODELS.md <ALIAS> lines -------------------------------------------------
+// The `## Aliases` block is a set of independent, hand-editable records — not
+// a rendering of config.json. Regenerating the whole block from config would
+// delete every line config has not (yet) heard of, and that drift is real:
+// MODELS.md is hand-editable by design and is not tracked by git. So the writer
+// below is a per-line upsert — it rewrites only the lines it has news about and
+// leaves every other line byte-identical.
+
+/** Escape a value for an XML attribute or element body. */
+const esc = (v) =>
+	String(v ?? "")
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+
+/** Inverse of `esc`. `&amp;` is undone LAST so nothing unescapes twice. */
+const unesc = (v) =>
+	String(v ?? "")
+		.replace(/&quot;/g, '"')
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&amp;/g, "&");
+
+const ALIAS_LINE_RE = /^\s*<ALIAS\s+([^>]*?)\s*>([\s\S]*)<\/ALIAS>\s*$/;
+const ALIAS_PLACEHOLDER =
+	"_No aliases configured yet. Run `agent-cli models suggest` to auto-pick, or `agent-cli models set <alias> <provider/model>` to assign manually._";
+const ALIAS_PLACEHOLDER_RE = /^_No aliases configured yet\./;
+
+/** Render one alias as its canonical `<ALIAS …>` line. */
+function renderAliasLine(name, v) {
+	return `<ALIAS name="${esc(name)}" category="${esc(v.category)}" thinking="${esc(v.thinking)}" fallbacks="${esc((v.fallbacks || []).join(","))}">${esc(v.model)}</ALIAS>`;
+}
+
+/**
+ * Parse a single `<ALIAS …>model</ALIAS>` line into `{ name, entry }`.
+ * Returns null when the line is not an alias line.
+ */
+export function parseAliasLine(line) {
+	const m = ALIAS_LINE_RE.exec(String(line ?? ""));
+	if (!m) return null;
+	const attrs = {};
+	for (const a of m[1].matchAll(/([a-zA-Z][\w-]*)\s*=\s*"([^"]*)"/g))
+		attrs[a[1]] = unesc(a[2]);
+	if (!attrs.name) return null;
+	const entry = { model: unesc(m[2]).trim() };
+	if (attrs.category) entry.category = attrs.category;
+	if (attrs.thinking) entry.thinking = attrs.thinking;
+	entry.fallbacks = attrs.fallbacks
+		? attrs.fallbacks
+				.split(",")
+				.map((x) => x.trim())
+				.filter(Boolean)
+		: [];
+	return { name: attrs.name, entry };
+}
+
+/** Every `<ALIAS …>` line in `content`, as `{ name: entry }` in file order. */
+export function parseModelsMdAliases(content) {
+	const out = {};
+	for (const line of String(content ?? "").split("\n")) {
+		const parsed = parseAliasLine(line);
+		if (parsed) out[parsed.name] = parsed.entry;
+	}
+	return out;
+}
+
+/** The alias `name` as recorded in MODELS.md on disk, or null. Never throws. */
+export function getModelsMdAlias(name) {
+	const content = readExistingModelsMd();
+	if (content == null) return null;
+	return parseModelsMdAliases(content)[name] ?? null;
+}
+
+/** Comparison key over the four fields an `<ALIAS>` line encodes. */
+function aliasKey(v) {
+	return JSON.stringify([
+		String(v?.model ?? ""),
+		String(v?.category ?? ""),
+		String(v?.thinking ?? ""),
+		(v?.fallbacks || []).join(","),
+	]);
+}
+
+/** A whole `## Aliases` section — only for a file that has no such section. */
+function buildAliasSection(aliases, dropSet = new Set()) {
+	const names = Object.keys(aliases).filter((n) => !dropSet.has(n));
+	const lines = ["## Aliases", ""];
+	if (!names.length) lines.push(ALIAS_PLACEHOLDER, "");
+	for (const n of names) lines.push(renderAliasLine(n, aliases[n]));
+	lines.push("");
+	return lines.join("\n");
+}
+
+/**
+ * Upsert alias lines inside an existing `## Aliases` section.
+ *
+ * A line is rewritten only when `aliases` holds that name AND says something
+ * different from what the line already says; names in `dropSet` are deleted;
+ * names in `aliases` with no line yet are appended after the last existing one.
+ * Everything else — orphan alias lines config has never heard of, blank lines,
+ * hand-written prose inside the section — is returned byte-identical.
+ */
+function upsertAliasLines(section, aliases, dropSet) {
+	const lines = section.split("\n");
+	const kept = lines.filter((l) => {
+		const parsed = parseAliasLine(l);
+		return parsed && !dropSet.has(parsed.name);
+	}).length;
+	const willHaveAliases =
+		kept > 0 || Object.keys(aliases).some((n) => !dropSet.has(n));
+
+	const out = [];
+	const seen = new Set();
+	let lastAliasAt = -1;
+	for (const line of lines) {
+		const parsed = parseAliasLine(line);
+		if (!parsed) {
+			// The "nothing configured yet" note goes once real aliases exist.
+			if (willHaveAliases && ALIAS_PLACEHOLDER_RE.test(line)) continue;
+			out.push(line);
+			continue;
+		}
+		if (dropSet.has(parsed.name)) continue;
+		seen.add(parsed.name);
+		const next = aliases[parsed.name];
+		out.push(
+			next && aliasKey(next) !== aliasKey(parsed.entry)
+				? renderAliasLine(parsed.name, next)
+				: line,
+		);
+		lastAliasAt = out.length - 1;
+	}
+
+	const added = [];
+	for (const [name, v] of Object.entries(aliases))
+		if (!seen.has(name) && !dropSet.has(name))
+			added.push(renderAliasLine(name, v));
+	while (out.length > 1 && !out[out.length - 1].trim()) out.pop();
+	if (added.length) {
+		if (lastAliasAt >= 0) out.splice(lastAliasAt + 1, 0, ...added);
+		else out.push("", ...added);
+	} else if (
+		!willHaveAliases &&
+		!out.some((l) => ALIAS_PLACEHOLDER_RE.test(l))
+	) {
+		out.push("", ALIAS_PLACEHOLDER);
+	}
+	out.push("");
+	return out.join("\n");
+}
+
+/** Apply the per-line upsert to a document, appending the section if absent. */
+function upsertAliasSection(content, aliases, dropSet) {
+	const found = findSection(content, "## Aliases");
+	if (!found)
+		return (
+			content.trimEnd() +
+			"\n\n" +
+			buildAliasSection(aliases, dropSet).trimEnd() +
+			"\n"
+		);
+	const followedByMore = found.end < content.length;
+	return (
+		content.slice(0, found.start) +
+		upsertAliasLines(found.text, aliases, dropSet).trimEnd() +
+		(followedByMore ? "\n" : "") +
+		content.slice(found.end)
+	);
+}
+
 /** Best-effort synchronous read of the existing MODELS.md; null if absent/unreadable. */
 function readExistingModelsMd() {
 	try {
@@ -127,18 +306,44 @@ function readExistingModelsMd() {
 	}
 }
 
-/** Replace a `## Heading` section in place (up to the next `## ` heading or
- *  EOF), or append it if the heading isn't present yet. Same pattern as
- *  mergeLiveCatalogSection's "## Live model catalog" handling below. */
+/**
+ * Locate a `## Heading` section: from the start of the heading LINE up to the
+ * next `## ` heading line, or EOF. Returns `{ start, end, text }` or null.
+ *
+ * The heading must start a line. An earlier version matched the heading
+ * anywhere, so a document that merely *mentions* `## Aliases` or
+ * `## Curated model catalog` in prose (a note about this file, say) had that
+ * sentence treated as the section — and the real section below it was left
+ * alone while content was spliced into the middle of a paragraph.
+ */
+function findSection(content, heading) {
+	const re = new RegExp(`(?:^|\\n)${escapeRegExp(heading)}[^\\n]*`);
+	const m = re.exec(content);
+	if (!m) return null;
+	const start = m.index + (m[0].startsWith("\n") ? 1 : 0);
+	const after = content.slice(start + m[0].length);
+	const nextIdx = after.search(/\n##\s/);
+	const end = nextIdx < 0 ? content.length : start + m[0].length + nextIdx;
+	return { start, end, text: content.slice(start, end) };
+}
+
+/** Whether `content` has a `## Heading` section (heading at a line start). */
+function hasSection(content, heading) {
+	return findSection(content, heading) != null;
+}
+
+/** Replace a `## Heading` section in place, or append it if not present. */
 function replaceOrAppendSection(content, heading, newSection) {
-	const re = new RegExp(`${heading}[\\s\\S]*?(?=\\n## |$)`);
-	const found = content.match(re);
-	if (found) {
-		// Preserve a blank line before whatever follows, unless this section is at EOF.
-		const followedByMore = found.index + found[0].length < content.length;
-		return content.replace(re, newSection.trimEnd() + (followedByMore ? "\n" : ""));
-	}
-	return content.trimEnd() + "\n\n" + newSection.trimEnd() + "\n";
+	const found = findSection(content, heading);
+	if (!found) return content.trimEnd() + "\n\n" + newSection.trimEnd() + "\n";
+	// Preserve a blank line before whatever follows, unless this section is at EOF.
+	const followedByMore = found.end < content.length;
+	return (
+		content.slice(0, found.start) +
+		newSection.trimEnd() +
+		(followedByMore ? "\n" : "") +
+		content.slice(found.end)
+	);
 }
 
 /**
@@ -152,31 +357,25 @@ function replaceOrAppendSection(content, heading, newSection) {
  *
  * agent-cli no longer emits a model catalog of its own, so no path here can
  * overwrite a catalog section a user or agent wrote by hand.
+ *
+ * Inside the aliases block the sync is a per-line UPSERT, not a regeneration:
+ * an `<ALIAS>` line is rewritten only when config.json says something different
+ * about that alias, appended when config has an alias the file lacks, and
+ * deleted only for the names passed in `drop` (what `agent-cli models rm`
+ * hands over). A line for an alias config.json has never heard of is left
+ * byte-identical rather than deleted — MODELS.md is hand-editable and is not
+ * tracked by git, so rendering the block from config alone would silently
+ * destroy every alias present only in the file.
+ *
+ * @param {object} [opts]
+ * @param {string[]} [opts.drop] - alias names whose `<ALIAS>` line to remove.
  */
-export function writeModelsMd() {
+export function writeModelsMd({ drop = [] } = {}) {
 	// Refuse to generate a misleading document from a corrupt config.
 	const cfg = readConfig();
 	const a = cfg.models?.aliases ?? {};
-	const esc = (v) =>
-		String(v ?? "")
-			.replace(/&/g, "&amp;")
-			.replace(/"/g, "&quot;")
-			.replace(/</g, "&lt;")
-			.replace(/>/g, "&gt;");
-
-	const aliasLines = ["## Aliases", ""];
-	if (Object.keys(a).length === 0) {
-		aliasLines.push(
-			"_No aliases configured yet. Run `agent-cli models suggest` to auto-pick, or `agent-cli models set <alias> <provider/model>` to assign manually._",
-			"",
-		);
-	}
-	for (const [name, v] of Object.entries(a))
-		aliasLines.push(
-			`<ALIAS name="${esc(name)}" category="${esc(v.category)}" thinking="${esc(v.thinking)}" fallbacks="${esc((v.fallbacks || []).join(","))}">${esc(v.model)}</ALIAS>`,
-		);
-	aliasLines.push("");
-	const aliasSection = aliasLines.join("\n");
+	// Aliases the caller has just deleted from config — their lines go too.
+	const dropSet = new Set(drop);
 	const categoriesSection = [
 		"## Categories",
 		...CATEGORIES.map((c) => `- **${c}** — ${CAT_DESC[c]}`),
@@ -193,15 +392,16 @@ export function writeModelsMd() {
 			"> Edit with `agent-cli models set <alias> <provider/model> --fallback <provider/model>...`.",
 			"> Run `agent-cli models research --fetch` to import a candidate list, then `agent-cli models suggest --apply` to assign one to each unresolved alias.",
 			"",
-			aliasSection,
+			buildAliasSection(a, dropSet),
 			categoriesSection,
 		];
 		writeFileSync(MODELS_MD, lines.join("\n"));
 		return MODELS_MD;
 	}
 
-	let out = replaceOrAppendSection(existing, "## Aliases", aliasSection);
-	if (!/##\s+Categories/.test(out)) {
+	// Targeted upsert: only alias lines this call has news about are rewritten.
+	let out = upsertAliasSection(existing, a, dropSet);
+	if (!hasSection(out, "## Categories")) {
 		out = out.trimEnd() + "\n\n" + categoriesSection;
 	}
 	writeFileSync(MODELS_MD, out.trimEnd() + "\n");
@@ -285,13 +485,7 @@ function categoryFromId(id) {
  * the actual file write. Used by `agent-cli models research --fetch`.
  */
 export function mergeLiveCatalogSection(existing, liveSection) {
-	if (/##\s+Live model catalog/.test(existing)) {
-		return existing.replace(
-			/## Live model catalog[\s\S]*?(?=\n## |$)/,
-			liveSection.trimEnd(),
-		);
-	}
-	return existing.trimEnd() + "\n\n" + liveSection.trimEnd() + "\n";
+	return replaceOrAppendSection(existing, "## Live model catalog", liveSection);
 }
 
 /**

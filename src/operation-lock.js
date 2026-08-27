@@ -264,11 +264,18 @@ function sleep(ms) {
 async function acquireOne(lockFile, metadataStr, ctx) {
 	for (;;) {
 		if (Date.now() > ctx.deadline) {
-			const err = new Error("operation busy");
+			const err = new Error(
+				ctx.lastTransient
+					? `operation busy (last acquire error: ${ctx.lastTransient} — if this persists, check permissions on ${lockFile})`
+					: "operation busy",
+			);
 			err.code = "OPERATION_BUSY";
 			err.lock = ctx.name;
 			err.waitedMs = Date.now() - ctx.startTime;
 			err.lockFiles = ctx.lockFiles;
+			// A genuine permission fault and a busy lock both end up here on win32.
+			// Surfacing the last code keeps them distinguishable to a caller.
+			if (ctx.lastTransient) err.lastAcquireError = ctx.lastTransient;
 			throw err;
 		}
 		try {
@@ -280,7 +287,27 @@ async function acquireOne(lockFile, metadataStr, ctx) {
 			}
 			return;
 		} catch (e) {
-			if (e.code !== "EEXIST") throw e;
+			// Windows reports a CONTENDED lock as EPERM/EACCES, not EEXIST.
+			// Unlinking a file another process still holds open leaves it in a
+			// pending-delete state, and opening it again returns ERROR_ACCESS_DENIED
+			// until the last handle closes. Under concurrent acquire/release — six
+			// `target enable` processes, say — that is ordinary contention, but the
+			// old code threw it straight out and failed the whole operation.
+			//
+			// Retrying is safe: the deadline check at the top of the loop still
+			// bounds the wait, so a real permission fault times out as
+			// OPERATION_BUSY (carrying lastAcquireError) instead of spinning.
+			// There is no metadata to inspect in this state — the file is mid-delete
+			// — so staleness cannot be evaluated and backing off is all we can do.
+			const winContended =
+				process.platform === "win32" &&
+				(e.code === "EPERM" || e.code === "EACCES");
+			if (e.code !== "EEXIST" && !winContended) throw e;
+			if (winContended) {
+				ctx.lastTransient = e.code;
+				await sleep(10);
+				continue;
+			}
 			const meta = readMetadata(lockFile);
 			if (isStale(meta)) {
 				try {

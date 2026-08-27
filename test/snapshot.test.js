@@ -187,3 +187,50 @@ test("restores in the same millisecond never merge into one pre-restore backup",
 		"# backup-me\n",
 	);
 });
+
+// Snapshots deliberately never contain .secrets.* (copyDirSync skipSecret), so a
+// secret file is guaranteed to be absent from the staged tree. The step-5 unlink
+// loop must therefore exempt it explicitly — otherwise "excluded from the backup"
+// silently becomes "deleted on every restore", and the key goes with it, which
+// makes every stored secret permanently undecryptable.
+test("restore preserves the encrypted secrets store and its key", async () => {
+	const store = path.join(brain(), ".secrets.json");
+	const key = path.join(brain(), ".secrets.key");
+	writeFileSync(store, '{"secrets":{"DEPLOY_TOKEN":"ciphertext"}}');
+	writeFileSync(key, "0123456789abcdef0123456789abcdef");
+
+	const s = await snap.snapshot();
+	assert.equal(s.ok, true);
+	assert.ok(
+		!existsSync(path.join(s.path, ".secrets.json")),
+		"snapshot must not capture the secrets store",
+	);
+
+	writeFileSync(path.join(brain(), "AGENTS.md"), "# changed\n");
+	const r = await snap.restore(s.name);
+	assert.equal(r.ok, true);
+
+	assert.ok(existsSync(store), "restore must not delete the secrets store");
+	assert.ok(existsSync(key), "restore must not delete the secrets key");
+	assert.equal(
+		readFileSync(store, "utf8"),
+		'{"secrets":{"DEPLOY_TOKEN":"ciphertext"}}',
+		"the store must survive restore byte-for-byte",
+	);
+	assert.equal(readFileSync(key, "utf8"), "0123456789abcdef0123456789abcdef");
+});
+
+// The same exemption has to hold one level down: a project-scope brain keeps its
+// store in a subdirectory, and a rel-path check that only looks at the basename
+// of the top level would miss it.
+test("restore preserves a secrets store nested in a subdirectory", async () => {
+	const dir = path.join(brain(), "projects", "acme");
+	mkdirSync(dir, { recursive: true });
+	const nested = path.join(dir, ".secrets.json");
+	writeFileSync(nested, '{"secrets":{"NESTED":"ciphertext"}}');
+
+	const s = await snap.snapshot();
+	const r = await snap.restore(s.name);
+	assert.equal(r.ok, true);
+	assert.ok(existsSync(nested), "a nested secrets store must survive restore");
+});

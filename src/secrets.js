@@ -12,6 +12,7 @@ import {
 	writeFileSync,
 	writeFileIfAbsent,
 	readFileNoFollow,
+	projectBrainDir,
 } from "./util.js";
 
 export const SECRETS_FILE = ".secrets.json";
@@ -34,8 +35,23 @@ export const MAX_SECRET_BYTES = 8 * 1024; // one value, before encryption
 export const MAX_STORE_BYTES = 3 * 1024 * 1024; // whole store, enforced on write
 export const MAX_STORE_READ_BYTES = 4 * 1024 * 1024; // whole store, enforced on read
 
+// Project scope trusts the CHECKOUT to say where its brain lives, and a checkout
+// can commit `.agents` as a symlink — on Windows a junction, which needs no
+// privilege at all. Unguarded, that redirects every project-scoped secret path
+// onto the GLOBAL store, and `secret env -p` inside a hostile repo decrypts and
+// prints the machine's global secrets in plaintext.
+//
+// readFileNoFollow does not catch this and cannot: it refuses a link at the FINAL
+// path component, but here the link is the DIRECTORY, so the final component is a
+// genuine regular file — the real global store — and the key resolves through the
+// same redirect, which is why it decrypts rather than failing. Every SEC-3/SEC-4
+// guard is bypassed by moving the link one level up. Refusing the base directory
+// is the only place this can be caught.
+//
+// Called bare: projectBrainDir resolves cwd itself, so scopeDir's old
+// path.resolve would be redundant here rather than load-bearing.
 function scopeDir(scope, cwd = process.cwd()) {
-	return scope === "project" ? path.join(path.resolve(cwd), ".agents") : AGENTS_DIR;
+	return scope === "project" ? projectBrainDir(cwd) : AGENTS_DIR;
 }
 
 export function secretsPath(scope = "global", cwd = process.cwd()) {

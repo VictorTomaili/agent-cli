@@ -185,8 +185,24 @@ test("a write that would grow the store past the cap is refused, not silently ap
 // `store.secrets[name] = ...` invokes the `__proto__` SETTER instead of creating
 // an own property: JSON.stringify then omits it and setSecret still reports
 // ok:true. `rmSecret` already gates on hasOwnProperty; set and get did not.
+//
+// Every test below needs a store that already EXISTS on disk. The bug lives in
+// the object JSON.parse hands back; readStore's empty-store path returns a plain
+// `{}` literal built here in-process, and a fixture that only exercises that
+// path would pass whether or not the fix is correct. seedStore() makes the
+// precondition explicit instead of inheriting it from whichever tests above
+// happened to run first.
+function seedStore() {
+	assert.equal(secrets.setSecret("SEED", "seed-value").ok, true);
+	assert.ok(existsSync(secrets.secretsPath("global")), "fixture: store must be on disk");
+	// The precondition the bug requires: the parsed map inherits Object.prototype.
+	const parsed = JSON.parse(readFileSync(secrets.secretsPath("global"), "utf8"));
+	assert.equal(Object.getPrototypeOf(parsed.secrets), Object.prototype);
+	assert.equal(typeof parsed.secrets.toString, "function", "fixture: inherited keys resolve");
+}
 
 test("setSecret actually stores a secret named __proto__", () => {
+	seedStore();
 	const before = secrets.listSecretNames();
 	const r = secrets.setSecret("__proto__", "proto-value");
 	assert.equal(r.ok, true);
@@ -207,6 +223,7 @@ test("setSecret actually stores a secret named __proto__", () => {
 });
 
 test("storing a prototype-named secret never pollutes Object.prototype", () => {
+	seedStore();
 	secrets.setSecret("__proto__", "harmless");
 	assert.equal({}.iv, undefined, "Object.prototype must stay clean");
 	assert.equal(Object.getPrototypeOf({}), Object.prototype);
@@ -214,6 +231,7 @@ test("storing a prototype-named secret never pollutes Object.prototype", () => {
 });
 
 test("getSecret reports a missing prototype-named secret as missing", () => {
+	seedStore();
 	// Inherited keys resolved truthy and reached decrypt, which threw a raw
 	// TypeError from Buffer.from(undefined) — an internal error message where
 	// the user asked for a name that simply is not there.
@@ -234,6 +252,7 @@ test("getSecret reports a missing prototype-named secret as missing", () => {
 });
 
 test("a prototype-named secret does not shadow a real one", () => {
+	seedStore();
 	secrets.setSecret("REAL", "real-value");
 	secrets.setSecret("toString", "ts-value");
 	assert.equal(secrets.getSecret("REAL"), "real-value");

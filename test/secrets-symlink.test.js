@@ -355,3 +355,44 @@ test("SEC-4b: loadKey must not read a key THROUGH a symlink to a 32-byte file", 
 	);
 });
 
+// SEC-3b: the read side of the STORE, same class as SEC-4b for the key.
+// writeStore() was made symlink-safe, but readStore() still followed a link
+// planted at [cwd]/.agents/.secrets.json — pulling an arbitrary local file into
+// memory and parsing it as JSON. A store-shaped victim was therefore adopted as
+// the project's secrets, and any other file was read for no reason at all.
+test("SEC-3b: readStore must not read the store THROUGH a symlink", (t) => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-store-read-proj-"));
+	mkdirSync(path.join(cwd, ".agents"), { recursive: true });
+	const store = path.join(cwd, ".agents", ".secrets.json");
+
+	// A victim that is itself a valid store, so following the link would look
+	// like success rather than erroring out.
+	const victimDir = mkdtempSync(path.join(tmpdir(), "agent-store-read-victim-"));
+	const victim = path.join(victimDir, "someone-elses-store.json");
+	const VICTIM_JSON = JSON.stringify(
+		{ version: 1, secrets: { PLANTED: { iv: "x", tag: "y", data: "z" } } },
+		null,
+		2,
+	);
+	writeFileSync(victim, VICTIM_JSON);
+
+	const refused = plantSymlink(victim, store);
+	if (refused) {
+		t.skip(SKIP_REASON(refused));
+		return;
+	}
+
+	// Listing names goes straight through readStore.
+	assert.deepEqual(
+		secrets.listSecretNames({ scope: "project", cwd }),
+		[],
+		"SEC-3b: a symlinked store must read as empty, never as the victim's contents",
+	);
+
+	assert.equal(
+		readFileSync(victim, "utf8"),
+		VICTIM_JSON,
+		"SEC-3b: the victim file must be untouched by the read",
+	);
+});
+

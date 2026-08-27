@@ -115,12 +115,20 @@ export function loadKey(scope = "global", cwd = process.cwd()) {
 
 function readStore(scope, cwd) {
 	const p = secretsPath(scope, cwd);
-	if (!fs.existsSync(p)) return { version: 1, secrets: {} };
+	// Symlink-safe, matching writeStore. A plain readFileSync followed a link
+	// planted at [cwd]/.agents/.secrets.json in an untrusted repo and pulled an
+	// arbitrary local file into memory to be parsed as JSON. A refusal is
+	// treated as "no store", which is the same outcome as a missing or corrupt
+	// file, and the write path then replaces the link rather than following it.
+	//
+	// No existsSync pre-check: readFileNoFollow throws ENOENT for a missing
+	// path, so testing first would only add a check-then-use race for a result
+	// this catch already handles.
 	try {
-		const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+		const parsed = JSON.parse(readFileNoFollow(p, { maxBytes: 4 * 1024 * 1024 }));
 		if (parsed && typeof parsed === "object" && parsed.secrets) return parsed;
 	} catch {
-		/* corrupt → treat as empty, original bytes preserved below on write? */
+		/* missing, refused, corrupt, or oversized → treat as an empty store */
 	}
 	return { version: 1, secrets: {} };
 }

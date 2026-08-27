@@ -135,6 +135,10 @@ export function registerMemoryStackCommands(
 				if (!name || !value.length)
 					fail("Usage: agent-cli secret set <name> <value>");
 				const r = sec.setSecret(name, value.join(" "), { scope });
+				// setSecret refuses oversized values and stores that would grow past
+				// the write cap. Reporting that as "stored" would be the same silent
+				// data loss the cap exists to prevent.
+				if (!r.ok) fail(r.reason, { command: "secret", action, name, scope });
 				emit({ command: "secret", action, ...r });
 				if (!isJson()) log.success(`Secret '${name}' stored (${scope}).`);
 				return;

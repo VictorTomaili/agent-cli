@@ -27,8 +27,8 @@ function readConfig() {
 /**
  * Parse a fallback spec "tool:provider/model[:thinking]" into
  * { tool, provider, model, thinking }. Codex has no provider, so
- * "codex:gpt-5.6-luna" parses with provider null; every other tool requires
- * one ("pi:zai/glm-5.3:high"). Throws a descriptive Error on a malformed
+ * "codex:<model>" parses with provider null; every other tool requires
+ * one ("pi:<provider>/<model>:<thinking>"). Throws a descriptive Error on a malformed
  * spec or an unknown tool.
  */
 export function parseFallback(spec) {

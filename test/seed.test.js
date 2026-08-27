@@ -338,7 +338,18 @@ test("applyStaged force:true does not weaken path containment", async () => {
 	const stageDir = path.join(home, "update-0.2.0");
 	mkdirSync(stageDir, { recursive: true });
 	writeFileSync(path.join(stageDir, "removed.json"), "[]\n");
-	const evilRel = "../" + path.basename(outside) + "/victim.md";
+	// The rel is resolved against the STAGE dir (home/update-<version>), so it
+	// takes two levels to climb back to tmpdir where `outside` actually lives.
+	// This must resolve onto the REAL victim file: a rel that lands on a
+	// non-existent path would make readStagedFile return null for the wrong
+	// reason (file absent) and the assertion would hold even with containment
+	// removed.
+	const evilRel = "../../" + path.basename(outside) + "/victim.md";
+	assert.equal(
+		path.resolve(stageDir, evilRel),
+		victim,
+		"fixture check: the traversal rel must resolve onto the planted victim",
+	);
 	assert.equal(
 		await seed.readStagedFile("0.2.0", evilRel, { home }),
 		null,
@@ -368,9 +379,20 @@ test("GAP-5: a malicious ../ rel cannot escape the home via readStagedFile/apply
 	mkdirSync(path.join(stageDir, "agents"), { recursive: true });
 	writeFileSync(path.join(stageDir, "agents", "scout.md"), "# staged\n");
 	writeFileSync(path.join(stageDir, "removed.json"), "[]\n");
-	// readStagedFile must not resolve a traversal rel (returns null, no read)
-	const evil = await seed.readStagedFile("0.2.0", "../../outside/victim.md", { home });
+	// readStagedFile must not resolve a traversal rel (returns null, no read).
+	// The victim has to EXIST at the path the rel resolves to, or the null could
+	// come from the file being absent rather than from containment.
+	const victim = path.join(outside, "victim.md");
+	writeFileSync(victim, "ORIGINAL\n");
+	const evilRel = "../../" + path.basename(outside) + "/victim.md";
+	assert.equal(
+		path.resolve(stageDir, evilRel),
+		victim,
+		"fixture check: the traversal rel must resolve onto the planted victim",
+	);
+	const evil = await seed.readStagedFile("0.2.0", evilRel, { home });
 	assert.equal(evil, null);
+	assert.equal(readFileSync(victim, "utf8"), "ORIGINAL\n");
 	// a staged dir that itself escapes (symlinked update dir) is refused by guardStageDir
 	const home2 = mkdtempSync(path.join(tmpdir(), "agent-seed-escape2-"));
 	symlinkSync(outside, path.join(home2, "update-0.2.0"));

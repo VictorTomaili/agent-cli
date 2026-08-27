@@ -61,6 +61,29 @@ reporting:
   `capabilities.experimental.agentCli.writeTools` never sees a write tool, and
   a host-supplied `cwd` never redirects where a write lands.
 
+## Known limitation: skill tools run with your privileges
+
+**Installing a skill and then running its tool is equivalent to running that
+author's code on your machine.** Treat it the way you would `curl | sh`, not the
+way you would a plugin in a sandbox.
+
+`skill run` and `skill test` execute a skill's `SKILL.tool.js` **in-process with
+full Node privileges**. There is a static check that rejects imports outside a
+small list of builtins, and earlier comments described it as a sandbox. It is
+not one, and the correction matters more than the check:
+
+- The check reads *source text*, so it only sees import syntax. `process` is a
+  global needing no import, so a tool can reach builtins the list excludes.
+- Even a perfect check would not contain anything, because `fs` is on the list —
+  arbitrary file write reaches code execution by other routes.
+
+It is a hygiene lint that keeps tools small and catches careless imports. It is
+not a boundary, and no part of `agent-cli` currently isolates skill-tool
+execution. Install and run only skills you trust, and review `SKILL.tool.js`
+before running an unfamiliar one. Reports of *bypasses of the import check* are
+therefore not vulnerabilities in themselves — the execution is by design, and
+this section is the disclosure of it.
+
 ## Scope
 
 In scope: anything that escapes the intended directory, leaks secrets, executes

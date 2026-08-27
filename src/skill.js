@@ -137,6 +137,13 @@ export const PATHS = {
 	SUBMODULE_CLI,
 };
 
+// Re-exported through this bridge on purpose: src/skills/** is only reachable
+// from skill.js and blocks.js (test/import-boundaries.test.js), and the
+// `skill active` command in commands/skill-cmds.js needs the gate hint to
+// print. Going through the bridge keeps the single source of truth without
+// punching a second hole in the layer boundary.
+export { GATE_DECIDE_HINT } from "./skills/lib/gate-policy.js";
+
 /**
  * List installed skills in the integrated backend. Returns the slim shape
  * the MCP `brain://skills` resource needs (T6.1.1): `{ name, version, source,

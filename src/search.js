@@ -163,6 +163,7 @@ export async function searchAll(
 				"USER.md",
 				"ENVIRONMENTS.md",
 				"MODELS.md",
+				"WORKFLOW.md",
 			]) {
 				const p = path.join(brain, name);
 				if (await exists(p)) candidates.push({ path: p, scope, kind: "identity" });

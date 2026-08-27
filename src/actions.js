@@ -334,7 +334,26 @@ export function buildActions(s) {
 			verification: null,
 			rollback: null,
 		});
-	if (s.liveCatalogAge != null && s.liveCatalogAge >= 30)
+	// Never imported: model auto-pick cannot work at all until a catalog is
+	// fetched. Deliberately NOT safeToAutomate - `brief --apply-safe` would then
+	// make a live network call (which also breaks test hermeticity), and on an
+	// airgapped machine a failed fetch never persists a catalog, so the action
+	// would re-emit and re-attempt on every single run.
+	if (s.liveCatalogAge == null && s.unresolvedModels?.length)
+		add({
+			id: "models:research:fetch",
+			command: "agent-cli",
+			args: ["models", "research", "--fetch"],
+			reason:
+				"no model catalog imported — alias auto-pick is unavailable until one is fetched",
+			severity: "medium",
+			idempotent: true,
+			safeToAutomate: false,
+			precondition: "network available",
+			verification: null,
+			rollback: null,
+		});
+	else if (s.liveCatalogAge != null && s.liveCatalogAge >= 30)
 		add({
 			id: "models:research:fetch",
 			command: "agent-cli",

@@ -66,8 +66,15 @@ export const IDENTITY_FILES = [
 	{
 		kind: "models",
 		file: "MODELS.md",
-		desc: "Model aliases + curated catalog (provider/model + category + thinking)",
+		desc: "Model aliases (alias → provider/model + category + thinking)",
 		globalOnly: true,
+	},
+	// LAST on purpose: a workflow step may reference a model alias, so MODELS.md
+	// has to be read before WORKFLOW.md for those aliases to resolve.
+	{
+		kind: "workflow",
+		file: "WORKFLOW.md",
+		desc: "Reusable task workflows (recorded, replayable recipes)",
 	},
 ];
 
@@ -312,14 +319,11 @@ export function isFilled(content, kind) {
 	if (kind && FIELD_TAGS[kind]) return fieldGaps(content, kind).length === 0;
 	if (kind === "environments") return environmentGaps(content).length === 0;
 	if (kind === "models") {
-		// MODELS.md is "filled" when it has at least one <ALIAS ...> entry OR the
-		// curated catalog section is present. The first install creates the file
-		// with a starter catalog, so don't mark it unfilled just because the user
-		// hasn't added aliases yet.
-		return (
-			/<ALIAS\s+name=/.test(content) ||
-			/##\s+Curated model catalog/.test(content)
-		);
+		// MODELS.md is "filled" when it has at least one <ALIAS ...> entry.
+		// It used to also count a "## Curated model catalog" section, because
+		// install seeded one — but agent-cli no longer ships model data, so no
+		// section's mere presence can make an alias-less file look populated.
+		return /<ALIAS\s+name=/.test(content);
 	}
 	// Loop-until-stable HTML comment strip — a single-pass regex leaves <!--
 	// behind when adjacent text creates new <!-- substrings (CodeQL

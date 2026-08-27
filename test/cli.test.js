@@ -529,7 +529,7 @@ test("brief manifest: globalOnly kinds get only the global entry; project-overri
 	}
 
 	// Project-overridable kinds: exactly 2 entries (global + project).
-	for (const kind of ["agents", "soul", "lessons", "environments"]) {
+	for (const kind of ["agents", "soul", "lessons", "environments", "workflow"]) {
 		const entries = load.filter((f) => f.kind === kind);
 		assert.equal(
 			entries.length,
@@ -680,6 +680,9 @@ test("command help advertises the actual AX command surface", () => {
 	assert.match(update.stdout, /diff <version>/);
 	assert.match(models.stdout, /global .*MODELS\.md/i);
 	assert.match(edit.stdout, /environments/);
+	// `workflow` is a first-class brain-file kind — it must be discoverable
+	// from `edit --help`, not only from the IDENTITY_FILES source.
+	assert.match(edit.stdout, /workflow/);
 });
 
 test("update diff reports no differences without dumping files", () => {
@@ -1395,31 +1398,102 @@ test("env set writes a field into ENVIRONMENTS.md", () => {
 	);
 });
 
-test("models suggest shows auto-resolved state after init", () => {
+test("models list tells you to ASSIGN when a catalog is already imported", () => {
 	const home = run(["init"]).home;
-	// init auto-applies models; suggest should show 0 unresolved.
+	// Two different causes hide behind one symptom. An empty alias set with a
+	// catalog already imported needs `suggest --apply`; only a machine with
+	// nothing imported needs `research --fetch` first, and sending the first user
+	// down that path is a step that changes nothing.
+	const cfgPath = path.join(home, ".agents", "config.json");
+	const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+	cfg.models = {
+		...(cfg.models || {}),
+		aliases: {},
+		liveCatalog: {
+			fetchedAt: "2026-01-01T00:00:00Z",
+			entries: [
+				{ id: "acme/rocket-mini", provider: "acme", context: 200000, inputPer1M: 1, outputPer1M: 2 },
+				{ id: "acme/rocket-max", provider: "acme", context: 400000, inputPer1M: 5, outputPer1M: 9 },
+			],
+		},
+	};
+	writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+
+	const withCatalog = run(["models", "list"], { envHome: home });
+	ok(withCatalog);
+	assert.match(withCatalog.stdout, /suggest --apply/);
+	assert.doesNotMatch(
+		withCatalog.stdout,
+		/No model candidates available/,
+		"a machine WITH an imported catalog was told it has none",
+	);
+
+	// The genuinely-empty case must keep its original advice.
+	const bare = run(["models", "list"]);
+	ok(bare);
+	assert.match(bare.stdout, /No model candidates available/);
+	assert.match(bare.stdout, /research --fetch/);
+});
+
+test("models suggest reports every alias unresolved when no catalog is imported", () => {
+	const home = run(["init"]).home;
+	// agent-cli ships no model data, so init cannot auto-pick anything. Each
+	// seeded persona alias must come back unresolved with a null pick - and the
+	// init payload must say WHY, rather than omitting the step.
+	const init = parseJson(run(["init", "--json"], { envHome: home }).stdout);
+	assert.equal(init.data.steps.autoModels.reason, "no-catalog");
+	assert.equal(init.data.steps.autoModels.applied, 0);
+	assert.ok(init.data.steps.autoModels.hint.includes("research --fetch"));
+
 	const r = parseJson(
 		run(["models", "suggest", "--json"], { envHome: home }).stdout,
 	);
 	assert.equal(r.command, "models");
-	assert.equal(r.data.count, 0);
+	assert.ok(r.data.count > 0, "unresolved aliases must be reported, not hidden");
+	assert.ok(
+		r.data.unresolved.every((row) => row.pick === null),
+		"no catalog means no pick is possible for any row",
+	);
 });
 
-test("models suggest --reassign lists every alias even when all resolve", () => {
+test("models suggest reports 0 unresolved once aliases are assigned", () => {
 	const home = run(["init"]).home;
-	// init auto-applies aliases; reassign must consider them all (count > 0),
-	// even though 'suggest' alone reports 0 unresolved.
+	const before = parseJson(
+		run(["models", "suggest", "--json"], { envHome: home }).stdout,
+	);
+	// Assign each reported alias by hand - the path a user takes without a
+	// catalog - and the same command must then report a clean slate.
+	for (const row of before.data.unresolved)
+		run(["models", "set", row.alias, "prov-a/model-one"], { envHome: home });
+	const after = parseJson(
+		run(["models", "suggest", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(after.data.count, 0);
+});
+
+test("models suggest --reassign lists every configured alias", () => {
+	const home = run(["init"]).home;
+	// --reassign iterates the CONFIGURED aliases, so seed them by hand: init no
+	// longer creates any, because agent-cli ships nothing to pick from.
+	const seeded = ["smart-model", "coding-model", "fast-model", "deepsearch-model"];
+	for (const alias of seeded)
+		run(["models", "set", alias, "prov-a/model-one"], { envHome: home });
+
 	const r = parseJson(
 		run(["models", "suggest", "--reassign", "--json"], { envHome: home }).stdout,
 	);
 	assert.equal(r.command, "models");
-	assert.ok(
-		r.data.count >= 4,
-		"expected all seeded aliases in the reassign list",
+	assert.equal(
+		r.data.count,
+		seeded.length,
+		"reassign must consider every configured alias",
 	);
+	// Guard against a vacuous .every() on an empty array - the exact weakness
+	// that would have masked this regression.
+	assert.ok(r.data.unresolved.length > 0);
 	assert.ok(
-		r.data.unresolved.every((row) => row.pick),
-		"every existing alias should have a current best pick",
+		r.data.unresolved.every((row) => row.pick === null),
+		"with no imported catalog there is no current best pick to offer",
 	);
 });
 

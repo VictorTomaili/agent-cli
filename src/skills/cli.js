@@ -64,8 +64,8 @@ ${c.bold("Authoring")}
 	${c.cyan("skill create")} ${c.gray("<name> [-d dir] [--tool]")}  scaffold a skill (SKILL.md [+ SKILL.tool.js])
 	${c.cyan("skill validate")} ${c.gray("<name|path>")}   check frontmatter + body
 	${c.cyan("skill preview")} ${c.gray("<name|path>")}   render what the agent would load
-	${c.cyan("skill test")} ${c.gray("<name|path>")}      validate + run SKILL.tool.js (allowlisted builtins)
-	${c.cyan("skill run")} ${c.gray("<name> [-- args]")}  execute SKILL.tool.js
+	${c.cyan("skill test")} ${c.gray("<name|path>")}      validate + run SKILL.tool.js (runs the author's code)
+	${c.cyan("skill run")} ${c.gray("<name> [-- args]")}  execute SKILL.tool.js (runs the author's code)
 	${c.cyan("skill lock")} ${c.gray("<name> [--source]")} write provenance lock (source + content hash)
 	${c.cyan("skill provenance")} ${c.gray("[name]")} show source/revision/hash for installed skills
 	${c.cyan("skill capture")} ${c.gray("<name> <lesson>")} append a lesson to SKILL.md

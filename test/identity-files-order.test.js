@@ -34,6 +34,7 @@ const EXPECTED_ORDER = [
 	"lessons", // 5. LESSONS.md      — accumulated rules to honor
 	"environments", // 6. ENVIRONMENTS.md — operating context
 	"models", // 7. MODELS.md       — model aliases + catalog (tools — read last)
+	"workflow", // 8. WORKFLOW.md     — reusable task recipes (may cite model aliases)
 ];
 
 const EXPECTED_FILES = {
@@ -44,6 +45,7 @@ const EXPECTED_FILES = {
 	lessons: "LESSONS.md",
 	environments: "ENVIRONMENTS.md",
 	models: "MODELS.md",
+	workflow: "WORKFLOW.md",
 };
 
 // Kinds that have NO project-scope override. They live in a single canonical
@@ -122,9 +124,35 @@ test("IDENTITY_FILES: globalOnly flag matches the contract (identity/user/models
 			expected,
 			`kind=${f.kind}: globalOnly=${f.globalOnly}, expected ${expected}. ` +
 				`globalOnly kinds (identity / user / models) have NO project-scope override. ` +
-				`Other kinds (agents / soul / lessons / environments) DO have a project override.`,
+				`Other kinds (agents / soul / lessons / environments / workflow) DO have a project override.`,
 		);
 	}
+});
+
+test("IDENTITY_FILES: workflow is LAST and project-overridable", () => {
+	// WORKFLOW.md must be read AFTER MODELS.md: a recorded workflow step may
+	// reference a model alias (`coding-model`, …), and those aliases only
+	// resolve once MODELS.md has been read. Moving `workflow` earlier — or
+	// inserting a new kind after it — breaks that resolution order.
+	const last = IDENTITY_FILES[IDENTITY_FILES.length - 1];
+	assert.equal(
+		last.kind,
+		"workflow",
+		`workflow must be the LAST entry in IDENTITY_FILES (MODELS.md must be read first so ` +
+			`model aliases cited by a workflow step resolve); last is '${last.kind}'`,
+	);
+	assert.equal(last.file, "WORKFLOW.md");
+	// Not globalOnly: a project may override the global recipes with its own.
+	assert.equal(
+		!!last.globalOnly,
+		false,
+		"workflow must NOT be globalOnly — it supports a project-scope override like lessons/environments",
+	);
+	const modelsIdx = IDENTITY_FILES.findIndex((f) => f.kind === "models");
+	assert.ok(
+		modelsIdx > -1 && modelsIdx < IDENTITY_FILES.length - 1,
+		"models must come before workflow in IDENTITY_FILES",
+	);
 });
 
 test("IDENTITY_FILES: globalOnly kinds count + identity is exhaustive", () => {

@@ -5,7 +5,11 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
-import { AGENTS_DIR, readFileNoFollow } from "./util.js";
+import {
+	AGENTS_DIR,
+	readFileNoFollow,
+	writeFileSync as writeFileAtomicSync,
+} from "./util.js";
 
 /** Files that must never leave the machine (default .gitignore entries). */
 export const SYNC_EXCLUDES = [
@@ -73,6 +77,13 @@ export async function syncInit({ remote = null } = {}) {
 	try {
 		existing = readFileNoFollow(giPath);
 	} catch (err) {
+		if (err?.code === "ESYMLINKREFUSED") {
+			// Fail closed rather than writing through the link (see the write below).
+			return {
+				ok: false,
+				reason: `.gitignore in ${dir} is a symlink — refusing to read or write through it; remove the link and re-run`,
+			};
+		}
 		if (err?.code !== "ENOENT") throw err;
 	}
 	const lines = existing ? existing.split(/\r?\n/) : [];
@@ -83,7 +94,13 @@ export async function syncInit({ remote = null } = {}) {
 			added.push(pat);
 		}
 	if (added.length)
-		fs.writeFileSync(giPath, lines.join("\n") + "\n", "utf8");
+		// Symlink-safe: a raw fs.writeFileSync follows a symlinked .gitignore and
+		// appends SYNC_EXCLUDES straight into the link's target. ~/.agents is a git
+		// working tree that syncPull merges from a remote, and a repo can carry
+		// .gitignore as a mode-120000 symlink that materializes on checkout — so a
+		// hostile remote could turn `sync init` into an arbitrary-file append.
+		// The atomic writer renames over the link instead of writing through it.
+		writeFileAtomicSync(giPath, lines.join("\n") + "\n");
 	if (remote) {
 		git(["remote", "remove", "origin"], { cwd: dir });
 		git(["remote", "add", "origin", remote], { cwd: dir });

@@ -1,6 +1,5 @@
 {
-  "$comment": "CodeQL severity policy for agent-cli. Maps each CodeQL rule family to either 'block' (PR fails branch-protection required check on the CodeQL Analyze job) or 'advisory' (SARIF upload keeps showing it on the Security tab but does not block). Updated 2026-08-25 by the CodeQL fix planning team (qa-engineer + devops-engineer + software-architect + GPT-architect gpt-5.6-sol peer review).",
-
+  "$comment": "CodeQL severity policy for agent-cli. Maps each CodeQL rule family to either 'block' (PR fails branch-protection required check on the CodeQL Analyze job) or 'advisory' (SARIF upload keeps showing it on the Security tab but does not block). Updated 2026-08-25 by the CodeQL fix planning team (qa-engineer + devops-engineer + software-architect + external architect peer review).",
   "block_on_pr": [
     "$comment_real_security_rules_that_must_be_fixed_before_merge",
     "js/regex-injection",
@@ -12,13 +11,12 @@
     "js/trivial-conditional",
     "js/missing-workflow-permissions"
   ],
-
   "advisory_only": [
     "$comment_maintainability_quality_findings_do_not_block_merge_batch_in_next_minor",
     "js/unused-local-variable",
-    "js/superfluous-trailing-arguments"
+    "js/superfluous-trailing-arguments",
+    "js/file-access-to-http"
   ],
-
   "policy_metadata": {
     "version": 1,
     "created": "2026-08-25",
@@ -28,6 +26,7 @@
     "branch_protection_context": "Analyze (javascript-typescript)",
     "review_cadence": "On every PR touching src/ or scripts/. Update this file in the same PR that adds a new CodeQL rule family (avoid silent enforcement gaps).",
     "false_positive_handling": "Suppress with `// lgtm [rule-id]` and a one-line rationale in the code. The suppression does NOT remove the rule from this file — keep the block/advisory mapping authoritative here. Periodic review of `git grep 'lgtm\\['` to ensure suppressions are still valid.",
-    "new_rule_handling": "If CodeQL adds a new rule family not listed here, it defaults to `block` (matches the principle of least surprise — better to surface than silently allow). Add the rule to the appropriate list in the same PR that suppresses its first finding."
+    "new_rule_handling": "If CodeQL adds a new rule family not listed here, it defaults to `block` (matches the principle of least surprise — better to surface than silently allow). Add the rule to the appropriate list in the same PR that suppresses its first finding.",
+    "advisory_rationale_js_file_access_to_http": "Inherent to being an MCP client: `agent-cli mcp` reads a server's url and its own Authorization header from a harness config and sends them to that server. The file data reaching the network is the endpoint's own address and its own token, delivered to the party that issued it. The scenario that would make it exfiltration - someone editing ~/.claude.json to repoint a trusted server - is refused by requireTrust(), because fingerprint() hashes url and headers, so an edit revokes the approval rather than redirecting it. Suppressed inline at src/mcp/client.js with a matching lgtm comment. Added 2026-08-27."
   }
 }

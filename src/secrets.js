@@ -6,7 +6,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { HOME, AGENTS_DIR } from "./util.js";
+import {
+	HOME,
+	AGENTS_DIR,
+	writeFileSync,
+	writeFileIfAbsent,
+	readFileNoFollow,
+} from "./util.js";
 
 export const SECRETS_FILE = ".secrets.json";
 export const SECRETS_KEY = ".secrets.key";
@@ -36,9 +42,15 @@ export function keyPath(scope = "global", cwd = process.cwd()) {
 export function loadKey(scope = "global", cwd = process.cwd()) {
 	const kp = keyPath(scope, cwd);
 	fs.mkdirSync(path.dirname(kp), { recursive: true });
+	// Symlink-safe READ, not just a symlink-safe write. writeFileIfAbsent's 'wx'
+	// refuses to follow a planted link, but a plain readFileSync here would
+	// happily follow one — so an untrusted repo could point [cwd]/.agents/
+	// .secrets.key at any 32-byte file on the machine and have agent-cli adopt
+	// its bytes as the project's encryption key. A refusal returns null, which
+	// falls through to the replace path below and removes the link.
 	const readExisting = () => {
 		try {
-			const buf = fs.readFileSync(kp);
+			const buf = readFileNoFollow(kp, { encoding: null, maxBytes: 1024 });
 			return buf.length === 32 ? buf : null;
 		} catch {
 			return null;
@@ -49,43 +61,86 @@ export function loadKey(scope = "global", cwd = process.cwd()) {
 	if (existing) return existing;
 
 	const key = crypto.randomBytes(32);
+	// writeFileIfAbsent is the shared exclusive-create primitive ('wx' refuses to
+	// follow a symlink pre-planted at kp, and reports EEXIST as created:false).
+	if (writeFileIfAbsent(kp, key, { mode: 0o600 }).created) return key;
+
+	// Something is already there. Prefer whatever is on disk — overwriting is what
+	// destroys secrets — so re-read in case we simply lost the create race.
+	const raced = readExisting();
+	if (raced) return raced;
+
+	// It did not read back as a 32-byte key. Replace it only when it is provably
+	// unusable: a SYMLINK (remove the link, never its target, so the exclusive
+	// re-create below cannot be redirected through it) or a regular file of the
+	// wrong size (truncated/corrupt).
+	//
+	// A right-sized file that merely failed to READ is a PERMISSION problem, not a
+	// corrupt key — readExisting() swallows every read error, so it looks the same
+	// from here. Deleting it would throw away secrets its owner can still decrypt,
+	// and unlike the in-place write this replaced, rmSync needs only directory
+	// write permission, so it would succeed where the old code correctly failed.
+	let st = null;
 	try {
-		fs.writeFileSync(kp, key, { mode: 0o600, flag: "wx" });
-		return key;
-	} catch (err) {
-		if (err && err.code === "EEXIST") {
-			// Someone created it between our read and our write, or it exists but
-			// was the wrong length. Prefer whatever is on disk — overwriting is
-			// what destroys secrets.
-			const raced = readExisting();
-			if (raced) return raced;
-			// On disk but unusable (truncated/corrupt): replace it deliberately,
-			// which is no worse than the state we are already in.
-			fs.writeFileSync(kp, key, { mode: 0o600 });
-			return key;
-		}
-		throw err;
+		st = fs.lstatSync(kp);
+	} catch {
+		st = null; // vanished under us — fall through and re-create
 	}
+	if (st && st.isFile() && !st.isSymbolicLink() && st.size === 32) {
+		throw new Error(
+			`secrets key at ${kp} exists but could not be read — refusing to replace it (check permissions)`,
+		);
+	}
+	// Remove ONLY what we can prove is unusable: a symlink (the SEC-4 attack)
+	// or a regular file that is not a 32-byte key. Anything else - a directory,
+	// a FIFO, a device - is someone else's data or a misconfiguration, and
+	// deleting it silently would be exactly the destructive behaviour this
+	// guard exists to prevent.
+	if (st) {
+		if (!st.isSymbolicLink() && !st.isFile())
+			throw new Error(
+				`secrets key path ${kp} exists but is neither a regular file nor a symlink — refusing to replace it`,
+			);
+		fs.rmSync(kp, { force: true });
+	}
+
+	if (writeFileIfAbsent(kp, key, { mode: 0o600 }).created) return key;
+	// Lost a concurrent re-create: the winner's key is authoritative.
+	const raced2 = readExisting();
+	if (raced2) return raced2;
+	throw new Error(
+		`could not create the secrets key at ${kp} — it exists but is not a usable 32-byte key`,
+	);
 }
 
 function readStore(scope, cwd) {
 	const p = secretsPath(scope, cwd);
-	if (!fs.existsSync(p)) return { version: 1, secrets: {} };
+	// Symlink-safe, matching writeStore. A plain readFileSync followed a link
+	// planted at [cwd]/.agents/.secrets.json in an untrusted repo and pulled an
+	// arbitrary local file into memory to be parsed as JSON. A refusal is
+	// treated as "no store", which is the same outcome as a missing or corrupt
+	// file, and the write path then replaces the link rather than following it.
+	//
+	// No existsSync pre-check: readFileNoFollow throws ENOENT for a missing
+	// path, so testing first would only add a check-then-use race for a result
+	// this catch already handles.
 	try {
-		const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+		const parsed = JSON.parse(readFileNoFollow(p, { maxBytes: 4 * 1024 * 1024 }));
 		if (parsed && typeof parsed === "object" && parsed.secrets) return parsed;
 	} catch {
-		/* corrupt → treat as empty, original bytes preserved below on write? */
+		/* missing, refused, corrupt, or oversized → treat as an empty store */
 	}
 	return { version: 1, secrets: {} };
 }
 
 function writeStore(store, scope, cwd) {
 	const p = secretsPath(scope, cwd);
-	fs.mkdirSync(path.dirname(p), { recursive: true });
-	fs.writeFileSync(p, JSON.stringify(store, null, 2) + "\n", {
-		mode: 0o600,
-	});
+	// Route through the symlink-safe atomic writer (temp + exclusive 'wx' create
+	// + rename-over). A plain 'w' write followed a symlink pre-planted at
+	// [cwd]/.agents/.secrets.json in an untrusted repo and truncated its target;
+	// rename-over replaces the symlink itself, leaving the target untouched. Keep
+	// the 0600 mode so the store is never briefly world-readable.
+	writeFileSync(p, JSON.stringify(store, null, 2) + "\n", { mode: 0o600 });
 }
 
 function encrypt(key, value) {

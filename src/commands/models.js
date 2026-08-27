@@ -23,7 +23,7 @@ export function registerModelsCommands(
 	program
 		.command("models [action] [rest...]")
 		.description(
-			"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | rm <alias> | set <alias> <provider/model> [--category c] [--thinking lvl] [--fallback <provider/model>...] | resolve <alias> | write | suggest [--apply] | research [--refresh] | lint | usage | test <alias>. Bundled curated catalog + auto-pick per category.",
+			"Model aliases (global ~/.agents/MODELS.md; project scope is not supported): list | rm <alias> | set <alias> <provider/model> [--category c] [--thinking lvl] [--fallback <provider/model>...] | resolve <alias> | write | suggest [--apply] | research [--fetch] | lint | usage | test <alias>. agent-cli ships no model list: import candidates with 'research --fetch', then auto-pick per category with 'suggest --apply'.",
 		)
 		.option("--category <c>", "category for set")
 		.option("--thinking <lvl>", "thinking level for set")
@@ -37,11 +37,7 @@ export function registerModelsCommands(
 		)
 		.option(
 			"--reassign",
-			"(suggest) re-pick the current best model for EVERY existing alias from the live/bundled catalog (report only unless --apply)",
-		)
-		.option(
-			"--refresh",
-			"(research) rewrite the catalog section in MODELS.md with the bundled baseline",
+			"(suggest) re-pick the current best model for EVERY existing alias from the imported live catalog (report only unless --apply)",
 		)
 		.option(
 			"--fetch",
@@ -57,11 +53,25 @@ export function registerModelsCommands(
 					aliases: m.getAliases(),
 					categories: m.CATEGORIES,
 				});
-				if (!isJson())
-					for (const [name, v] of Object.entries(m.getAliases()))
+				if (!isJson()) {
+					const entries = Object.entries(m.getAliases());
+					for (const [name, v] of entries)
 						log.raw(
 							`  ${c.bold(name.padEnd(14))} ${c.gray(v.category)} ${v.model} ${v.thinking ? c.gray("@" + v.thinking) : ""}`,
 						);
+					// An empty alias set printed nothing at all, which reads as a
+					// broken command. The master AGENTS.md contract points the agent
+					// at `models list` to discover what this machine has, so the
+					// empty case has to say what to do next.
+					if (!entries.length) {
+						log.info("No model aliases configured.");
+						// Which remedy depends on whether a catalog exists. An empty
+						// alias set with a catalog already imported needs `suggest
+						// --apply`; sending that user to `research --fetch` first is a
+						// step that changes nothing.
+						log.dim(`  ${m.catalogHint()}`);
+					}
+				}
 				return;
 			}
 			if (action === "set") {
@@ -146,13 +156,14 @@ export function registerModelsCommands(
 				return;
 			}
 			if (action === "research") {
-				// 'research' is the agent-facing entry point:
-				//   - default: report the bundled curated catalog state (dry run).
-				//   - --refresh: re-embed the bundled curated catalog in MODELS.md.
-				//   - --fetch: pull the LIVE model list from a public no-auth
-				//     endpoint (OpenRouter) and write a "Live model catalog" section
-				//     into MODELS.md, so the agent has current provider/model data
-				//     instead of only the bundled baseline. Offline-safe.
+				// 'research' is the agent-facing entry point, and has exactly two modes
+				// now that agent-cli ships no model data of its own:
+				//   - --fetch: pull the LIVE model list from a public no-auth endpoint
+				//     (OpenRouter), write a 'Live model catalog' section into MODELS.md
+				//     and persist it for auto-pick. Offline-safe.
+				//   - default: report what has been imported. READ-ONLY - it must never
+				//     write MODELS.md. The old default re-embedded a bundled baseline
+				//     over whatever catalog section was already on disk.
 				if (opts.fetch) {
 					const result = await m.fetchLiveCatalog();
 					if (!result.ok) {
@@ -167,7 +178,7 @@ export function registerModelsCommands(
 						return;
 					}
 					// Merge the live section into MODELS.md, preserving the aliases
-					// and bundled curated catalog sections already on disk.
+					// and any catalog section already on disk.
 					const existing = (await readIfExists(m.MODELS_MD)) || "";
 					const liveSection = m.liveCatalogMarkdown(result);
 					const out = m.mergeLiveCatalogSection(existing, liveSection);
@@ -193,36 +204,31 @@ export function registerModelsCommands(
 						);
 					return;
 				}
-				const f = await readIfExists(m.MODELS_MD);
-				const before = f || "";
-				const hasCatalog = before.includes("## Curated model catalog");
-				if (!hasCatalog || opts.refresh) {
-					const out = m.writeModelsMd({
-						includeCatalog: true,
-						refreshCatalog: true,
-					});
-					emit({
-						command: "models",
-						action: "research",
-						refreshed: true,
-						file: out,
-					});
-					if (!isJson())
-						log.success(
-							`Refreshed catalog in ${pretty(out)} (${m.CATALOG.length} entries).`,
-						);
-				} else {
-					emit({
-						command: "models",
-						action: "research",
-						refreshed: false,
-						count: m.CATALOG.length,
-						diff: "catalog section already present; pass --refresh to overwrite, or --fetch for the live model list",
-					});
-					if (!isJson())
+				// READ-ONLY status report. Never writes MODELS.md: agent-cli has no
+				// model data to write, and the path that used to do it was the only
+				// one that could clobber a hand-curated catalog section.
+				const age = m.liveCatalogAgeDays();
+				const imported = age != null;
+				const aliasCount = Object.keys(m.getAliases()).length;
+				emit({
+					command: "models",
+					action: "research",
+					imported,
+					ageDays: age,
+					aliases: aliasCount,
+					hint: imported ? null : m.NO_CATALOG_HINT,
+				});
+				if (!isJson()) {
+					if (!imported) {
+						log.warn('No model catalog imported yet.');
+						log.raw(`  ${c.cyan('Run:')} agent-cli models research --fetch`);
+					} else {
 						log.info(
-							`Catalog section already present (${m.CATALOG.length} entries). Pass --refresh to overwrite, or --fetch to pull the live model list.`,
+							`Live catalog imported ${age} day(s) ago; ${aliasCount} alias(es) configured.`,
 						);
+						if (!aliasCount)
+							log.raw(`  ${c.cyan('Run:')} agent-cli models suggest --apply`);
+					}
 				}
 				return;
 			}
@@ -272,13 +278,14 @@ export function registerModelsCommands(
 						}
 						const applicable = rows.filter((r) => r.pick).length;
 						if (applicable > 0) {
-							const src = opts.reassign ? "live" : "bundled";
-							log.dim(
-								`${applicable} alias${applicable === 1 ? "" : "es"} auto-pickable from the ${src} catalog. Apply with: agent-cli models suggest --apply${opts.reassign ? " --reassign" : ""}`,
+								log.dim(
+								`${applicable} alias${applicable === 1 ? "" : "es"} auto-pickable from the imported catalog. Apply with: agent-cli models suggest --apply${opts.reassign ? " --reassign" : ""}`,
 							);
+						} else if (!m.hasCatalog()) {
+							log.dim(m.NO_CATALOG_HINT);
 						} else {
 							log.dim(
-								"No catalog match — assign manually: agent-cli models set <alias> <provider/model>.",
+								"No candidate matched these categories — assign manually: agent-cli models set <alias> <provider/model>.",
 							);
 						}
 					} else log.success("All model aliases resolve.");
@@ -309,6 +316,15 @@ export function registerModelsCommands(
 						}
 						if (unchanged.length)
 							log.dim(`${unchanged.length} already up to date (no change).`);
+						// Without this the command printed nothing at all and exited 0
+						// when there was no catalog to pick from - indistinguishable
+						// from success.
+						if (!applied.length && !unchanged.length)
+							log.warn(
+								m.hasCatalog()
+									? "Nothing applied: no candidate matched these categories."
+									: `Nothing applied. ${m.NO_CATALOG_HINT}`,
+							);
 					}
 				}
 				return;

@@ -122,15 +122,17 @@ export async function ensureDir(p) {
  *  modules that cannot await (models.js). HIGH-6: replaces the per-module
  *  duplicates that drifted (e.g. models.js lacked the random suffix). M3: same
  *  exclusive-create/fsync/rename-over-existing guarantees as writeFile. */
-export function writeFileSync(p, content) {
+export function writeFileSync(p, content, { mode } = {}) {
 	fs.mkdirSync(path.dirname(p), { recursive: true });
 	let tmp;
 	for (let attempt = 0; ; attempt++) {
 		tmp = `${p}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
 		try {
 			// 'wx' exclusive create: a pre-planted symlink at the tmp path is
-			// never followed (EEXIST → fresh random name).
-			const fd = fs.openSync(tmp, "wx");
+			// never followed (EEXIST → fresh random name). `mode` is applied at
+			// creation so a confidential target (e.g. a 0600 secrets store) never
+			// exists on disk with looser permissions.
+			const fd = fs.openSync(tmp, "wx", mode);
 			try {
 				fs.writeFileSync(fd, content, "utf8");
 				fs.fsyncSync(fd);
@@ -200,26 +202,52 @@ export function writeFileIfAbsent(p, content, { mode } = {}) {
 	}
 }
 
+/** The symlink refusal thrown by readFileNoFollow. Carries a stable `code` so
+ *  callers can fail closed on it without matching the message text. */
+function symlinkRefusal(p) {
+	const err = new Error(`refusing to follow symlink: ${p}`);
+	err.code = "ESYMLINKREFUSED";
+	return err;
+}
+
 /**
- * Read `p` as utf-8, refusing to follow symlinks or read non-regular files.
+ * Read `p`, refusing to follow symlinks or read non-regular files.
  *
- * Opens with O_NOFOLLOW where available (POSIX). On Windows the flag is a
- * no-op; fstatSync().isSymbolicLink() is the second line of defense (Node's
- * lstat reports Windows junctions as S_IFLNK, which is the case we want).
+ * Decodes as utf-8 by default; pass `encoding: null` for a Buffer, which is
+ * what binary content such as the 32-byte secrets key needs (utf8 decoding
+ * would silently corrupt it).
+ *
+ * Opens with O_NOFOLLOW where available (POSIX), so the kernel refuses the open
+ * when the final component is a symlink.
+ *
+ * On Windows O_NOFOLLOW does not exist at all, and fstat() on an opened fd
+ * describes the TARGET — libuv only reports S_IFLNK from its lstat path, so
+ * fstatSync().isSymbolicLink() is ALWAYS false there and can never serve as a
+ * second line of defense. (It previously claimed to; a planted symlink or
+ * junction was silently followed, and the junction case that comment cited is
+ * actually caught by the isFile() check below.) lstat is the only call that
+ * observes the link itself, so on win32 refuse before opening, then confirm the
+ * fd still refers to that same file to shrink the check-then-open window.
  *
  * Throws ENOENT if missing. Throws when `p` is a symlink, directory, device,
  * or exceeds `opts.maxBytes` (the size cap is per-call; pass `MAX_SKILL_MD_BYTES`
  * from src/skills/lib/store.js for the skill-store path).
  *
  * @param {string} p
- * @param {{ maxBytes?: number }} [opts]
- * @returns {string}
+ * @param {{ maxBytes?: number, encoding?: string|null }} [opts]
+ * @returns {string|Buffer} a string unless `encoding` is null
  */
-export function readFileNoFollow(p, { maxBytes } = {}) {
-	const flags =
-		process.platform === "win32"
-			? fs.constants.O_RDONLY
-			: fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+export function readFileNoFollow(p, { maxBytes, encoding = "utf8" } = {}) {
+	const isWin = process.platform === "win32";
+	const flags = isWin
+		? fs.constants.O_RDONLY
+		: fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+	// Windows has no O_NOFOLLOW: the link must be rejected before the open.
+	// lstatSync throws ENOENT for a missing path, matching the POSIX branch.
+	const pre = isWin ? fs.lstatSync(p) : null;
+	if (pre?.isSymbolicLink()) {
+		throw symlinkRefusal(p);
+	}
 	let fd;
 	try {
 		fd = fs.openSync(p, flags);
@@ -229,14 +257,20 @@ export function readFileNoFollow(p, { maxBytes } = {}) {
 		// Windows fstat-guard path produces so callers see one consistent
 		// error regardless of platform.
 		if (err?.code === "ELOOP") {
-			throw new Error(`refusing to follow symlink: ${p}`);
+			throw symlinkRefusal(p);
 		}
 		throw err;
 	}
 	try {
 		const st = fs.fstatSync(fd);
 		if (st.isSymbolicLink()) {
-			throw new Error(`refusing to follow symlink: ${p}`);
+			throw symlinkRefusal(p);
+		}
+		// win32: the fd must still be the file lstat approved above, or the path
+		// was swapped between the two calls. Compared only when the filesystem
+		// reports a usable identity (some volumes report ino 0).
+		if (pre && pre.ino && st.ino && (pre.ino !== st.ino || pre.dev !== st.dev)) {
+			throw symlinkRefusal(p);
 		}
 		if (!st.isFile()) {
 			throw new Error(`not a regular file: ${p}`);
@@ -244,7 +278,9 @@ export function readFileNoFollow(p, { maxBytes } = {}) {
 		if (maxBytes != null && st.size > maxBytes) {
 			throw new Error(`file exceeds ${maxBytes}-byte cap: ${p}`);
 		}
-		return fs.readFileSync(fd, "utf8");
+		// `encoding: null` returns a Buffer — required for binary content such as
+		// the 32-byte secrets key, which utf8 decoding would silently corrupt.
+		return fs.readFileSync(fd, encoding);
 	} finally {
 		fs.closeSync(fd);
 	}

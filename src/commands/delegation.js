@@ -1,7 +1,8 @@
 // src/commands/delegation.js — handoff + agents, extracted from cli.js (HIGH-3).
 // Injected deps: { emit, fail, log, c, pretty, EXIT, isJson, listAgents,
 //   showAgent, scaffoldAgent, validateAgent, GLOBAL_AGENTS_DIR,
-//   projectAgentsDir, readFile, spawnSync, path }.
+//   projectAgentsDir, readFile, spawnSync, path, parseEditorCommand,
+//   cmdShimSpawnSync, resolveContained }.
 
 /** Register the handoff + agents commands. */
 export function registerDelegationCommands(
@@ -23,6 +24,9 @@ export function registerDelegationCommands(
 		readFile,
 		spawnSync,
 		path,
+		parseEditorCommand,
+		cmdShimSpawnSync,
+		resolveContained,
 	},
 ) {
 	// agent-cli handoff / whoami — delegation artifacts + identity summary
@@ -105,6 +109,26 @@ export function registerDelegationCommands(
 			}
 			fail(`Unknown handoff action: ${action}. Use create|list|show|accept|close`);
 		});
+
+	/**
+	 * A personality name must resolve to ONE filename segment.
+	 *
+	 * `resolveContained` is not sufficient on its own here: it is purely lexical,
+	 * so `shared/CLAUDE` stays "inside" the agents dir on paper while a symlink
+	 * pre-planted at `.agents/agents/shared` sends the write wherever it points.
+	 * A checked-out repo controls that directory, and git materializes symlinks
+	 * on checkout (a Windows junction needs no elevation). Same rule
+	 * `scaffoldAgent` (agents-lib.js) already applies to a user-supplied name.
+	 *
+	 * Callers must ALSO write through util's atomic writer — this check cannot
+	 * see a symlink planted at the final destination itself.
+	 */
+	function unsafeAgentSegment(raw) {
+		const s = String(raw ?? "");
+		return (
+			!s || /[\\/]/.test(s) || s === "." || s === ".." || path.isAbsolute(s)
+		);
+	}
 
 	// agent-cli edit / pull / where
 	// ---------------------------------------------------------------------------
@@ -243,14 +267,34 @@ export function registerDelegationCommands(
 				const a = await showAgent(name, { cwd });
 				if (!a) fail(`No agent named '${name}'`);
 				emit({ command: "agents", action: "edit", name, path: a.path });
-				const editor =
+				// L1: never hand the editor string OR the repo-controlled agent path
+				// to a shell. `a.path` is a *.md filename read straight from the
+				// project agents dir, so a checked-out repo controls it; with
+				// shell:true a name like `x&calc&.md` / `$(…)` would execute. Parse
+				// $VISUAL/$EDITOR into argv (quote-aware) and spawn directly — same
+				// hardening as `edit` (src/commands/edit.js).
+				const rawEditor =
 					process.env.VISUAL ||
 					process.env.EDITOR ||
 					(process.platform === "win32" ? "notepad" : "vi");
-				const r = spawnSync(editor, [a.path], {
+				const editorArgs = parseEditorCommand(rawEditor);
+				if (!editorArgs)
+					fail(
+						`Cannot parse $VISUAL/$EDITOR (${JSON.stringify(rawEditor)}) — fix the variable (balanced quotes) or unset it.`,
+					);
+				let r = spawnSync(editorArgs[0], [...editorArgs.slice(1), a.path], {
 					stdio: "inherit",
-					shell: true,
 				});
+				if (
+					process.platform === "win32" &&
+					r.error &&
+					(r.error.code === "ENOENT" || r.error.code === "EINVAL")
+				) {
+					// Windows .cmd/.bat shims can't be CreateProcess'd directly — try
+					// the guarded cmd.exe fallback (null when args carry metacharacters).
+					const viaCmd = cmdShimSpawnSync(spawnSync, editorArgs, a.path);
+					if (viaCmd) r = viaCmd;
+				}
 				if (r.error || r.status !== 0)
 					process.exit(r.status != null ? r.status : 1);
 				return;
@@ -263,8 +307,17 @@ export function registerDelegationCommands(
 				const content = await readFile(a.path);
 				const updated = content.replace(/^name:\s*.*$/m, `name: ${newName}`);
 				const fspMod = await import("node:fs/promises");
-				const newPath = path.join(path.dirname(a.path), `${newName}.md`);
-				await fspMod.writeFile(newPath, updated, "utf8");
+				// Same write sink as `agents import` above, and it was unguarded:
+				// `agents rename x ../../../.claude/CLAUDE` wrote outside the agents
+				// dir and removed the original. newName is operator-typed rather than
+				// repo-controlled, but the containment rule is the same either way.
+				const agentsDir = path.dirname(a.path);
+				const unsafeNew = `Refusing rename: unsafe agent name ${JSON.stringify(newName)} — a name must be a single filename segment (no path separators, no '..').`;
+				if (unsafeAgentSegment(newName)) fail(unsafeNew);
+				const newPath = resolveContained(agentsDir, `${newName}.md`);
+				if (!newPath) fail(unsafeNew);
+				const { writeFile: writeFileAtomic } = await import("../util.js");
+				await writeFileAtomic(newPath, updated);
 				if (newPath !== a.path) await fspMod.rm(a.path, { force: true });
 				emit({
 					command: "agents",
@@ -312,9 +365,24 @@ export function registerDelegationCommands(
 				const m = /^name:\s*(\S+)/m.exec(content);
 				if (m && !opts.name) finalName = m[1];
 				const targetDir = projectAgentsDir(cwd);
-				await (await import("../util.js")).ensureDir(targetDir);
-				const target = path.join(targetDir, `${finalName}.md`);
-				await fspMod.writeFile(target, content, "utf8");
+				// The destination name comes from the UNTRUSTED imported file's own
+				// frontmatter, so it must be a single filename segment: `\S+` matches
+				// `/`, `\` and `..`, and a lexical containment check alone would still
+				// accept `shared/CLAUDE` and follow a symlink planted at
+				// `.agents/agents/shared`.
+				const unsafeName = `Refusing import: unsafe agent name ${JSON.stringify(finalName)} — a name must be a single filename segment (no path separators, no '..').`;
+				if (unsafeAgentSegment(finalName)) fail(unsafeName);
+				const target = resolveContained(targetDir, `${finalName}.md`);
+				if (!target) fail(unsafeName);
+				const { ensureDir, writeFile: writeFileAtomic } = await import(
+					"../util.js"
+				);
+				await ensureDir(targetDir);
+				// Symlink-safe: a raw fsp.writeFile follows a symlink planted at the
+				// destination itself (`name: notes` onto a symlinked notes.md — no
+				// separators needed) and writes straight through it. The atomic
+				// writer renames OVER the link, replacing it.
+				await writeFileAtomic(target, content);
 				emit({
 					command: "agents",
 					action: "import",

@@ -7,6 +7,10 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { Command } from "commander";
 import path from "node:path";
+// Must stay above ./util.js: picocolors (imported there) latches its
+// color-support decision at import time, and force-enables color on win32 even
+// for a piped stdout. This side-effect import settles NO_COLOR first.
+import "./color.js";
 import {
 	c,
 	log,
@@ -90,6 +94,10 @@ import { registerUpdateCommands } from "./commands/update-cmds.js";
 import { registerSkillCommands } from "./commands/skill-cmds.js";
 import { registerSessionCoreCommands } from "./commands/session-core.js";
 import { registerBootstrapCommands } from "./commands/bootstrap.js";
+import {
+	expandMcpShorthand,
+	registerMcpCommands,
+} from "./commands/mcp-cmds.js";
 import { registerEvaluateCommands } from "./commands/evaluate.js";
 import { registerLedgerCommands } from "./commands/ledger.js";
 import { registerTeamEvalCommands } from "./commands/team-eval.js";
@@ -314,6 +322,8 @@ registerInspectCommands(program, {
 registerProtocolCommands(program, {
 	emit,
 	fail,
+	log,
+	c,
 	program,
 	collectCommands,
 	EXIT,
@@ -481,6 +491,9 @@ registerDelegationCommands(program, {
 	readFile,
 	spawnSync,
 	path,
+	parseEditorCommand,
+	cmdShimSpawnSync,
+	resolveContained,
 });
 registerKnowledgeCommands(program, {
 	emit,
@@ -513,6 +526,16 @@ registerConfigureCommands(program, {
 	c,
 	pretty,
 	isJson: () => JSON_MODE,
+});
+// No `fail` here on purpose: every mcp action is async, and fail()'s
+// process.exit() can tear the process down with the error envelope still queued
+// on a Windows pipe. See failWith() in mcp-cmds.js.
+registerMcpCommands(program, {
+	emit,
+	log,
+	c,
+	isJson: () => JSON_MODE,
+	EXIT,
 });
 registerToolingCommands(program, {
 	emit,
@@ -683,10 +706,19 @@ program
 		"Manage AGENTS.md and point every coding agent at one canonical source (~/.agents/AGENTS.md). Bundles skill-cli.",
 	)
 	.version(VERSION, "-v, --version")
+	// Every global option below is BOOLEAN, and expandMcpShorthand() in
+	// commands/mcp-cmds.js depends on that: it skips leading "-"-prefixed tokens
+	// to find the top-level command, which is only safe while none of them takes
+	// a value. Adding a value-taking global here (say `--config <path>`) would
+	// make `agent-cli --config x.json mcp <tool>` stop expanding — update that
+	// function in the same change.
 	.option("--json", "Emit machine-readable JSON (AI/CI friendly)")
 	.option("--compact", "With --json: emit compact (single-line) JSON")
 	.option("-q, --quiet", "Suppress informational output (errors still print)")
 	.option("--silent", "Alias for --quiet")
+	// Declared so commander accepts the conventional flag; the color decision
+	// itself is made in ./color.js before picocolors loads (also: NO_COLOR=1).
+	.option("--no-color", "Disable ANSI color (also: NO_COLOR=1)")
 	.option(
 		"--no-update-check",
 		"skip the npm-update freshness check (also: AGENT_CLI_NO_UPDATE_CHECK=1)",
@@ -857,7 +889,20 @@ program.action((opts, cmd) => {
 	log.dim(`Run ${c.cyan("agent-cli --help")} for the full command list.`);
 });
 
-program.parseAsync(process.argv).catch((e) => {
+// Let the root action see an unmatched operand instead of commander aborting
+// first with "too many arguments. Expected 0 arguments but got 1: frobnicate"
+// — a misleading arity error for what is really an unknown command. The root
+// action (above) turns it into `Unknown command: <name>` + a suggestion.
+// MUST stay here, after every subcommand is registered: commander copies
+// `_allowExcessArguments` into each subcommand at `.command()` time, so
+// setting it earlier would also silence the real "too many arguments for
+// '<sub>'" errors (e.g. `agent-cli link claude`).
+program.allowExcessArguments(true);
+
+// `agent-cli mcp <tool>` → `agent-cli mcp call <tool>`. Rewriting argv keeps
+// `call`'s own option parsing strict; a variadic positional on `mcp` would
+// swallow every `--flag` into the option set instead (see mcp-cmds.js).
+program.parseAsync(expandMcpShorthand(process.argv)).catch((e) => {
 	// Commander raises CommanderError for --help/--version and for parse/usage
 	// errors (exitOverride). Route them through the JSON contract when requested.
 	const isCmdError =

@@ -169,6 +169,7 @@ Missing yours? [Adding one](#adding-a-new-ai-coding-tool) is a two-file pull req
 | Skills | `skill setup\|refresh\|status\|list\|install\|enable\|disable` |
 | Diagnostics | `doctor`, `validate`, `config`, `stats`, `whoami`, `files`, `manifest`, `schema` |
 | Automation | `hooks install` (git hooks), `automation add\|list\|run`, `watch`, `serve` (MCP over stdio) |
+| External MCP tools | `mcp servers\|enable\|disable\|tools\|call`, `mcp <tool> --arg k=v` |
 | For LLM agents | `instructions` (static guide), `prompt [--for <task>]` (dynamic, state-aware) |
 
 `agent-cli help <command>` for any of these; `agent-cli --json manifest` for the full
@@ -230,6 +231,39 @@ write lands.
 
 Full surface — `initialize` capabilities, the 11 resource URIs and payload contract, the
 subscription delivery contract, the tool list — in [docs/contract.md](docs/contract.md).
+
+### Calling other people's MCP servers
+
+`agent-cli mcp` is the other direction: the servers you already wired into Claude Code and
+pi, callable from the shell.
+
+```bash
+agent-cli mcp servers                          # everything configured, and its trust state
+agent-cli mcp enable pi:web-search-prime       # approve one, once
+agent-cli mcp tools pi:web-search-prime        # what it exposes
+agent-cli mcp web_search --arg query="mcp spec"
+```
+
+Definitions are read from `~/.claude.json`, `~/.pi/agent/mcp.json`, and a project's
+`.mcp.json` — declared once, where their owner already declared them. agent-cli stores a
+reference and a fingerprint, never a copy, and least of all a credential.
+
+**Nothing runs until you enable it.** These commands are meant to be run *by* agents,
+non-interactively, so appearing in a config file must not be enough to make a server
+executable — otherwise anything that can write `~/.claude.json` gets code run by the next
+agent that calls a tool. `enable` is the approval step a non-interactive CLI cannot prompt
+for, and it pins the definition: change the command, args, url, env or headers afterwards
+and the server is refused until a human re-approves it.
+
+**Arguments go through `--arg`, never as bare words.** `mcp call search --query hi` cannot
+work — the CLI parser takes `--query` as its own option and the tool would receive nothing.
+Use `--arg k=v` (repeatable), or `--args-json` / `--args-file` / `--args-stdin` for
+anything nested.
+
+Spawned servers get an allowlisted environment rather than your whole session, HTTPS is
+required and redirects refused, link-local and metadata addresses are rejected, and every
+string a server sends back is credential-redacted and control-stripped before it reaches
+your terminal. The trust model is specified in [docs/contract.md](docs/contract.md).
 
 ## The dev-team skill
 

@@ -21,10 +21,10 @@ export const SECRETS_KEY = ".secrets.key";
 // so they live together: if they ever drift apart the failure is silent data
 // loss, not an error.
 //
-// readStore() refuses a store larger than MAX_STORE_READ_BYTES and — as the
-// SEC-3/SEC-3b symlink tests require — reports EVERY refusal as an empty store.
-// That is the right answer for a planted symlink, but it means a store that has
-// merely grown too large also reads as empty, and the next setSecret() would
+// readStore() refuses a store larger than MAX_STORE_READ_BYTES and reports THAT
+// refusal as an empty store rather than an error — as the SEC-3/SEC-3b symlink
+// tests require of a refused store. Right for a planted symlink, but it means a
+// store that has merely grown too large also reads as empty, and setSecret() would
 // then write a store holding only the new name, orphaning every secret already
 // in it. So the write side caps first, with a real error, and stops well below
 // the read cap: whatever is already on disk stays readable.

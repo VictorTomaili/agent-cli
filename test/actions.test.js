@@ -2,7 +2,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import {
+	accessSync,
+	lstatSync,
+	mkdtempSync,
+	readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -85,6 +90,72 @@ test("computeEtag is stable for identical state and changes with drift", async (
 	assert.notEqual(different, e1);
 });
 
+// This test has failed on Windows CI as `expected 'pointer', actual 'missing'`
+// and nobody has reproduced it on demand: 238 green runs between two seats,
+// across isolated, 8- and 12-way parallel, scanner-contended and full-suite
+// regimes. So the next CI occurrence has to diagnose itself, or it costs
+// another round of proving negatives.
+//
+// The one premise nothing has tested is that `missing` means absent. classify()
+// (src/pointer.js:233) returns "missing" when readIfExists() yields null, and
+// readIfExists (src/util.js:175) is check-then-read: exists() swallows EVERY
+// error from access(), so a file that is present but momentarily unreadable is
+// reported identically to one that was never written. Probing the path
+// directly separates those, and that single fact decides whether anything
+// removed the pointer at all or whether status misreported a file that was
+// there the whole time.
+//
+// `claude.global.path` is the product's own idea of where it looked, so the
+// probe cannot disagree with it about the path.
+//
+// Diagnostics only: this runs on the failing path and changes nothing about
+// what passes or fails.
+function pointerDiagnostics(claude, receipts, plan) {
+	const p = claude?.global?.path ?? null;
+	const probe = { path: p };
+	if (p) {
+		// Read FIRST, then the metadata calls. Not stylistic: a check followed
+		// by a read is the check-then-use shape this probe exists to study, and
+		// writing it that way here would be both a js/file-system-race and a
+		// probe whose own result could not be trusted. Each call is recorded
+		// independently — their DISAGREEMENT is the finding.
+		try {
+			probe.head = readFileSync(p, "utf8").slice(0, 200);
+		} catch (e) {
+			probe.readError = e.code ?? String(e);
+		}
+		// accessSync is the exact call exists() makes (src/util.js:47), and
+		// exists() discards the code. ENOENT means the pointer really was
+		// absent; anything else (EPERM/EBUSY/EACCES) means status reported
+		// "missing" for a file that was there.
+		try {
+			accessSync(p);
+			probe.accessOk = true;
+		} catch (e) {
+			probe.accessError = e.code ?? String(e);
+		}
+		try {
+			const st = lstatSync(p);
+			probe.lstat = { size: st.size, isSymlink: st.isSymbolicLink() };
+		} catch (e) {
+			probe.lstatError = e.code ?? String(e);
+		}
+		try {
+			lstatSync(path.dirname(p));
+			probe.parentDirOk = true;
+		} catch (e) {
+			probe.parentDirError = e.code ?? String(e);
+		}
+	}
+	return [
+		"",
+		`status said global.state=${JSON.stringify(claude?.global?.state)} for claude`,
+		`direct probe: ${JSON.stringify(probe, null, 2)}`,
+		`plan (! = not safeToAutomate): ${JSON.stringify(plan)}`,
+		`applySafe receipts: ${JSON.stringify(receipts, null, 2)}`,
+	].join("\n");
+}
+
 test("applySafe runs safe actions and stops at the first unsafe one", async () => {
 	initHome();
 	run(["target", "enable", "claude", "-g"]);
@@ -100,7 +171,17 @@ test("applySafe runs safe actions and stops at the first unsafe one", async () =
 	// after the fix, the pointer is restored
 	const status = JSON.parse(run(["status", "--json"])).data;
 	const claude = status.targets.find((t) => t.id === "claude");
-	assert.equal(claude.global.state, "pointer");
+	assert.equal(
+		claude.global.state,
+		"pointer",
+		claude.global.state === "pointer"
+			? ""
+			: pointerDiagnostics(
+					claude,
+					res.receipts,
+					list.map((a) => `${a.id}${a.safeToAutomate ? "" : "!"}`),
+				),
+	);
 });
 
 test("runAction executes an agent-cli command", async () => {

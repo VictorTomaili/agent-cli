@@ -265,6 +265,19 @@ function probeFdIdentity() {
 		// wx as well: the directory is already private, but adopting a file this
 		// function did not create is never what it wants.
 		fs.writeFileSync(p, "x", { flag: "wx" });
+		// lgtm[js/file-system-race] — the check-then-open here is genuinely racy and
+		// this suppression does not claim otherwise. It is not justified by mkdtemp's
+		// mode: this branch is win32-only (pre is null on POSIX, so the probe never
+		// runs there) and Windows largely ignores that mode, inheriting the parent's
+		// ACLs instead — private for a per-user %TEMP%, not established for a service
+		// identity on C:\Windows\Temp. Arguing 0700 here would be POSIX reasoning
+		// about a code path that never runs on POSIX. What makes the race not worth
+		// winning is that only ONE outcome helps an attacker — "unreliable", which
+		// downgrades the caller — and probeFdIdentityCorroborated requires that
+		// outcome to be reproduced in PROBE_CORROBORATION separately created,
+		// unpredictably named directories before it is believed, while "reliable" is
+		// the fail-closed answer taken from the first probe that reports it. Winning
+		// this one open changes nothing.
 		const viaPath = fs.lstatSync(p);
 		fd = fs.openSync(p, fs.constants.O_RDONLY);
 		const viaFd = fs.fstatSync(fd);

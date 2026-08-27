@@ -20,14 +20,30 @@ jobs:
         # needs the runner's own pattern expansion (Node 21+, cmd.exe doesn't
         # glob), and skill tool modules are ESM-in-.js relying on module
         # syntax detection. 18 and 20 are both EOL.
+        #
+        # KNOWN GAP: a bare `22` resolves to the newest 22.x, so the floor this
+        # package advertises is never actually executed here. Pinning the exact
+        # floor as a third leg is the fix, and it is deliberately NOT done yet:
+        # doing so found that agent-cli is broken on Windows + Node 22.13.0 —
+        # readFileNoFollow refuses every regular file, taking 27 tests with it,
+        # because lstat and fstat disagree on dev/ino there. Pinning a version
+        # the package does not actually work on would assert support that does
+        # not exist. Restore the leg with the real floor once that is fixed or
+        # the floor is raised past it.
         node: [22, 24]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci
+      # --ignore-scripts here matches the publish job, so there is only one
+      # answer to "does installing dependencies run their code". This job is
+      # the more exposed of the two: it runs on pull_request, so the tree it
+      # installs is whatever the PR proposes, including its lockfile. The
+      # blast radius is small (contents: read, no secrets reach fork PRs) but
+      # the flag costs nothing and keeps the two install sites identical.
+      - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm test

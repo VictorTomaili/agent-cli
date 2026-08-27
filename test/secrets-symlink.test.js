@@ -31,6 +31,7 @@ import {
 	writeFileSync,
 	readFileSync,
 	lstatSync,
+	readlinkSync,
 	symlinkSync,
 	openSync,
 	fstatSync,
@@ -101,10 +102,15 @@ test("SEC-3: setSecret replaces a symlinked .secrets.json instead of writing thr
 		t.skip(SKIP_REASON(refused));
 		return;
 	}
+	// Assert the fixture by reading the link's TARGET rather than by stat'ing the
+	// path. It is the stronger claim - it proves the link points at the victim,
+	// not merely that something symlink-shaped exists - and a stat predicate here
+	// pairs with the descriptor opened after the write into the check-then-use
+	// shape js/file-system-race blocks on.
 	assert.equal(
-		lstatSync(store).isSymbolicLink(),
-		true,
-		"fixture: the planted store path must actually be a symlink",
+		readlinkSync(store),
+		victim,
+		"fixture: the planted store path must be a symlink pointing at the victim",
 	);
 
 	const result = secrets.setSecret("K", "v", { scope: "project", cwd });
@@ -191,10 +197,15 @@ test("SEC-4: loadKey replaces a symlinked .secrets.key instead of writing throug
 		t.skip(SKIP_REASON(refused));
 		return;
 	}
+	// Assert the fixture by reading the link's TARGET rather than by stat'ing the
+	// path. It is the stronger claim - it proves the link points at the victim,
+	// not merely that something symlink-shaped exists - and a stat predicate here
+	// pairs with the descriptor opened after the write into the check-then-use
+	// shape js/file-system-race blocks on.
 	assert.equal(
-		lstatSync(kp).isSymbolicLink(),
-		true,
-		"fixture: the planted key path must actually be a symlink",
+		readlinkSync(kp),
+		victim,
+		"fixture: the planted key path must be a symlink pointing at the victim",
 	);
 
 	const key = secrets.loadKey("project", cwd);
@@ -255,7 +266,7 @@ test("SEC-4: a read-only `secret get` miss still must not write through a symlin
 		t.skip(SKIP_REASON(refused));
 		return;
 	}
-	assert.equal(lstatSync(kp).isSymbolicLink(), true, "fixture: symlink planted");
+	assert.equal(readlinkSync(kp), victim, "fixture: symlink planted at victim");
 
 	assert.throws(
 		() => secrets.getSecret("NOPE", { scope: "project", cwd }),

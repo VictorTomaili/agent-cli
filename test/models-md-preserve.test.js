@@ -211,6 +211,38 @@ test("two consecutive sets are each a single-line change", () => {
 	}
 });
 
+// The section helpers used to match a heading ANYWHERE, so a document that
+// merely mentioned `## Aliases` in prose — a note at the top of MODELS.md
+// about this very file, for instance — had that sentence treated as the
+// section: the real block below was never touched and a duplicate alias line
+// was spliced into the middle of the paragraph.
+test("a prose mention of a heading is not mistaken for the section", () => {
+	const home = mkdtempSync(path.join(tmpdir(), "agent-modelsmd-prose-"));
+	mkdirSync(path.join(home, ".agents"), { recursive: true });
+	const seeded = SEED.replace(
+		"## Aliases\n",
+		"> Note: `models set` rewrote the whole `## Aliases` block and reverted the `## Curated model catalog` table.\n\n## Aliases\n",
+	);
+	writeFileSync(path.join(home, ".agents", "MODELS.md"), seeded);
+
+	const r = run(["models", "set", "review-model", "zai/glm-5.3"], home);
+	assert.equal(r.status, 0, r.stderr);
+
+	const after = readMd(home);
+	assert.equal(aliasLines(after).length, 7, "no duplicate alias line");
+	assert.equal(
+		after.split('name="review-model"').length - 1,
+		1,
+		"review-model appears exactly once",
+	);
+	assert.match(lineFor(after, "review-model"), /zai\/glm-5\.3<\/ALIAS>$/);
+	// The prose note itself is untouched.
+	assert.ok(
+		after.includes(
+			"> Note: `models set` rewrote the whole `## Aliases` block and reverted the `## Curated model catalog` table.",
+		),
+	);
+});
 test("parseAliasLine round-trips attribute order and escaped characters", () => {
 	const shuffled =
 		'<ALIAS thinking="off" name="cheap-model" fallbacks="deepseek/v4-flash" category="cheap">zai/glm-5.3</ALIAS>';

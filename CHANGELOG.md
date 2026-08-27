@@ -34,6 +34,17 @@ to npm and pushes the matching `vX.Y.Z` tag.
   clear a line that exists only in MODELS.md, which was previously unremovable.
   Regression coverage in `test/models-md-preserve.test.js`.
 
+- **Section headings were matched anywhere in MODELS.md, not at a line start.**
+  `replaceOrAppendSection`, `mergeLiveCatalogSection` and the
+  `## Categories` / `## Curated model catalog` presence checks all matched
+  their heading as a bare substring, so a document that merely *mentioned*
+  `## Aliases` or `## Curated model catalog` in prose — a note at the top of
+  MODELS.md about this very file, say — had that sentence treated as the
+  section: the real block below was skipped and content was spliced into the
+  middle of a paragraph. All of them now go through one line-anchored
+  `findSection()` helper. Covered by
+  `test/models-md-preserve.test.js`.
+
 ## [0.9.0]
 
 Closes 57 of 58 open CodeQL security alerts (the 1 remaining is the

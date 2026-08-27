@@ -3,7 +3,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { HOME, writeFileSync } from "./util.js";
+import { HOME, writeFileSync, escapeRegExp } from "./util.js";
 import {
 	loadConfigSync,
 	saveConfigSync,
@@ -280,8 +280,7 @@ function upsertAliasLines(section, aliases, dropSet) {
 
 /** Apply the per-line upsert to a document, appending the section if absent. */
 function upsertAliasSection(content, aliases, dropSet) {
-	const re = /##\s+Aliases[\s\S]*?(?=\n## |$)/;
-	const found = content.match(re);
+	const found = findSection(content, "## Aliases");
 	if (!found)
 		return (
 			content.trimEnd() +
@@ -289,12 +288,13 @@ function upsertAliasSection(content, aliases, dropSet) {
 			buildAliasSection(aliases, dropSet).trimEnd() +
 			"\n"
 		);
-	const followedByMore = found.index + found[0].length < content.length;
-	const next =
-		upsertAliasLines(found[0], aliases, dropSet).trimEnd() +
-		(followedByMore ? "\n" : "");
-	// Function replacer: a `$` inside a model id is not a substitution pattern.
-	return content.replace(re, () => next);
+	const followedByMore = found.end < content.length;
+	return (
+		content.slice(0, found.start) +
+		upsertAliasLines(found.text, aliases, dropSet).trimEnd() +
+		(followedByMore ? "\n" : "") +
+		content.slice(found.end)
+	);
 }
 
 /** Best-effort synchronous read of the existing MODELS.md; null if absent/unreadable. */
@@ -306,20 +306,44 @@ function readExistingModelsMd() {
 	}
 }
 
-/** Replace a `## Heading` section in place (up to the next `## ` heading or
- *  EOF), or append it if the heading isn't present yet. Same pattern as
- *  mergeLiveCatalogSection's "## Live model catalog" handling below. */
+/**
+ * Locate a `## Heading` section: from the start of the heading LINE up to the
+ * next `## ` heading line, or EOF. Returns `{ start, end, text }` or null.
+ *
+ * The heading must start a line. An earlier version matched the heading
+ * anywhere, so a document that merely *mentions* `## Aliases` or
+ * `## Curated model catalog` in prose (a note about this file, say) had that
+ * sentence treated as the section — and the real section below it was left
+ * alone while content was spliced into the middle of a paragraph.
+ */
+function findSection(content, heading) {
+	const re = new RegExp(`(?:^|\\n)${escapeRegExp(heading)}[^\\n]*`);
+	const m = re.exec(content);
+	if (!m) return null;
+	const start = m.index + (m[0].startsWith("\n") ? 1 : 0);
+	const after = content.slice(start + m[0].length);
+	const nextIdx = after.search(/\n##\s/);
+	const end = nextIdx < 0 ? content.length : start + m[0].length + nextIdx;
+	return { start, end, text: content.slice(start, end) };
+}
+
+/** Whether `content` has a `## Heading` section (heading at a line start). */
+function hasSection(content, heading) {
+	return findSection(content, heading) != null;
+}
+
+/** Replace a `## Heading` section in place, or append it if not present. */
 function replaceOrAppendSection(content, heading, newSection) {
-	const re = new RegExp(`${heading}[\\s\\S]*?(?=\\n## |$)`);
-	const found = content.match(re);
-	if (found) {
-		// Preserve a blank line before whatever follows, unless this section is at EOF.
-		const followedByMore = found.index + found[0].length < content.length;
-		const next = newSection.trimEnd() + (followedByMore ? "\n" : "");
-		// Function replacer: a `$` in the body is not a substitution pattern.
-		return content.replace(re, () => next);
-	}
-	return content.trimEnd() + "\n\n" + newSection.trimEnd() + "\n";
+	const found = findSection(content, heading);
+	if (!found) return content.trimEnd() + "\n\n" + newSection.trimEnd() + "\n";
+	// Preserve a blank line before whatever follows, unless this section is at EOF.
+	const followedByMore = found.end < content.length;
+	return (
+		content.slice(0, found.start) +
+		newSection.trimEnd() +
+		(followedByMore ? "\n" : "") +
+		content.slice(found.end)
+	);
 }
 
 /**
@@ -377,7 +401,7 @@ export function writeModelsMd({ drop = [] } = {}) {
 
 	// Targeted upsert: only alias lines this call has news about are rewritten.
 	let out = upsertAliasSection(existing, a, dropSet);
-	if (!/##\s+Categories/.test(out)) {
+	if (!hasSection(out, "## Categories")) {
 		out = out.trimEnd() + "\n\n" + categoriesSection;
 	}
 	writeFileSync(MODELS_MD, out.trimEnd() + "\n");
@@ -461,13 +485,7 @@ function categoryFromId(id) {
  * the actual file write. Used by `agent-cli models research --fetch`.
  */
 export function mergeLiveCatalogSection(existing, liveSection) {
-	if (/##\s+Live model catalog/.test(existing)) {
-		return existing.replace(
-			/## Live model catalog[\s\S]*?(?=\n## |$)/,
-			liveSection.trimEnd(),
-		);
-	}
-	return existing.trimEnd() + "\n\n" + liveSection.trimEnd() + "\n";
+	return replaceOrAppendSection(existing, "## Live model catalog", liveSection);
 }
 
 /**

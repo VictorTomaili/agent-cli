@@ -179,3 +179,89 @@ test("a write that would grow the store past the cap is refused, not silently ap
 	assert.equal(secrets.rmSecret("PAD", { scope, cwd }).existed, true);
 	assert.equal(secrets.setSecret("ONE_MORE", "z", { scope, cwd }).ok, true);
 });
+
+// --- Prototype-key names -----------------------------------------------------
+// `store.secrets` comes off JSON.parse, so it carries Object.prototype. A plain
+// `store.secrets[name] = ...` invokes the `__proto__` SETTER instead of creating
+// an own property: JSON.stringify then omits it and setSecret still reports
+// ok:true. `rmSecret` already gates on hasOwnProperty; set and get did not.
+//
+// Every test below needs a store that already EXISTS on disk. The bug lives in
+// the object JSON.parse hands back; readStore's empty-store path returns a plain
+// `{}` literal built here in-process, and a fixture that only exercises that
+// path would pass whether or not the fix is correct. seedStore() makes the
+// precondition explicit instead of inheriting it from whichever tests above
+// happened to run first.
+function seedStore() {
+	assert.equal(secrets.setSecret("SEED", "seed-value").ok, true);
+	assert.ok(existsSync(secrets.secretsPath("global")), "fixture: store must be on disk");
+	// The precondition the bug requires: the parsed map inherits Object.prototype.
+	const parsed = JSON.parse(readFileSync(secrets.secretsPath("global"), "utf8"));
+	assert.equal(Object.getPrototypeOf(parsed.secrets), Object.prototype);
+	assert.equal(typeof parsed.secrets.toString, "function", "fixture: inherited keys resolve");
+}
+
+test("setSecret actually stores a secret named __proto__", () => {
+	seedStore();
+	const before = secrets.listSecretNames();
+	const r = secrets.setSecret("__proto__", "proto-value");
+	assert.equal(r.ok, true);
+	// The claim of success has to be backed by the store on disk.
+	assert.ok(
+		secrets.listSecretNames().includes("__proto__"),
+		`reported success but the store still holds ${JSON.stringify(before)}`,
+	);
+	assert.equal(secrets.getSecret("__proto__"), "proto-value");
+
+	// And it must round-trip through the file, not just this process.
+	const raw = JSON.parse(readFileSync(secrets.secretsPath("global"), "utf8"));
+	assert.ok(Object.prototype.hasOwnProperty.call(raw.secrets, "__proto__"));
+	assert.ok(!raw.includes?.("proto-value"));
+
+	assert.equal(secrets.rmSecret("__proto__").existed, true);
+	assert.ok(!secrets.listSecretNames().includes("__proto__"));
+});
+
+test("storing a prototype-named secret never pollutes Object.prototype", () => {
+	seedStore();
+	secrets.setSecret("__proto__", "harmless");
+	assert.equal({}.iv, undefined, "Object.prototype must stay clean");
+	assert.equal(Object.getPrototypeOf({}), Object.prototype);
+	secrets.rmSecret("__proto__");
+});
+
+test("getSecret reports a missing prototype-named secret as missing", () => {
+	seedStore();
+	// Inherited keys resolved truthy and reached decrypt, which threw a raw
+	// TypeError from Buffer.from(undefined) — an internal error message where
+	// the user asked for a name that simply is not there.
+	for (const name of ["__proto__", "toString", "constructor", "valueOf", "hasOwnProperty"]) {
+		assert.ok(!secrets.listSecretNames().includes(name), `fixture: ${name} must be absent`);
+		// Match the message exactly rather than by pattern: the bug produced a
+		// DIFFERENT Error subclass with an internal message, so a loose /No such/
+		// would still pass on a partial fix that only stopped the TypeError.
+		assert.throws(
+			() => secrets.getSecret(name),
+			(err) =>
+				err instanceof Error &&
+				!(err instanceof TypeError) &&
+				err.message === `No such secret: ${name}`,
+			`getSecret(${name}) must report a missing secret, not leak an internal error`,
+		);
+	}
+});
+
+test("a prototype-named secret does not shadow a real one", () => {
+	seedStore();
+	secrets.setSecret("REAL", "real-value");
+	secrets.setSecret("toString", "ts-value");
+	assert.equal(secrets.getSecret("REAL"), "real-value");
+	assert.equal(secrets.getSecret("toString"), "ts-value");
+	assert.deepEqual(
+		secrets.listSecretNames().filter((n) => n === "toString"),
+		["toString"],
+	);
+	secrets.rmSecret("toString");
+	assert.throws(() => secrets.getSecret("toString"), /No such secret: toString/);
+	assert.equal(secrets.getSecret("REAL"), "real-value");
+});

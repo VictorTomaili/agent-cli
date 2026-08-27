@@ -210,7 +210,20 @@ export function setSecret(name, value, { scope = "global", cwd = process.cwd() }
 		};
 	const key = loadKey(scope, cwd);
 	const store = readStore(scope, cwd);
-	store.secrets[name] = encrypt(key, value);
+	// defineProperty, not assignment: `store.secrets` comes off JSON.parse and
+	// so carries Object.prototype, where `__proto__` is an ACCESSOR. Plain
+	// assignment invoked that setter, changed the map's prototype instead of
+	// adding a key, and left JSON.stringify with nothing to serialize — while
+	// this function still returned ok:true. defineProperty creates a real own
+	// property for every name, and JSON.parse reads `__proto__` back as an own
+	// property too, so the value round-trips through the file without ever
+	// touching Object.prototype.
+	Object.defineProperty(store.secrets, name, {
+		value: encrypt(key, value),
+		enumerable: true,
+		writable: true,
+		configurable: true,
+	});
 	// The store as a whole must stay under MAX_STORE_BYTES, which sits below
 	// readStore()'s cap. Past that cap the file reads back as empty and the NEXT
 	// write would silently drop every other secret, so refuse this one instead.
@@ -232,7 +245,14 @@ export function setSecret(name, value, { scope = "global", cwd = process.cwd() }
 /** Read a secret. Throws when the secret does not exist. */
 export function getSecret(name, { scope = "global", cwd = process.cwd() } = {}) {
 	const key = loadKey(scope, cwd);
-	const entry = readStore(scope, cwd).secrets[name];
+	const secrets = readStore(scope, cwd).secrets;
+	// Own-property gate, the same one rmSecret uses. Without it every inherited
+	// key — toString, constructor, valueOf, __proto__ — resolved truthy and
+	// reached decrypt, which threw a raw TypeError out of Buffer.from(undefined)
+	// instead of saying the secret is not there.
+	if (!Object.prototype.hasOwnProperty.call(secrets, name))
+		throw new Error(`No such secret: ${name}`);
+	const entry = secrets[name];
 	if (!entry) throw new Error(`No such secret: ${name}`);
 	return decrypt(key, entry);
 }

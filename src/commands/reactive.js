@@ -73,21 +73,39 @@ export function registerReactiveCommands(
 			"--with-automation",
 			"also run `automation run --event post-merge`",
 		)
+		.option(
+			"--force",
+			"replace hooks agent-cli did not write (originals are backed up)",
+		)
 		.action(async (action, opts) => {
 			const auto = await import("../automation.js");
 			if (action === "install") {
-				let installed;
+				let res;
 				try {
-					installed = auto.installGitHooks({
+					res = auto.installGitHooks({
 						withAutomation: !!opts.withAutomation,
+						force: !!opts.force,
 					});
 				} catch (e) {
 					fail(e.message, { command: "hooks", action });
 				}
-				emit({ command: "hooks", action, installed });
+				const { installed, skipped, backups } = res;
+				emit({ command: "hooks", action, installed, skipped, backups });
 				if (!isJson()) {
-					log.success(`Installed git hooks: ${installed.join(", ")}`);
-					log.dim("They run `agent-cli link` after every merge/checkout.");
+					if (installed.length)
+						log.success(`Installed git hooks: ${installed.join(", ")}`);
+					for (const h of installed)
+						if (backups[h]) log.dim(`  previous ${h} saved to ${backups[h]}`);
+					// A skip is the whole point of the guard, so it has to be loud:
+					// silently declining to install is indistinguishable from success.
+					if (skipped.length) {
+						log.warn(
+							`Left ${skipped.join(", ")} alone — not written by agent-cli.`,
+						);
+						log.dim("Re-run with --force to replace them (originals are backed up).");
+					}
+					if (installed.length)
+						log.dim("They run `agent-cli link` after every merge/checkout.");
 				}
 				return;
 			}

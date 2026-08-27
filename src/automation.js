@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { AGENTS_DIR, exists, readFile, writeFile, pretty } from "./util.js";
+import { backupPath } from "./managed-resource.js";
 
 export const AUTOMATION_FILE = path.join(AGENTS_DIR, "automation.json");
 
@@ -87,8 +88,9 @@ export function runJobs({ event = "*", cwd = process.cwd() } = {}) {
 // ---------------------------------------------------------------------------
 // Git hooks — wire `agent-cli link` (and job hooks) into post-merge/post-checkout.
 // ---------------------------------------------------------------------------
+const HOOK_MARK = "Managed by agent-cli";
 const HOOK_TEMPLATE = (extra) => `#!/bin/sh
-# Managed by agent-cli — ` + "`agent-cli hooks install --git`" + `
+# ${HOOK_MARK} — ` + "`agent-cli hooks install --git`" + `
 # Re-point agent-cli files after branch changes / merges.
 command -v agent-cli >/dev/null 2>&1 && agent-cli link >/dev/null 2>&1
 ${extra ? extra + "\n" : ""}
@@ -98,7 +100,20 @@ export function gitHookPath(cwd = process.cwd()) {
 	return path.join(cwd, ".git", "hooks");
 }
 
-export function installGitHooks({ cwd = process.cwd(), withAutomation = false } = {}) {
+/**
+ * Install the agent-cli post-merge/post-checkout hooks.
+ *
+ * Git hooks are untracked, so overwriting someone else's (husky, git-lfs, a
+ * hand-rolled script) destroys the only copy. `removeGitHooks` already refuses
+ * to delete a hook without our marker; install holds the same line from the
+ * other side — a hook we did not write is skipped, and `force` replaces it only
+ * after copying the original to `<hook>.agent-cli-backup-<iso>`, the same
+ * contract pointer.js gives a native AGENTS.md.
+ *
+ * Returns { installed, skipped, backups } — a partial install is a success, so
+ * one foreign hook never blocks the other slot.
+ */
+export function installGitHooks({ cwd = process.cwd(), withAutomation = false, force = false } = {}) {
 	const hooksDir = gitHookPath(cwd);
 	if (!fs.existsSync(hooksDir)) {
 		const err = new Error("not a git repository (no .git/hooks)");
@@ -109,12 +124,34 @@ export function installGitHooks({ cwd = process.cwd(), withAutomation = false } 
 	const extra = withAutomation
 		? 'command -v agent-cli >/dev/null 2>&1 && agent-cli automation run --event post-merge >/dev/null 2>&1'
 		: "";
+	const installed = [];
+	const skipped = [];
+	const backups = {};
 	for (const hook of ["post-merge", "post-checkout"]) {
-		fs.writeFileSync(path.join(hooksDir, hook), HOOK_TEMPLATE(extra), "utf8");
+		const p = path.join(hooksDir, hook);
+		// Read rather than existsSync-then-read: an unreadable hook is still
+		// somebody's hook, so anything we cannot prove is ours counts as foreign.
+		let existing = null;
+		try {
+			existing = fs.readFileSync(p, "utf8");
+		} catch (err) {
+			if (err?.code !== "ENOENT") existing = "";
+		}
+		if (existing !== null && !existing.includes(HOOK_MARK)) {
+			if (!force) {
+				skipped.push(hook);
+				continue;
+			}
+			const backup = backupPath(p);
+			fs.copyFileSync(p, backup);
+			backups[hook] = backup;
+		}
+		fs.writeFileSync(p, HOOK_TEMPLATE(extra), "utf8");
 		// best-effort +x (POSIX); ignored on Windows
-		try { fs.chmodSync(path.join(hooksDir, hook), 0o755); } catch { /* Windows */ }
+		try { fs.chmodSync(p, 0o755); } catch { /* Windows */ }
+		installed.push(hook);
 	}
-	return ["post-merge", "post-checkout"];
+	return { installed, skipped, backups };
 }
 
 export function removeGitHooks({ cwd = process.cwd() } = {}) {
@@ -124,7 +161,7 @@ export function removeGitHooks({ cwd = process.cwd() } = {}) {
 		const p = path.join(hooksDir, hook);
 		if (fs.existsSync(p)) {
 			const content = fs.readFileSync(p, "utf8");
-			if (content.includes("Managed by agent-cli")) {
+			if (content.includes(HOOK_MARK)) {
 				fs.rmSync(p, { force: true });
 				removed++;
 			}

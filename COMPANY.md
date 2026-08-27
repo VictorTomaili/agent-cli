@@ -9,8 +9,16 @@ explicit machinery that makes them a team rather than a crowd.
 
 ## Seats
 
-Seat names follow `Role - Name`. The role says what the seat owns; the name is
-stable so it can be addressed across sessions and over time.
+Seat names follow `<project> - Role - Name`, so here they all begin `agent-cli - `.
+
+Three parts, each doing a job. The **project** comes first because these sessions
+appear in one flat list alongside every other project's, and without it there is
+no way to tell whose QA seat you are looking at — the roles and names are
+deliberately reused across projects, which makes the prefix the only
+disambiguator. The **role** says what the seat owns. The **name** is stable so it
+can be addressed across sessions and over time.
+
+The table below omits the prefix for readability. It is not optional.
 
 | Seat | Role (`seed/skills/dev-team/ROLES.md`) | Co-author trailer | Owns |
 |---|---|---|---|
@@ -29,6 +37,11 @@ stable so it can be addressed across sessions and over time.
 | `Design - Elin` | `ux-ui-designer` | `Elin <elin@tomaili.com>` | Agent experience: errors, JSON envelopes, discoverability. |
 | `Delivery - Nolan` | `project-manager` | `Nolan <nolan@tomaili.com>` | Merge order, in-flight risk, schedule. |
 | `Process - Sage` | `scrum-master` | `Sage <sage@tomaili.com>` | Whether information reaches the seat that needs it, in time. |
+
+Renaming a live seat breaks any message in flight addressed to the old name —
+observed, not theoretical. Announce a rename before doing it.
+
+To stand this up in another project, see [TEAM-BOOTSTRAP.md](TEAM-BOOTSTRAP.md).
 
 `Security - Vale` has no counterpart in the seeded catalog — there, security is
 the cross-cutting half of `qa-engineer`. It was split out here because the work

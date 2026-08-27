@@ -8,7 +8,7 @@ import {
 	symlinkSync,
 	readdirSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import os, { tmpdir } from "node:os";
 import path from "node:path";
 
 const TMP = mkdtempSync(path.join(tmpdir(), "agent-util-"));
@@ -520,6 +520,79 @@ test("readFileNoFollow: win32 skips the identity guard when the volume reports i
 		fs.writeFileSync = realWrite;
 	}
 	assert.equal(probeRan, false, "ino 0 must short-circuit before the probe");
+});
+
+test("readFileNoFollow: the probe fails closed when the temp volume reports no inode", () => {
+	const f = path.join(TMP, "rfn-probe-ino-zero.txt");
+	fs.writeFileSync(f, "payload");
+	// os.tmpdir() follows TMP/TEMP and can land on exFAT, a UNC share or a RAM
+	// disk while the caller's file sits on NTFS -- so the probe can measure a
+	// volume with no usable inode even though the caller's guard only fires when
+	// the caller's file HAS one. That is "could not measure", not "measured and
+	// they disagreed", and treating it as the latter would silently downgrade
+	// every later read in the process to the weaker fallback.
+	//
+	// Every lstat EXCEPT the caller's own is the probe's, and reports ino 0.
+	assert.throws(
+		() =>
+			freshProbe(() =>
+				asWin32(() =>
+					withStatPatched("fstatSync", brokenFstat, () =>
+						withStatPatched(
+							"lstatSync",
+							(st, _i, args) =>
+								args[0] === f ? st : statWith(st, { ino: 0 }),
+							() => util.readFileNoFollow(f),
+						),
+					),
+				),
+			),
+		{ code: "ESYMLINKREFUSED" },
+	);
+});
+
+test("readFileNoFollow: the fd-identity probe creates its file inside a private directory", () => {
+	const f = path.join(TMP, "rfn-probe-isolation.txt");
+	fs.writeFileSync(f, "payload");
+	// Writing the probe into the shared temp directory leaves a write->lstat->open
+	// window in a world-writable place. Winning it makes the identities differ,
+	// which the probe caches as "unreliable" for the whole process -- a downgrade
+	// oracle that disables the strong check on a healthy runtime. mkdtemp closes
+	// the window instead of narrowing it, so assert the probe file is nested in a
+	// directory of the probe's own making rather than sitting in the shared one.
+	const written = [];
+	const realWrite = fs.writeFileSync;
+	fs.writeFileSync = (...args) => {
+		written.push(args[0]);
+		return realWrite.apply(fs, args);
+	};
+	try {
+		freshProbe(() =>
+			asWin32(() =>
+				withStatPatched("fstatSync", brokenFstat, () =>
+					util.readFileNoFollow(f),
+				),
+			),
+		);
+	} finally {
+		fs.writeFileSync = realWrite;
+	}
+	assert.equal(written.length, 1, "the probe writes exactly one file");
+	const probeFile = written[0];
+	assert.notEqual(
+		path.dirname(probeFile),
+		os.tmpdir(),
+		"probe file must NOT sit directly in the shared temp directory",
+	);
+	assert.equal(
+		path.dirname(path.dirname(probeFile)),
+		os.tmpdir(),
+		"probe directory must be one level under the temp directory",
+	);
+	assert.ok(
+		!fs.existsSync(path.dirname(probeFile)),
+		"the probe directory must be removed afterwards",
+	);
 });
 
 test("readFileNoFollow: the fd-identity probe reports true when it cannot run", () => {

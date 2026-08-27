@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
-import { randomBytes } from "node:crypto";
 import c from "picocolors";
 
 // AGENT_CLI_HOME overrides home — safe for testing (no real ~ touched),
@@ -224,34 +223,57 @@ let fdIdentityReliable = null;
  * a swapped path looks like, so the disagreement cannot simply be tolerated: the
  * two cases have to be told apart, and that is what this answers.
  *
- * The probe runs on a file it creates itself, in the system temp directory, with
- * a name no other process can predict — so nothing about the caller's file, its
- * directory, or its contents is involved, and no probe file is ever left in a
- * project or brain directory.
+ * The probe runs on a file it creates itself, inside a directory it creates
+ * exclusively — so nothing about the caller's file, its directory, or its
+ * contents is involved, and no probe file is ever left behind.
  *
- * On failure it reports `true`, i.e. "the comparison is meaningful". That is the
- * fail-closed direction: an unknown makes the caller refuse rather than read.
+ * The private directory is load-bearing, not tidiness. Writing the probe file
+ * directly into the shared temp directory leaves a write→lstat→open window in a
+ * world-writable location, and winning it makes the two identities differ, which
+ * this function reports as "unreliable" — CACHED FOR THE PROCESS. That turns the
+ * probe into a downgrade oracle: win one race on a throwaway file and the strong
+ * check is disabled everywhere for the rest of the run, on a healthy runtime,
+ * after which the revert attack the strong check exists to catch goes through
+ * against the real secrets. Same attacker as the one who plants a symlink at
+ * `.agents/.secrets.json` — local execution and directory-watch timing — so it
+ * is squarely in this repo's threat model. mkdtemp creates the directory
+ * atomically and privately, which closes the window rather than narrowing it.
+ *
+ * EVERY answer other than "measured, and they disagree" is `true`, i.e. "the
+ * comparison is meaningful", which makes the caller refuse rather than read.
+ * There are two such answers and they are easy to conflate: the probe throwing,
+ * and the probe running on a volume that reports no usable inode. The second one
+ * is not a disagreement — there is nothing to disagree about — and reporting it
+ * as one would silently downgrade the caller's guard for the rest of the process.
+ *
+ * KNOWN LIMIT, deliberate: this measures the TEMP filesystem and caches one
+ * verdict for every later read on every volume. That is sound for the bug it
+ * exists for, which is a property of the Node build rather than of a disk. But
+ * identity reporting does also vary by volume — the caller's own guard opts out
+ * when a volume reports ino 0 — so the probe is a per-process approximation of a
+ * per-volume property, and generalizes toward refusing. Do not read it as
+ * measuring the file being opened.
  *
  * @returns {boolean} true when fd identity can be trusted to mean something
  */
 function probeFdIdentity() {
-	const p = path.join(
-		os.tmpdir(),
-		`.agent-cli-fdid-${process.pid}-${randomBytes(6).toString("hex")}`,
-	);
+	let dir;
 	let fd;
 	try {
-		// wx: never adopt a file someone else planted at this name.
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-cli-fdid-"));
+		const p = path.join(dir, "probe");
+		// wx as well: the directory is already private, but adopting a file this
+		// function did not create is never what it wants.
 		fs.writeFileSync(p, "x", { flag: "wx" });
 		const viaPath = fs.lstatSync(p);
 		fd = fs.openSync(p, fs.constants.O_RDONLY);
 		const viaFd = fs.fstatSync(fd);
-		return Boolean(
-			viaPath.ino &&
-				viaFd.ino &&
-				viaPath.ino === viaFd.ino &&
-				viaPath.dev === viaFd.dev,
-		);
+		// No usable inode here means the probe could not measure, not that the
+		// two disagreed. os.tmpdir() follows TMP/TEMP and can land on exFAT,
+		// a UNC share or a RAM disk while the caller's file sits on NTFS, so
+		// this is an ordinary configuration rather than a contrived one.
+		if (!viaPath.ino || !viaFd.ino) return true;
+		return viaPath.ino === viaFd.ino && viaPath.dev === viaFd.dev;
 	} catch {
 		return true;
 	} finally {
@@ -260,9 +282,11 @@ function probeFdIdentity() {
 				fs.closeSync(fd);
 			} catch {}
 		}
-		try {
-			fs.unlinkSync(p);
-		} catch {}
+		if (dir !== undefined) {
+			try {
+				fs.rmSync(dir, { recursive: true, force: true });
+			} catch {}
+		}
 	}
 }
 

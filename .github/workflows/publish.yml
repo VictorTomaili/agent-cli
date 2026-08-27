@@ -33,7 +33,7 @@ jobs:
       contents: write # pushes the release tag back to the repo
       id-token: write # OIDC token for npm's short-lived publish token
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # setup-node v6 REQUIRED for OIDC: v5 defaults NODE_AUTH_TOKEN (the
       # GitHub token) when registry-url is set, and npm then skips the OIDC
       # exchange and PUTs with that token -> E404 (actions/setup-node#1440).
@@ -41,7 +41,7 @@ jobs:
       # NODE_AUTH_TOKEN into registry auth, which blocks the OIDC exchange
       # (empty token -> ENEEDAUTH). publishConfig.registry in package.json
       # already targets registry.npmjs.org.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24 # trusted publishing needs npm >= 11.5.1
           cache: npm
@@ -55,14 +55,43 @@ jobs:
             echo "::error::npm $NPMV < 11.5.1, trusted publishing unsupported"
             exit 1
           fi
-      - run: npm ci
+      # --ignore-scripts: this job holds id-token: write, so the OIDC exchange
+      # env (ACTIONS_ID_TOKEN_REQUEST_URL / _TOKEN) and the checkout's
+      # persisted GITHUB_TOKEN are both live in the environment while
+      # dependencies install. A postinstall script in any transitive
+      # dependency would inherit them and could mint its own npm publish
+      # token or push to the repo. Nothing in the tree needs install scripts;
+      # test/workflow-supply-chain.test.js asserts that no package-lock.json
+      # entry sets hasInstallScript, so the day one does the test says so
+      # instead of the install silently doing less than it used to.
+      # The `npm run` steps below are unaffected: --ignore-scripts is a flag
+      # on this command, not persisted config.
+      - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm test
       - name: Check whether this version is already published
         id: v
+        # name and version are data, but both are written into $GITHUB_OUTPUT
+        # here and the version reaches a `run:` script in the tag step below,
+        # so their shape is checked before either happens. A newline in either
+        # forges extra step outputs; a quote or semicolon in the version breaks
+        # out of the tag command. bash anchors ^ and $ in [[ =~ ]] against the
+        # whole string, so an embedded newline fails the match rather than
+        # slipping past the per-line match grep would do.
+        # Landing a hostile value here needs write access to main - this
+        # workflow never runs on pull_request - so this is depth, not the front
+        # door. It costs two conditionals.
         run: |
           NAME=$(node -p "require('./package.json').name")
           LOCAL=$(node -p "require('./package.json').version")
+          if [[ ! "$NAME" =~ ^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$ ]]; then
+            echo "::error::package.json name is not a plain npm name: $(printf %s "$NAME" | tr -d '[:cntrl:]')"
+            exit 1
+          fi
+          if [[ ! "$LOCAL" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::package.json version is not plain semver: $(printf %s "$LOCAL" | tr -d '[:cntrl:]')"
+            exit 1
+          fi
           PUBLISHED=$(npm view "$NAME" version 2>/dev/null || echo "none")
           echo "name=$NAME"       >> "$GITHUB_OUTPUT"
           echo "local=$LOCAL"     >> "$GITHUB_OUTPUT"
@@ -88,8 +117,16 @@ jobs:
           NODE_AUTH_TOKEN: ""
       - name: Tag the release
         if: steps.v.outputs.publish == 'true'
+        # VERSION arrives through env rather than a ${{ }} expression inside
+        # run:. An expression is substituted into the script text before bash
+        # parses it, which makes the value code; an environment variable is
+        # read as data whatever it contains. The semver guard above already
+        # constrains this particular value - this keeps the shape of the step
+        # from being copied to somewhere that has no guard.
+        env:
+          VERSION: ${{ steps.v.outputs.local }}
         run: |
-          TAG="v${{ steps.v.outputs.local }}"
+          TAG="v$VERSION"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "tag $TAG already exists, skipping"
           else

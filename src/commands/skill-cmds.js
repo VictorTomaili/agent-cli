@@ -101,6 +101,12 @@ export function registerSkillCommands(
 						log.raw("");
 						for (const line of GATE_DECIDE_HINT.split("\n"))
 							log.raw(line.startsWith("→") ? c.bold(line) : c.gray(line));
+					} else {
+						// Zero active skills is a valid answer, but printing nothing
+						// at all reads as a broken command - and the START GATE sends
+						// the agent here as its first action of the session.
+						log.info("No active skills in this project.");
+						log.dim("  Nothing to classify. Continue with the task.");
 					}
 				}
 				return;

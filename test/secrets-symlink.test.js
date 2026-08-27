@@ -284,3 +284,27 @@ test("SEC-4: a read-only `secret get` miss still must not write through a symlin
 		"SEC-4: the planted symlink must be replaced, not followed",
 	);
 });
+
+// loadKey() replaces an unusable key entry. "Unusable" has to mean provably so:
+// a symlink (the SEC-4 attack) or a regular file that is not a 32-byte key.
+// It previously removed ANY entry that existed, so a directory at that path —
+// someone else's data, or a misconfiguration — was deleted without a word.
+test("SEC-4: loadKey refuses to remove an entry that is neither file nor symlink", () => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-key-dir-proj-"));
+	mkdirSync(path.join(cwd, ".agents"), { recursive: true });
+	const kp = path.join(cwd, ".agents", ".secrets.key");
+	mkdirSync(kp, { recursive: true });
+	// A marker inside proves the directory was not blown away.
+	writeFileSync(path.join(kp, "keep-me"), "not the agent's data");
+
+	assert.throws(
+		() => secrets.loadKey("project", cwd),
+		/neither a regular file nor a symlink/,
+		"loadKey must refuse rather than delete an unexpected entry",
+	);
+	assert.equal(
+		readFileSync(path.join(kp, "keep-me"), "utf8"),
+		"not the agent's data",
+		"the directory and its contents must survive untouched",
+	);
+});

@@ -115,3 +115,27 @@ test("the hint is rendered from the shared constant, not a local copy", () => {
 		"skill-cmds.js must not inline the hint text",
 	);
 });
+
+test("`skill active` reports the empty case instead of printing nothing", () => {
+	// A project with no active skills is a valid state, but silence reads as a
+	// broken command — and the START GATE sends the agent here as its first
+	// action of the session, so an empty response has to be legible.
+	const empty = mkdtempSync(path.join(tmpdir(), "agent-active-empty-"));
+	const r = spawnSync(process.execPath, [CLI, "skill", "active"], {
+		encoding: "utf8",
+		cwd: empty,
+		env: {
+			...process.env,
+			AGENT_CLI_HOME: empty,
+			HOME: empty,
+			USERPROFILE: empty,
+			NO_COLOR: "1",
+		},
+	});
+	assert.equal(r.status, 0, r.stderr);
+	assert.ok(
+		r.stdout.trim().length > 0,
+		"an empty skill list must still produce output",
+	);
+	assert.match(r.stdout, /No active skills/);
+});

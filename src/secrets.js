@@ -79,7 +79,18 @@ export function loadKey(scope = "global", cwd = process.cwd()) {
 			`secrets key at ${kp} exists but could not be read — refusing to replace it (check permissions)`,
 		);
 	}
-	if (st) fs.rmSync(kp, { force: true });
+	// Remove ONLY what we can prove is unusable: a symlink (the SEC-4 attack)
+	// or a regular file that is not a 32-byte key. Anything else - a directory,
+	// a FIFO, a device - is someone else's data or a misconfiguration, and
+	// deleting it silently would be exactly the destructive behaviour this
+	// guard exists to prevent.
+	if (st) {
+		if (!st.isSymbolicLink() && !st.isFile())
+			throw new Error(
+				`secrets key path ${kp} exists but is neither a regular file nor a symlink — refusing to replace it`,
+			);
+		fs.rmSync(kp, { force: true });
+	}
 
 	if (writeFileIfAbsent(kp, key, { mode: 0o600 }).created) return key;
 	// Lost a concurrent re-create: the winner's key is authoritative.

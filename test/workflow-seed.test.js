@@ -170,3 +170,49 @@ test("project init NEVER overwrites an existing WORKFLOW.md", () => {
 	);
 	assert.ok(!parseJson(r.stdout).data.created.includes("WORKFLOW.md"));
 });
+
+// Seeding is non-destructive: `init` skips WORKFLOW.md when it already exists.
+// So whatever writes the file FIRST decides what the user keeps forever. When
+// `agent-cli edit workflow` wrote a two-line stub, running it before `init`
+// silently and permanently cost the user the curated recipe format.
+test("`edit workflow` writes the same seed as init, never a stub", async () => {
+	const home = tmpDir("agent-edit-workflow-home-");
+	const r = spawnSync(process.execPath, [CLI, "edit", "workflow", "--print-path"], {
+		encoding: "utf8",
+		env: {
+			...process.env,
+			AGENT_CLI_HOME: home,
+			HOME: home,
+			USERPROFILE: home,
+			NO_COLOR: "1",
+		},
+	});
+	assert.equal(r.status, 0, r.stderr);
+
+	// --print-path must not create the file at all.
+	const wf = path.join(home, ".agents", "WORKFLOW.md");
+	assert.equal(fs.existsSync(wf), false, "--print-path must not create the file");
+
+	// Now let edit create it, with EDITOR neutered so nothing interactive runs.
+	const r2 = spawnSync(process.execPath, [CLI, "edit", "workflow"], {
+		encoding: "utf8",
+		env: {
+			...process.env,
+			AGENT_CLI_HOME: home,
+			HOME: home,
+			USERPROFILE: home,
+			NO_COLOR: "1",
+			EDITOR: process.platform === "win32" ? "cmd /c exit" : "true",
+			VISUAL: process.platform === "win32" ? "cmd /c exit" : "true",
+		},
+	});
+	assert.equal(r2.status, 0, r2.stderr);
+	assert.ok(fs.existsSync(wf), "edit workflow must create the file");
+
+	const arc = await import("../src/archetypes.js");
+	assert.equal(
+		fs.readFileSync(wf, "utf8"),
+		arc.workflowContent(),
+		"edit must write the same seed init writes, byte for byte",
+	);
+});

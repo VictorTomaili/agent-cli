@@ -59,9 +59,11 @@ export function registerEditCommands(
 					if (kind === "identity") tpl = arc.identityContent("general-purpose");
 					else if (kind === "soul") tpl = arc.soulContent("pragmatist");
 					else if (kind === "user") tpl = arc.userContent();
-					// Minimal starter only — the curated WORKFLOW.md seed lives in seed/.
-					else if (kind === "workflow")
-						tpl = `# WORKFLOW.md\n\nReusable task workflows — recorded, replayable recipes for work you repeat.\n`;
+					// The SAME seed `init` writes, not a stub. Seeding is
+					// non-destructive, so a stub written here would never be
+					// upgraded: running `edit workflow` before `init` would
+					// permanently cost the user the curated recipe format.
+					else if (kind === "workflow") tpl = arc.workflowContent();
 					await writeFile(target, tpl);
 				}
 			}

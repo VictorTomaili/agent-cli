@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
 	accessSync,
-	existsSync,
 	lstatSync,
 	mkdtempSync,
 	readFileSync,
@@ -115,8 +114,20 @@ function pointerDiagnostics(claude, receipts, plan) {
 	const p = claude?.global?.path ?? null;
 	const probe = { path: p };
 	if (p) {
-		probe.existsSync = existsSync(p);
-		probe.parentDirExists = existsSync(path.dirname(p));
+		// Read FIRST, then the metadata calls. Not stylistic: a check followed
+		// by a read is the check-then-use shape this probe exists to study, and
+		// writing it that way here would be both a js/file-system-race and a
+		// probe whose own result could not be trusted. Each call is recorded
+		// independently — their DISAGREEMENT is the finding.
+		try {
+			probe.head = readFileSync(p, "utf8").slice(0, 200);
+		} catch (e) {
+			probe.readError = e.code ?? String(e);
+		}
+		// accessSync is the exact call exists() makes (src/util.js:47), and
+		// exists() discards the code. ENOENT means the pointer really was
+		// absent; anything else (EPERM/EBUSY/EACCES) means status reported
+		// "missing" for a file that was there.
 		try {
 			accessSync(p);
 			probe.accessOk = true;
@@ -130,9 +141,10 @@ function pointerDiagnostics(claude, receipts, plan) {
 			probe.lstatError = e.code ?? String(e);
 		}
 		try {
-			probe.head = readFileSync(p, "utf8").slice(0, 200);
+			lstatSync(path.dirname(p));
+			probe.parentDirOk = true;
 		} catch (e) {
-			probe.readError = e.code ?? String(e);
+			probe.parentDirError = e.code ?? String(e);
 		}
 	}
 	return [

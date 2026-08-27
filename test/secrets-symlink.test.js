@@ -20,6 +20,14 @@
 // untouched and that the store/key path is a real file afterwards — delete
 // either guard and the victim assertion fails.
 //
+// SEC-3c rides along here because it pins the OTHER half of the same decision:
+// readStore() deliberately reports a refused, missing or corrupt store as EMPTY
+// (SEC-3/SEC-3b depend on that — the write path has to be reached so it can
+// replace the planted link), but a store it is not PERMITTED to read must fail
+// closed instead, or the very next setSecret() overwrites secrets it could not
+// see. Broadening the catch to "all fs errors fail closed" breaks SEC-3/SEC-3b;
+// narrowing it to nothing breaks SEC-3c.
+//
 // Filesystem effects are confined to fresh mkdtemp dirs: AGENT_CLI_HOME for the
 // global scope, a scratch "project" cwd per test, and a separate victim dir.
 
@@ -36,8 +44,10 @@ import {
 	openSync,
 	fstatSync,
 	closeSync,
+	chmodSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 
 // Isolate HOME BEFORE importing agent-cli modules so nothing real is touched.
@@ -396,3 +406,94 @@ test("SEC-3b: readStore must not read the store THROUGH a symlink", (t) => {
 	);
 });
 
+
+// -----------------------------------------------------------------------------
+// SEC-3c: an UNREADABLE store must raise, never read as empty
+// -----------------------------------------------------------------------------
+
+/**
+ * Make `p` genuinely unreadable by this process, and return a `restore` thunk.
+ * Returns a string reason instead when the environment cannot enforce it (root
+ * ignores mode bits; a Windows ACL edit can be refused), so the caller can
+ * t.skip() rather than assert against a file it can still read.
+ */
+function denyRead(p) {
+	let restore;
+	if (IS_WIN) {
+		// Node's chmod on win32 only toggles the read-only attribute, which stops
+		// writes and not reads. An explicit deny ACE is the real thing, and it
+		// leaves lstat working — so readFileNoFollow gets past its win32 lstat
+		// pre-check and fails in open(), exactly where a real EPERM would land.
+		const who = userInfo().username;
+		try {
+			execFileSync("icacls", [p, "/deny", `${who}:(R)`], { stdio: "ignore" });
+		} catch (err) {
+			return `icacls could not deny read on the store (${err?.code ?? err?.status})`;
+		}
+		restore = () => execFileSync("icacls", [p, "/remove:d", who], { stdio: "ignore" });
+	} else {
+		if (typeof process.getuid === "function" && process.getuid() === 0)
+			return "running as root — mode bits do not deny reads";
+		chmodSync(p, 0o000);
+		restore = () => chmodSync(p, 0o600);
+	}
+
+	// Never assert against a permission we did not actually get: prove the file
+	// is unreadable now, or hand back a skip reason.
+	try {
+		readFileSync(p);
+	} catch {
+		return { restore };
+	}
+	restore();
+	return "the store is still readable after denying access here";
+}
+
+// A store that exists but cannot be READ used to come back as `{ secrets: {} }`
+// like any other failure — and setSecret() would then write a fresh store
+// straight over it, destroying every secret it had just failed to read. A
+// permission problem is not a corrupt store: fail closed and say so.
+test("SEC-3c: a store that cannot be read must raise, not silently read as empty", (t) => {
+	const cwd = mkdtempSync(path.join(tmpdir(), "agent-store-perm-proj-"));
+	mkdirSync(path.join(cwd, ".agents"), { recursive: true });
+
+	secrets.setSecret("KEEP_ME", "the secret that must survive", { scope: "project", cwd });
+	const store = secrets.secretsPath("project", cwd);
+	const before = readFileSync(store);
+
+	const denied = denyRead(store);
+	if (typeof denied === "string") {
+		t.skip(`cannot make the store unreadable here — ${denied}`);
+		return;
+	}
+
+	try {
+		// A pure read must report the failure rather than an empty store.
+		assert.throws(
+			() => secrets.listSecretNames({ scope: "project", cwd }),
+			/could not be read/,
+			"SEC-3c: an unreadable store must raise, not list as empty",
+		);
+
+		// The one that loses data: a write that starts from a store it could not
+		// read would replace it wholesale.
+		assert.throws(
+			() => secrets.setSecret("NEW", "v", { scope: "project", cwd }),
+			/could not be read/,
+			"SEC-3c: setSecret must refuse rather than overwrite an unreadable store",
+		);
+	} finally {
+		denied.restore();
+	}
+
+	assert.deepEqual(
+		readFileSync(store),
+		before,
+		"SEC-3c: the unreadable store's bytes must be untouched",
+	);
+	assert.equal(
+		secrets.getSecret("KEEP_ME", { scope: "project", cwd }),
+		"the secret that must survive",
+		"SEC-3c: the original secret must still decrypt once access is restored",
+	);
+});

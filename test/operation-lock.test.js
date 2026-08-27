@@ -279,3 +279,81 @@ test("unknown operation name throws", async () => {
 		/withOperationLock: unknown operation/,
 	);
 });
+// --- win32 pending-delete contention ---------------------------------------
+// Windows reports a CONTENDED lock as EPERM/EACCES rather than EEXIST: unlinking
+// a file another process still holds open leaves it in a pending-delete state,
+// and opening it again returns ERROR_ACCESS_DENIED until the last handle closes.
+// acquireOne used to throw that straight out, failing the whole operation --
+// which is how six concurrent `target enable` processes could kill a CI run.
+//
+// The real race needs two OS processes and is inherently timing-dependent, so
+// these force the error code directly. `import fs from "node:fs"` gives the
+// mutable CJS module object, so patching openSync reaches the module under test.
+import fsMod from "node:fs";
+
+function withOpenSyncFailing(code, times, fn) {
+	const real = fsMod.openSync;
+	let left = times;
+	fsMod.openSync = (...args) => {
+		if (left > 0) {
+			left--;
+			const e = new Error(`${code}: forced by test`);
+			e.code = code;
+			throw e;
+		}
+		return real.apply(fsMod, args);
+	};
+	return Promise.resolve()
+		.then(fn)
+		.finally(() => {
+			fsMod.openSync = real;
+		});
+}
+
+for (const code of ["EPERM", "EACCES"]) {
+	test(`win32: a transient ${code} on the lock file is retried, not fatal`, async (t) => {
+		if (process.platform !== "win32")
+			return t.skip("win32-only: the pending-delete race does not exist elsewhere");
+		const value = await withOpenSyncFailing(code, 2, () =>
+			withOperationLock("brain_write", () => "ran", { kind: "SOUL" }),
+		);
+		assert.equal(value, "ran", `${code} must be treated as contention, not failure`);
+	});
+}
+
+test("win32: a persistent EPERM still times out, and names the cause", async (t) => {
+	if (process.platform !== "win32")
+		return t.skip("win32-only: the pending-delete race does not exist elsewhere");
+	await assert.rejects(
+		() =>
+			withOpenSyncFailing(
+				"EPERM",
+				Number.MAX_SAFE_INTEGER,
+				() =>
+					withOperationLock("brain_write", () => "never", {
+						kind: "SOUL",
+						timeoutMs: 120,
+					}),
+			),
+		(err) => {
+			assert.equal(err.code, "OPERATION_BUSY");
+			// The whole point: a real permission fault must stay distinguishable
+			// from an ordinary busy lock rather than hiding behind "operation busy".
+			assert.equal(err.lastAcquireError, "EPERM");
+			assert.match(err.message, /EPERM/);
+			return true;
+		},
+	);
+});
+
+// A non-contention error must still fail immediately -- the retry must not
+// swallow genuine faults like a missing .locks directory.
+test("a non-contention open error is not retried", async () => {
+	await assert.rejects(
+		() =>
+			withOpenSyncFailing("EISDIR", Number.MAX_SAFE_INTEGER, () =>
+				withOperationLock("brain_write", () => "never", { kind: "SOUL" }),
+			),
+		(err) => err.code === "EISDIR",
+	);
+});

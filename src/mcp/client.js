@@ -45,7 +45,7 @@ import {
 	notification,
 	request,
 } from "./protocol.js";
-import { redactSecrets } from "./redact.js";
+import { redactSecrets, urlSecretValues } from "./redact.js";
 
 /** Overall default budget for one connect+call cycle. */
 export const DEFAULT_TIMEOUT_MS = 60_000;
@@ -600,9 +600,13 @@ export async function withSession(def, fn, opts = {}) {
 		allowInsecureLoopback = false,
 		maxBytes = DEFAULT_MAX_BYTES,
 	} = opts;
+	// env + headers + anything the URL carries. A hosted server's credential is
+	// often ONLY in the URL (userinfo, a query param, or a token-shaped path
+	// segment), so omitting it left the most common remote shape unredacted.
 	const secretValues = [
 		...Object.values(def.env || {}),
 		...Object.values(def.headers || {}),
+		...urlSecretValues(def.url),
 	]
 		.filter(Boolean)
 		.map(String);

@@ -10,16 +10,21 @@ import {
 	ensureDir,
 	HOME,
 	resolveContained,
+	projectBrainDir,
 } from "./util.js";
 
+// Both resolve project scope through projectBrainDir so a checkout that points
+// .agents at the global brain cannot make a project-scope lesson write (or read)
+// land there — resolveLessonFile's containment check below cannot catch that on
+// its own, because it derives its root from the already-redirected base.
 export function lessonsRoot(scope = "global", cwd = process.cwd()) {
 	return scope === "project"
-		? path.join(cwd, ".agents", "lessons")
+		? path.join(projectBrainDir(cwd), "lessons")
 		: path.join(HOME, ".agents", "lessons");
 }
 export function coreFile(scope = "global", cwd = process.cwd()) {
 	return scope === "project"
-		? path.join(cwd, ".agents", "LESSONS.md")
+		? path.join(projectBrainDir(cwd), "LESSONS.md")
 		: path.join(HOME, ".agents", "LESSONS.md");
 }
 

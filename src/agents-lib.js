@@ -13,6 +13,7 @@ import {
 	pretty,
 	HOME,
 	resolveContained,
+	projectBrainDir,
 } from "./util.js";
 import { FIELD_TAGS, fieldGaps, environmentGaps } from "./fields.js";
 import { onboardSuggest as identityOnboardSuggest } from "./identity.js";
@@ -21,7 +22,7 @@ import { onboardSuggest as identityOnboardSuggest } from "./identity.js";
 export const GLOBAL_AGENTS_DIR = path.join(HOME, ".agents", "agents");
 /** Project-local sub-agent personalities dir: [cwd]/.agents/agents */
 export function projectAgentsDir(cwd = process.cwd()) {
-	return path.join(cwd, ".agents", "agents");
+	return path.join(projectBrainDir(cwd), "agents");
 }
 
 /** The unified identity/memory file set (kind → filename).
@@ -79,8 +80,10 @@ export const IDENTITY_FILES = [
 ];
 
 export function identityBase(scope = "global", cwd = process.cwd()) {
+	// projectBrainDir throws EPROJECTBASEREDIRECTED when the checkout points
+	// .agents somewhere else — see util.js. Global scope is never checkout-controlled.
 	return scope === "project"
-		? path.join(cwd, ".agents")
+		? projectBrainDir(cwd)
 		: path.join(HOME, ".agents");
 }
 

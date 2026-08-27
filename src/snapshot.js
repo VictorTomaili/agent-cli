@@ -454,6 +454,16 @@ function doRestore(name) {
 		//    break the withOperationLock that wraps THIS restore call),
 		//    and .staging/ (the throwaway scratch dir used by step 4).
 		//    Done LAST so a crash earlier leaves a superset of the desired state.
+		//
+		//    SECRET_PREFIX is exempt for the opposite reason to the others: a
+		//    secret file is not merely allowed to be missing from stagedFiles,
+		//    it is GUARANTEED to be, because both copyDirSync calls above skip
+		//    it by design. Deleting "everything not staged" would therefore
+		//    delete the store and its key on every single restore — and the
+		//    pre-restore backup skips secrets too, so nothing would hold a
+		//    copy. Losing .secrets.key makes every stored secret permanently
+		//    undecryptable, so this is the one exemption whose absence is
+		//    unrecoverable rather than merely inconvenient.
 		const brainFiles = {};
 		walkFiles(BRAIN, (rel, full) => {
 			brainFiles[rel] = full;
@@ -462,6 +472,8 @@ function doRestore(name) {
 			if (rel in stagedFiles) continue;
 			if (rel === ".snapshot.json") continue;
 			if (RESERVED_BRAIN_DIRS.has(rel.split("/")[0])) continue;
+			if (rel.split("/").some((seg) => seg.startsWith(SECRET_PREFIX)))
+				continue;
 			rm(full);
 		}
 

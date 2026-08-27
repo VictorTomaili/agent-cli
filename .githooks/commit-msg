@@ -1,0 +1,55 @@
+#!/bin/sh
+# .githooks/commit-msg — refuse AI-vendor attribution trailers.
+#
+# Seat attribution is wanted: `Co-Authored-By: Kestrel <kestrel@tomaili.com>`
+# names which seat did the work. Vendor attribution is not: a `Claude` or
+# `anthropic.com` trailer is noise in this repo's history and Victor has ruled
+# it out. See COMPANY.md §Commit identity.
+#
+# WHY commit-msg AND NOT pre-commit: pre-commit runs BEFORE the message exists
+# and is never handed it, so it structurally cannot check this. commit-msg is
+# the first hook that receives the message file, and rejecting here still stops
+# the commit from being created.
+#
+# TWO PATTERNS, not one blanket match on the word.
+#
+#   1. any line containing `anthropic.com` — that is an email domain, never
+#      ordinary prose, so matching it anywhere is safe.
+#   2. a trailer-shaped line naming the vendor — `Co-Authored-By: Claude ...`,
+#      case- and spacing-insensitive so near-misses do not pass on a
+#      technicality.
+#
+# The first draft matched the bare word anywhere and refused THIS repo's own
+# commit describing the rule. A rule whose enforcement makes it undocumentable
+# is too blunt: it pushes people toward vague messages to get past the hook,
+# which costs more than the trailer ever did. Prose may discuss the vendor;
+# attribution to it may not appear.
+#
+# Comment lines and `git commit -v` diff context are stripped first, so a code
+# line under review cannot trip it either.
+
+msg_file="$1"
+[ -f "$msg_file" ] || exit 0
+
+# Strip comment lines and everything from the verbose diff marker onward.
+body=$(sed -e '/^#/d' -e '/^diff --git /,$d' "$msg_file")
+
+offenders=$(
+	printf '%s\n' "$body" | grep -n -i -E \
+		-e 'anthropic\.com' \
+		-e '^[[:space:]]*co-?authored-?by[[:space:]]*:.*claude' \
+		|| true
+)
+
+[ -z "$offenders" ] && exit 0
+
+echo "commit-msg: refusing this message — AI-vendor attribution is not used in this repo." >&2
+echo >&2
+echo "Offending line(s):" >&2
+printf '%s\n' "$offenders" | sed 's/^/  /' >&2
+echo >&2
+echo "Allowed     : Co-Authored-By: Rowan <rowan@tomaili.com>   (names the seat)" >&2
+echo "Not allowed : Co-Authored-By: Claude ... <...@anthropic.com>" >&2
+echo >&2
+echo "Remove the line and commit again. See COMPANY.md, section 'Commit identity'." >&2
+exit 1

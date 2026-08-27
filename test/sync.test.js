@@ -89,3 +89,77 @@ test("setAutoCommit toggles the config flag", () => {
 	assert.equal(sync.setAutoCommit(cfg, false), false);
 	assert.equal(sync.autoCommitEnabled(cfg), false);
 });
+
+// --- secrets must not reach the remote -------------------------------------
+// The "secrets are never synced" guarantee used to rest entirely on a .gitignore
+// written once at init. .gitignore is tracked, so syncPull merges the remote's
+// version of it — meaning the remote controlled whether the local secrets stayed
+// local. These three tests pin the layered defense that replaced that.
+
+const secretsPath = () => path.join(sync.AGENTS_DIR, ".secrets.json");
+const keyPath = () => path.join(sync.AGENTS_DIR, ".secrets.key");
+const gitignorePath = () => path.join(sync.AGENTS_DIR, ".gitignore");
+
+test("syncPush writes .git/info/exclude, which a remote cannot rewrite", { skip: !hasGit }, async () => {
+	await sync.syncInit();
+	writeFileSync(path.join(sync.AGENTS_DIR, "AGENTS.md"), "# x\n", "utf8");
+	await sync.syncPush({ message: "seed" });
+	const ex = readFileSync(
+		path.join(sync.AGENTS_DIR, ".git", "info", "exclude"),
+		"utf8",
+	);
+	assert.ok(ex.includes(".secrets.json"), ".secrets.json must be in info/exclude");
+	assert.ok(ex.includes(".secrets.key"), ".secrets.key must be in info/exclude");
+});
+
+test("a .gitignore that lost its .secrets lines does not leak them", { skip: !hasGit }, async () => {
+	await sync.syncInit();
+	writeFileSync(secretsPath(), '{"secrets":{"T":"ct"}}', "utf8");
+	writeFileSync(keyPath(), "k".repeat(32), "utf8");
+	// The accidental case: someone tidied .gitignore, or the brain became a repo
+	// by hand and never had one. info/exclude still covers it, so the push
+	// proceeds — but must not carry the secrets.
+	writeFileSync(gitignorePath(), "config.json\nbackups/\n", "utf8");
+	writeFileSync(path.join(sync.AGENTS_DIR, "AGENTS.md"), "# y\n", "utf8");
+	const r = await sync.syncPush({ message: "after gitignore was tidied" });
+	assert.equal(r.ok, true, r.reason);
+	const tracked = git(["ls-files"]).stdout.split("\n");
+	assert.ok(!tracked.includes(".secrets.json"), "store must not be tracked");
+	assert.ok(!tracked.includes(".secrets.key"), "key must not be tracked");
+});
+
+test("syncPush refuses when .gitignore negates the secret exclusion", { skip: !hasGit }, async () => {
+	await sync.syncInit();
+	writeFileSync(secretsPath(), '{"secrets":{"T":"ct"}}', "utf8");
+	// The adversarial case. A negation in .gitignore OUTRANKS .git/info/exclude,
+	// so the untracked-file defense alone would not hold here; only asking git
+	// itself (check-ignore) sees this coming.
+	writeFileSync(gitignorePath(), ".secrets.json\n!.secrets.json\n", "utf8");
+	const r = await sync.syncPush({ message: "should never happen" });
+	assert.equal(r.ok, false, "push must refuse rather than commit the store");
+	assert.match(r.reason, /refusing to push/);
+	assert.deepEqual(
+		r.exposedSecrets.map((e) => e.why),
+		["not-ignored"],
+	);
+	assert.ok(!git(["ls-files"]).stdout.includes(".secrets.json"));
+	writeFileSync(gitignorePath(), sync.SYNC_EXCLUDES.join("\n") + "\n", "utf8");
+});
+
+test("syncPush refuses when a secret is already tracked, and says to rotate", { skip: !hasGit }, async () => {
+	await sync.syncInit();
+	writeFileSync(secretsPath(), '{"secrets":{"T":"ct"}}', "utf8");
+	// Simulates a brain that leaked on an earlier push: no ignore rule can undo
+	// a commit, so refusing plus telling the user to rotate is the only honest
+	// outcome. -f is how it gets into this state in the first place.
+	git(["add", "-f", "--", ".secrets.json"]);
+	const r = await sync.syncPush({ message: "already leaked" });
+	assert.equal(r.ok, false);
+	assert.match(r.reason, /already tracked/);
+	assert.match(r.reason, /rotate/);
+	assert.deepEqual(
+		r.exposedSecrets.map((e) => e.why),
+		["tracked"],
+	);
+	git(["rm", "--cached", "-q", "--", ".secrets.json"]);
+});

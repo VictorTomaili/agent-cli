@@ -325,6 +325,68 @@ set is stable across the connection.
 > Note: this section describes the MCP framing only. For the JSON envelope /
 > exit-code contract of the underlying commands, see the rest of this document.
 
+## MCP client
+
+`agent-cli mcp …` is the other direction: calling the MCP servers a user has
+already configured elsewhere, from the shell. It reads those harness configs
+directly — `~/.claude.json` (`mcpServers`, plus `projects[cwd].mcpServers`),
+`~/.pi/agent/mcp.json`, and `[cwd]/.mcp.json` — so a server is declared once,
+where its owner already declared it. Definitions are never copied into
+agent-cli; `~/.agents/mcp.json` records only `<source>:<name>` plus the
+fingerprint that was approved.
+
+| Command | Effect |
+| --- | --- |
+| `mcp servers` | List every discovered server, its transport, and its trust state |
+| `mcp enable <ref>` | Approve one server at its **current** definition |
+| `mcp disable <ref>` | Withdraw approval; the harness config is untouched |
+| `mcp tools [ref]` | List an enabled server's tools and cache their names |
+| `mcp call <tool>` | Invoke one tool |
+
+`agent-cli mcp <tool>` is shorthand for `mcp call <tool>`. Refs are
+`<source>:<name>` (`pi:web-search-prime`); a bare name is accepted when it is
+unambiguous and is an error, never a guess, when it is not.
+
+**Arguments never arrive as bare words.** `mcp call search --query hi` cannot
+work — commander parses `--query hi` as an option of `call`, so the tool would
+receive nothing while the caller watched themselves type it. Use `--arg k=v`
+(repeatable, string values), `--args-json <json>`, `--args-file <path>`, or
+`--args-stdin`. Exactly one structured source may be combined with `--arg`
+pairs, which override it; two structured sources is a usage error rather than a
+silent merge.
+
+### Trust model
+
+Discovery is read-only and lists everything. **Nothing is runnable until
+`mcp enable` records it.** `agent-cli mcp` is meant to be run by agents,
+non-interactively, so a design where merely appearing in a config file made a
+server executable would let anything that can write to `~/.claude.json` get code
+executed by the next agent that runs a tool. `enable` is the approval step a
+non-interactive CLI cannot prompt for.
+
+Approval is pinned to a SHA-256 fingerprint over everything that determines what
+executes — command, args, url, env, headers, cwd. If that fingerprint later
+differs, the server is refused with `errorKind: "policy"` until a human
+re-enables it. Key order is not a change, so reformatting a config revokes
+nothing.
+
+Additional guarantees:
+
+- Claude Code project servers are honored only when that project's
+  `hasTrustDialogAccepted` is `true`; `disabledMcpServers` is respected.
+- A spawned stdio server receives an **allowlisted** environment plus the keys
+  its own definition names — never a spread of `process.env`.
+- HTTP servers require `https` (loopback may opt into plain http with
+  `--allow-insecure-loopback`), redirects are refused rather than followed, and
+  link-local / metadata / private-range hosts are rejected outright.
+- Every string that came from a server — errors, stderr, tool names,
+  descriptions, results — is redacted for credential values and stripped of
+  terminal control sequences before it reaches stdout or an envelope. Envelopes
+  report credential fields as `{field, state}`, never a value and never a prefix.
+- A tool that runs and reports failure is a successful round trip: the envelope
+  carries `isError: true` and `errorKind: "tool"`, and the exit code is 1 so a
+  script can still tell it from success.
+
 ## Guarantees for AI agents
 
 The contract is designed for autonomous AI consumers. Specifically:

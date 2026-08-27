@@ -94,6 +94,10 @@ import { registerUpdateCommands } from "./commands/update-cmds.js";
 import { registerSkillCommands } from "./commands/skill-cmds.js";
 import { registerSessionCoreCommands } from "./commands/session-core.js";
 import { registerBootstrapCommands } from "./commands/bootstrap.js";
+import {
+	expandMcpShorthand,
+	registerMcpCommands,
+} from "./commands/mcp-cmds.js";
 import { registerEvaluateCommands } from "./commands/evaluate.js";
 import { registerLedgerCommands } from "./commands/ledger.js";
 import { registerTeamEvalCommands } from "./commands/team-eval.js";
@@ -523,6 +527,14 @@ registerConfigureCommands(program, {
 	pretty,
 	isJson: () => JSON_MODE,
 });
+registerMcpCommands(program, {
+	emit,
+	fail,
+	log,
+	c,
+	isJson: () => JSON_MODE,
+	EXIT,
+});
 registerToolingCommands(program, {
 	emit,
 	fail,
@@ -879,7 +891,10 @@ program.action((opts, cmd) => {
 // '<sub>'" errors (e.g. `agent-cli link claude`).
 program.allowExcessArguments(true);
 
-program.parseAsync(process.argv).catch((e) => {
+// `agent-cli mcp <tool>` → `agent-cli mcp call <tool>`. Rewriting argv keeps
+// `call`'s own option parsing strict; a variadic positional on `mcp` would
+// swallow every `--flag` into the option set instead (see mcp-cmds.js).
+program.parseAsync(expandMcpShorthand(process.argv)).catch((e) => {
 	// Commander raises CommanderError for --help/--version and for parse/usage
 	// errors (exitOverride). Route them through the JSON contract when requested.
 	const isCmdError =

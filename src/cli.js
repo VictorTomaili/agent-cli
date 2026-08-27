@@ -527,9 +527,11 @@ registerConfigureCommands(program, {
 	pretty,
 	isJson: () => JSON_MODE,
 });
+// No `fail` here on purpose: every mcp action is async, and fail()'s
+// process.exit() can tear the process down with the error envelope still queued
+// on a Windows pipe. See failWith() in mcp-cmds.js.
 registerMcpCommands(program, {
 	emit,
-	fail,
 	log,
 	c,
 	isJson: () => JSON_MODE,

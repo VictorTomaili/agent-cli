@@ -1,7 +1,8 @@
 // src/commands/mcp-cmds.js — `agent-cli mcp …`: use the MCP servers already
 // configured in Claude Code, pi, or a project's .mcp.json, from the shell.
 //
-// Injected deps: { emit, fail, log, c, isJson, EXIT }.
+// Injected deps: { emit, log, c, isJson, EXIT }. Deliberately no `fail` — see
+// failWith() below.
 //
 // The command set is deliberately small:
 //
@@ -129,18 +130,31 @@ function renderContent(content) {
 	return parts.join("\n");
 }
 
-/** One place that turns any thrown error into the CLI's failure contract, so
- *  `errorKind` is always present and always one of the known categories. */
-function failWith(fail, command, err, extra = {}) {
+/**
+ * Turn any thrown error into the CLI's failure contract, so `errorKind` is
+ * always present and always one of the known categories.
+ *
+ * This sets `process.exitCode` and returns rather than calling cli.js's
+ * `fail()`, which exits immediately. Every command here is async, and on
+ * Windows a pipe is written asynchronously — `process.exit()` from an async
+ * action can tear the process down with the error envelope still queued, so the
+ * caller reads a truncated payload or nothing at all. Returning lets Node exit
+ * on its own once stdout has drained, with the same exit code.
+ */
+function failWith({ emit, log, isJson, EXIT }, command, err, extra = {}) {
 	const kind = err instanceof McpError ? err.kind : ERROR_KIND.TRANSPORT;
 	const detail = err instanceof McpError ? err.detail : null;
-	fail(err.message || String(err), {
+	const message = err?.message || String(err);
+	emit({
 		command,
 		ok: false,
+		error: message,
 		errorKind: kind,
 		...(detail ? { detail } : {}),
 		...extra,
 	});
+	if (!isJson()) log.error(message);
+	process.exitCode = EXIT.ERROR;
 }
 
 /** Refuse to run a server that is not approved at its current fingerprint. */
@@ -166,7 +180,8 @@ function sessionOpts(opts) {
 }
 
 /** Register the `mcp` command group. */
-export function registerMcpCommands(program, { emit, fail, log, c, isJson, EXIT }) {
+export function registerMcpCommands(program, { emit, log, c, isJson, EXIT }) {
+	const ctx = { emit, log, isJson, EXIT };
 	const mcp = program
 		.command("mcp")
 		.description(
@@ -251,7 +266,7 @@ export function registerMcpCommands(program, { emit, fail, log, c, isJson, EXIT 
 						`${def.command} resolves the package at run time — what executes can change without this definition changing.`,
 					);
 			} catch (err) {
-				failWith(fail, "mcp enable", err);
+				failWith(ctx, "mcp enable", err);
 			}
 		});
 
@@ -266,7 +281,7 @@ export function registerMcpCommands(program, { emit, fail, log, c, isJson, EXIT 
 				try {
 					target = refKey(resolveRef(ref, discoverAll().servers));
 				} catch (err) {
-					failWith(fail, "mcp disable", err);
+					failWith(ctx, "mcp disable", err);
 					return;
 				}
 			}
@@ -330,7 +345,7 @@ export function registerMcpCommands(program, { emit, fail, log, c, isJson, EXIT 
 					if (!r.tools.length) log.dim("  (no tools)");
 				}
 			} catch (err) {
-				failWith(fail, "mcp tools", err);
+				failWith(ctx, "mcp tools", err);
 			}
 		});
 
@@ -421,7 +436,7 @@ export function registerMcpCommands(program, { emit, fail, log, c, isJson, EXIT 
 				// tell success from failure.
 				if (isError) process.exitCode = EXIT.ERROR;
 			} catch (err) {
-				failWith(fail, "mcp call", err, { tool });
+				failWith(ctx, "mcp call", err, { tool });
 			}
 		});
 }

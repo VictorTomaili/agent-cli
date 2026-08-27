@@ -326,7 +326,12 @@ export function resolveScope(rel, scope) {
  * @throws {Error} code EPROJECTBASEREDIRECTED when the base escapes cwd
  */
 export function projectBrainDir(cwd = process.cwd()) {
-	const base = path.join(cwd, ".agents");
+	// Resolve INSIDE the helper rather than asking every call site to remember.
+	// A relative cwd would otherwise return a relative base while the containment
+	// check below compared fully-resolved paths — the two halves disagreeing is
+	// exactly the kind of seam a guard should not have.
+	const root = path.resolve(cwd);
+	const base = path.join(root, ".agents");
 	let st = null;
 	try {
 		st = fs.lstatSync(base);
@@ -347,13 +352,13 @@ export function projectBrainDir(cwd = process.cwd()) {
 	let realCwd;
 	try {
 		realBase = fs.realpathSync(base);
-		realCwd = fs.realpathSync(cwd);
+		realCwd = fs.realpathSync(root);
 	} catch {
 		// Unresolvable is not evidence of an escape; the lstat check above stands.
 		return base;
 	}
 	if (realBase !== path.join(realCwd, ".agents"))
-		refuse(`resolves outside ${cwd} (to ${realBase})`);
+		refuse(`resolves outside ${root} (to ${realBase})`);
 	return base;
 }
 

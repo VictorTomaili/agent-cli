@@ -25,7 +25,12 @@ import { readFileNoFollow } from "../util.js";
 import { ERROR_KIND } from "../mcp/protocol.js";
 import { McpError, withSession, listTools, callTool } from "../mcp/client.js";
 import { discoverAll, resolveRef } from "../mcp/discover.js";
-import { cleanRemote, cleanRemoteDeep, describeSecretRefs } from "../mcp/redact.js";
+import {
+	cleanRemote,
+	cleanRemoteDeep,
+	describeSecretRefs,
+	safeUrl,
+} from "../mcp/redact.js";
 import {
 	TRUST,
 	cacheIsCold,
@@ -130,14 +135,14 @@ function buildArgs(opts) {
 /** Flatten an MCP tool result into text for a terminal. Every string here came
  *  from a remote server, so it is redacted and control-stripped on the way out
  *  — including into the JSON envelope, which an agent reads as context. */
-function renderContent(content) {
+function renderContent(content, secretValues = []) {
 	const parts = [];
 	for (const item of content || []) {
-		if (item?.type === "text") parts.push(cleanRemote(item.text));
+		if (item?.type === "text") parts.push(cleanRemote(item.text, secretValues));
 		else if (item?.type === "resource" && item.resource?.text)
-			parts.push(cleanRemote(item.resource.text));
+			parts.push(cleanRemote(item.resource.text, secretValues));
 		else if (item?.type)
-			parts.push(`[${cleanRemote(item.type)} content omitted]`);
+			parts.push(`[${cleanRemote(item.type, secretValues)} content omitted]`);
 	}
 	return parts.join("\n");
 }
@@ -213,11 +218,20 @@ export function registerMcpCommands(program, { emit, log, c, isJson, EXIT }) {
 				source: def.source,
 				scope: def.scope,
 				transport: def.transport,
-				target: def.transport === "http" ? def.url : [def.command, ...(def.args || [])].join(" "),
+				// safeUrl, not def.url. A hosted server's credential usually lives IN
+				// the URL — userinfo, a query param, or a token-shaped path segment
+				// (`…/api/mcp/s/<token>/mcp`) — and this is the row an unattended
+				// agent is most likely to print straight into its own context.
+				target:
+					def.transport === "http"
+						? safeUrl(def.url)
+						: [def.command, ...(def.args || [])].join(" "),
 				unpinned: def.unpinned === true,
 				fingerprint: def.fingerprint,
 				trust: trustOf(def, store).state,
 				// Key names and a state only — never a value, never a prefix.
+				// def carries env, headers AND url: reporting `secrets: []` while
+				// printing a URL-borne token was exactly the bug this closes.
 				secrets: describeSecretRefs(def),
 			}));
 			emit({
@@ -329,17 +343,26 @@ export function registerMcpCommands(program, { emit, log, c, isJson, EXIT }) {
 				const results = [];
 				for (const def of targets) {
 					requireTrust(def);
-					const tools = await withSession(
+					// Carry the session's credential list out with the tools: a server
+					// can echo its own key back in a tool NAME or DESCRIPTION, and
+					// those go straight into the envelope an agent reads as context.
+					const { tools, secretValues } = await withSession(
 						def,
-						(session, o) => listTools(session, o),
+						async (session, o) => ({
+							tools: await listTools(session, o),
+							secretValues: session.secretValues,
+						}),
 						sessionOpts(opts),
 					);
 					cacheTools(def, tools.map((t) => t.name), { at: new Date().toISOString() });
 					results.push({
 						ref: refKey(def),
 						tools: tools.map((t) => ({
-							name: cleanRemote(String(t.name)),
-							description: cleanRemote(String(t.description || "")).slice(0, 400),
+							name: cleanRemote(String(t.name), secretValues),
+							description: cleanRemote(
+								String(t.description || ""),
+								secretValues,
+							).slice(0, 400),
 						})),
 					});
 				}
@@ -421,13 +444,21 @@ export function registerMcpCommands(program, { emit, log, c, isJson, EXIT }) {
 				}
 				requireTrust(def);
 
-				const result = await withSession(
+				// The server's own credentials come back out with the result. MCP
+				// servers commonly report an auth failure as a tool RESULT with
+				// isError rather than as a protocol error, and that text routinely
+				// quotes the rejected credential — so this is the highest-volume
+				// path by which a key gets echoed into an agent's context.
+				const { result, secretValues } = await withSession(
 					def,
-					(session, o) => callTool(session, toolName, args, o),
+					async (session, o) => ({
+						result: await callTool(session, toolName, args, o),
+						secretValues: session.secretValues,
+					}),
 					sessionOpts(opts),
 				);
 
-				const text = renderContent(result?.content);
+				const text = renderContent(result?.content, secretValues);
 				const isError = result?.isError === true;
 				emit({
 					command: "mcp call",
@@ -441,7 +472,12 @@ export function registerMcpCommands(program, { emit, log, c, isJson, EXIT }) {
 					// context — it gets the same treatment as the text content, not a
 					// pass because it happens to be structured.
 					...(result?.structuredContent
-						? { structuredContent: cleanRemoteDeep(result.structuredContent) }
+						? {
+								structuredContent: cleanRemoteDeep(
+									result.structuredContent,
+									secretValues,
+								),
+							}
 						: {}),
 				});
 				if (!isJson()) {

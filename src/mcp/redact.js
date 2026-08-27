@@ -121,12 +121,96 @@ export function cleanRemoteDeep(value, values = [], { maxDepth = 32, ...opts } =
  * never a prefix - a "first four characters" preview is still a leak, and these
  * harness files hold live API keys.
  */
-export function describeSecretRefs({ env = {}, headers = {} } = {}) {
+/**
+ * A path segment long and opaque enough to be a token rather than a route.
+ *
+ * Hosted remote MCP servers routinely carry the credential IN THE PATH
+ * (`…/api/mcp/s/<token>/mcp`), where it looks like an ordinary segment. There is
+ * no syntax that distinguishes the two, so this is a heuristic: 16+ characters
+ * of token alphabet with no vowel-ish structure to it. It over-masks a long
+ * route segment now and then, which is the right direction to be wrong in — the
+ * cost is a slightly less readable path, not a published credential.
+ */
+const TOKENISH_SEGMENT_RE = /^[A-Za-z0-9_-]{16,}$/;
+
+/**
+ * Credential values carried by a URL: userinfo, every query value, and any
+ * token-shaped path segment.
+ *
+ * These belong in the same redaction list as env and header values. Without
+ * them, a server that echoes its own URL back in a tool result — an extremely
+ * common way for MCP servers to report an auth failure — republishes the
+ * credential through output an agent reads as context.
+ */
+export function urlSecretValues(url) {
+	if (!url) return [];
+	let u;
+	try {
+		u = new URL(String(url));
+	} catch {
+		return [];
+	}
+	const out = [];
+	if (u.password) out.push(u.password);
+	if (u.username) out.push(u.username);
+	for (const v of u.searchParams.values()) if (v) out.push(v);
+	for (const seg of u.pathname.split("/"))
+		if (TOKENISH_SEGMENT_RE.test(seg)) out.push(seg);
+	return out;
+}
+
+/**
+ * Render a server URL safely for display: origin + path, userinfo dropped,
+ * query values and token-shaped path segments masked.
+ *
+ * `mcp servers` is the vetting command an unattended agent is most likely to
+ * run and dump into its context, so the whole point of the row is to be safe to
+ * look at. Returns a marker rather than the input when parsing fails — an
+ * unparseable URL is exactly the case where echoing it back is least safe.
+ */
+export function safeUrl(url) {
+	if (!url) return "";
+	let u;
+	try {
+		u = new URL(String(url));
+	} catch {
+		return "[unparseable url]";
+	}
+	const path = u.pathname
+		.split("/")
+		.map((seg) => (TOKENISH_SEGMENT_RE.test(seg) ? REDACTED : seg))
+		.join("/");
+	const query = [...u.searchParams.keys()]
+		.map((k) => `${k}=${REDACTED}`)
+		.join("&");
+	return `${u.origin}${path}${query ? `?${query}` : ""}`;
+}
+
+export function describeSecretRefs({ env = {}, headers = {}, url = null } = {}) {
 	const refs = [];
 	for (const [k, v] of Object.entries(env || {}))
 		refs.push({ field: `env.${k}`, state: classifyRef(v) });
 	for (const [k, v] of Object.entries(headers || {}))
 		refs.push({ field: `headers.${k}`, state: classifyRef(v) });
+	// A URL-borne credential is a credential. Reporting `secrets: []` next to a
+	// printed token was the bug this closes.
+	if (url) {
+		let u = null;
+		try {
+			u = new URL(String(url));
+		} catch {
+			/* unparseable — nothing to enumerate */
+		}
+		if (u) {
+			if (u.username || u.password)
+				refs.push({ field: "url.userinfo", state: "literal-in-harness" });
+			for (const [k, v] of u.searchParams)
+				refs.push({ field: `url.${k}`, state: classifyRef(v) });
+			for (const seg of u.pathname.split("/"))
+				if (TOKENISH_SEGMENT_RE.test(seg))
+					refs.push({ field: "url.path-segment", state: "literal-in-harness" });
+		}
+	}
 	return refs;
 }
 

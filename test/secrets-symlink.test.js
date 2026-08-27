@@ -31,8 +31,10 @@ import {
 	writeFileSync,
 	readFileSync,
 	lstatSync,
-	statSync,
 	symlinkSync,
+	openSync,
+	fstatSync,
+	closeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -114,31 +116,49 @@ test("SEC-3: setSecret replaces a symlinked .secrets.json instead of writing thr
 		VICTIM,
 		"SEC-3: writing a project secret must not truncate the symlink's target",
 	);
-	assert.equal(
-		lstatSync(store).isSymbolicLink(),
-		false,
-		"SEC-3: the planted symlink must be replaced by a real file",
-	);
-	assert.equal(
-		statSync(store).isFile(),
-		true,
-		"SEC-3: the store must be a regular file after the write",
-	);
-
 	// ...and the store is genuinely ours: the secret round-trips.
 	assert.equal(
 		secrets.getSecret("K", { scope: "project", cwd }),
 		"v",
 		"the replacement store must hold the secret we just set",
 	);
+
+	// Every property of the replacement entry is taken from ONE descriptor,
+	// opened before any path check. Re-stat'ing the path per assertion is a
+	// check-then-use race (js/file-system-race, which this repo's CodeQL policy
+	// lists as blocking), and it is also weaker than what this test claims: the
+	// point is that a single real entry replaced the link, so every fact must
+	// come from that same entry rather than from whatever the path resolves to
+	// on the next call.
+	const fd = openSync(store, "r");
+	let st;
+	let body;
+	try {
+		st = fstatSync(fd);
+		body = readFileSync(fd, "utf8");
+	} finally {
+		closeSync(fd);
+	}
+	// The one question a descriptor cannot answer, asked last.
+	const entry = lstatSync(store);
+
+	assert.equal(
+		entry.isSymbolicLink(),
+		false,
+		"SEC-3: the planted symlink must be replaced by a real file",
+	);
+	assert.equal(
+		st.isFile(),
+		true,
+		"SEC-3: the store must be a regular file after the write",
+	);
 	assert.ok(
-		!readFileSync(store, "utf8").includes("do not clobber"),
+		!body.includes("do not clobber"),
 		"the new store must not contain the victim's bytes",
 	);
-
 	if (!IS_WIN)
 		assert.equal(
-			statSync(store).mode & 0o777,
+			st.mode & 0o777,
 			0o600,
 			"SEC-3: the replacement store must be 0600, never world-readable",
 		);
@@ -186,20 +206,37 @@ test("SEC-4: loadKey replaces a symlinked .secrets.key instead of writing throug
 		VICTIM,
 		"SEC-4: minting a key must not overwrite the symlink's target",
 	);
+	// Every property of the replacement entry is taken from ONE descriptor,
+	// opened before any path check. Re-stat'ing the path per assertion is a
+	// check-then-use race (js/file-system-race, which this repo's CodeQL policy
+	// lists as blocking), and it is also weaker than what this test claims: the
+	// point is that a single real entry replaced the link, so every fact must
+	// come from that same entry rather than from whatever the path resolves to
+	// on the next call.
+	const fd = openSync(kp, "r");
+	let st;
+	let onDisk;
+	try {
+		st = fstatSync(fd);
+		onDisk = readFileSync(fd);
+	} finally {
+		closeSync(fd);
+	}
+	const entry = lstatSync(kp);
+
 	assert.equal(
-		lstatSync(kp).isSymbolicLink(),
+		entry.isSymbolicLink(),
 		false,
 		"SEC-4: the planted symlink must be replaced by a real key file",
 	);
 	assert.deepEqual(
-		readFileSync(kp),
+		onDisk,
 		key,
 		"the key on disk must be the key that was returned",
 	);
-
 	if (!IS_WIN)
 		assert.equal(
-			statSync(kp).mode & 0o777,
+			st.mode & 0o777,
 			0o600,
 			"SEC-4: the replacement key must be 0600",
 		);

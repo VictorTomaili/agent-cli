@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import c from "picocolors";
 
 // AGENT_CLI_HOME overrides home — safe for testing (no real ~ touched),
@@ -210,6 +211,67 @@ function symlinkRefusal(p) {
 	return err;
 }
 
+/** Cached result of probeFdIdentity(); null until first probed. */
+let fdIdentityReliable = null;
+
+/**
+ * Does this runtime report the same dev/ino from fstat(fd) and lstat(path) for
+ * one ordinary, unmoved file?
+ *
+ * It is supposed to. On Windows + Node 22.13.0 it does not, and readFileNoFollow's
+ * identity guard consequently refused every regular file — which is a denial of
+ * service, not a security control. But "these two disagree" is also exactly what
+ * a swapped path looks like, so the disagreement cannot simply be tolerated: the
+ * two cases have to be told apart, and that is what this answers.
+ *
+ * The probe runs on a file it creates itself, in the system temp directory, with
+ * a name no other process can predict — so nothing about the caller's file, its
+ * directory, or its contents is involved, and no probe file is ever left in a
+ * project or brain directory.
+ *
+ * On failure it reports `true`, i.e. "the comparison is meaningful". That is the
+ * fail-closed direction: an unknown makes the caller refuse rather than read.
+ *
+ * @returns {boolean} true when fd identity can be trusted to mean something
+ */
+function probeFdIdentity() {
+	const p = path.join(
+		os.tmpdir(),
+		`.agent-cli-fdid-${process.pid}-${randomBytes(6).toString("hex")}`,
+	);
+	let fd;
+	try {
+		// wx: never adopt a file someone else planted at this name.
+		fs.writeFileSync(p, "x", { flag: "wx" });
+		const viaPath = fs.lstatSync(p);
+		fd = fs.openSync(p, fs.constants.O_RDONLY);
+		const viaFd = fs.fstatSync(fd);
+		return Boolean(
+			viaPath.ino &&
+				viaFd.ino &&
+				viaPath.ino === viaFd.ino &&
+				viaPath.dev === viaFd.dev,
+		);
+	} catch {
+		return true;
+	} finally {
+		if (fd !== undefined) {
+			try {
+				fs.closeSync(fd);
+			} catch {}
+		}
+		try {
+			fs.unlinkSync(p);
+		} catch {}
+	}
+}
+
+/** Test-only: forget the cached probe result so a suite can exercise both the
+ *  reliable and unreliable branches in one process. Not part of the CLI surface. */
+export function __resetFdIdentityProbe() {
+	fdIdentityReliable = null;
+}
+
 /**
  * Read `p`, refusing to follow symlinks or read non-regular files.
  *
@@ -269,8 +331,47 @@ export function readFileNoFollow(p, { maxBytes, encoding = "utf8" } = {}) {
 		// win32: the fd must still be the file lstat approved above, or the path
 		// was swapped between the two calls. Compared only when the filesystem
 		// reports a usable identity (some volumes report ino 0).
+		//
+		// A mismatch normally means the path was swapped, and refusing is right.
+		// But on Windows + Node 22.13.0 fstat and lstat report different dev/ino
+		// for ordinary, unmoved files, so this refused every regular file and made
+		// the tool unusable — 27 tests, secrets and MCP included. That is a denial
+		// of service, not a security control.
+		//
+		// So the mismatch is only trusted where it means something. probeFdIdentity
+		// asks the runtime, on a file of its own making, whether it reports fd and
+		// path identity consistently at all:
+		//
+		//   reliable   -> a mismatch is a real swap. Refuse, as before. This is the
+		//                 case on every healthy runtime, and NOTHING is given up
+		//                 here — including against a swap reverted before the read.
+		//   unreliable -> the comparison carries no signal on this build, so it
+		//                 cannot be the check. Fall back to confirming with a second
+		//                 lstat that the path did not move, which is same-family and
+		//                 so agrees by construction whatever fstat reports.
+		//
+		// The fallback is weaker, and deliberately so: it catches a swap that
+		// PERSISTS, but not one reverted between the open and the confirming lstat,
+		// because it asks whether the path moved rather than what the fd points at.
+		// That residual window is accepted ONLY on builds that cannot express the
+		// stronger question — Windows has no O_NOFOLLOW and no portable fd-to-path
+		// identity comparison, so on such a build there is nothing better to ask.
+		// A symlink planted in the window is checked for explicitly rather than
+		// inferred from the numbers, since a swap preserving dev/ino would slip
+		// past a numeric comparison alone.
 		if (pre && pre.ino && st.ino && (pre.ino !== st.ino || pre.dev !== st.dev)) {
-			throw symlinkRefusal(p);
+			if (fdIdentityReliable === null) fdIdentityReliable = probeFdIdentity();
+			if (fdIdentityReliable) {
+				throw symlinkRefusal(p);
+			}
+			const post = fs.lstatSync(p);
+			if (
+				post.isSymbolicLink() ||
+				post.ino !== pre.ino ||
+				post.dev !== pre.dev
+			) {
+				throw symlinkRefusal(p);
+			}
 		}
 		if (!st.isFile()) {
 			throw new Error(`not a regular file: ${p}`);

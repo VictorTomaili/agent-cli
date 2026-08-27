@@ -299,11 +299,14 @@ export function registerBootstrapCommands(
 						models.writeModelsMd();
 						result.steps.autoModels = { applied: applied.length, aliases: applied };
 					} else {
+						// Two different causes, and they need different advice:
+						// nothing imported at all, versus a catalog that holds no
+						// candidate for these personas' categories.
 						result.steps.autoModels = {
 							applied: 0,
-							reason: "no-catalog",
+							reason: models.hasCatalog() ? "no-match" : "no-catalog",
 							unresolved: [...byAlias.keys()].sort(),
-							hint: models.NO_CATALOG_HINT,
+							hint: models.catalogHint(),
 						};
 					}
 				}
@@ -337,8 +340,8 @@ export function registerBootstrapCommands(
 				}
 				// Without this, a fresh install silently ends with every persona's
 				// model alias unresolved and nothing on screen saying why.
-				if (result.steps.autoModels?.reason === "no-catalog")
-					log.dim(models.NO_CATALOG_HINT);
+				if (result.steps.autoModels?.hint)
+					log.dim(result.steps.autoModels.hint);
 				// Home pointer stub status is independent of target count: report
 				// created/overwritten/updated/native-content whenever it happened.
 				if (

@@ -65,7 +65,11 @@ export function registerModelsCommands(
 					// empty case has to say what to do next.
 					if (!entries.length) {
 						log.info("No model aliases configured.");
-						log.dim(`  ${m.NO_CATALOG_HINT}`);
+						// Which remedy depends on whether a catalog exists. An empty
+						// alias set with a catalog already imported needs `suggest
+						// --apply`; sending that user to `research --fetch` first is a
+						// step that changes nothing.
+						log.dim(`  ${m.catalogHint()}`);
 					}
 				}
 				return;

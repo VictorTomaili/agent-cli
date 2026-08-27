@@ -1398,6 +1398,43 @@ test("env set writes a field into ENVIRONMENTS.md", () => {
 	);
 });
 
+test("models list tells you to ASSIGN when a catalog is already imported", () => {
+	const home = run(["init"]).home;
+	// Two different causes hide behind one symptom. An empty alias set with a
+	// catalog already imported needs `suggest --apply`; only a machine with
+	// nothing imported needs `research --fetch` first, and sending the first user
+	// down that path is a step that changes nothing.
+	const cfgPath = path.join(home, ".agents", "config.json");
+	const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
+	cfg.models = {
+		...(cfg.models || {}),
+		aliases: {},
+		liveCatalog: {
+			fetchedAt: "2026-01-01T00:00:00Z",
+			entries: [
+				{ id: "acme/rocket-mini", provider: "acme", context: 200000, inputPer1M: 1, outputPer1M: 2 },
+				{ id: "acme/rocket-max", provider: "acme", context: 400000, inputPer1M: 5, outputPer1M: 9 },
+			],
+		},
+	};
+	writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+
+	const withCatalog = run(["models", "list"], { envHome: home });
+	ok(withCatalog);
+	assert.match(withCatalog.stdout, /suggest --apply/);
+	assert.doesNotMatch(
+		withCatalog.stdout,
+		/No model candidates available/,
+		"a machine WITH an imported catalog was told it has none",
+	);
+
+	// The genuinely-empty case must keep its original advice.
+	const bare = run(["models", "list"]);
+	ok(bare);
+	assert.match(bare.stdout, /No model candidates available/);
+	assert.match(bare.stdout, /research --fetch/);
+});
+
 test("models suggest reports every alias unresolved when no catalog is imported", () => {
 	const home = run(["init"]).home;
 	// agent-cli ships no model data, so init cannot auto-pick anything. Each

@@ -221,10 +221,23 @@ export function writeModelsMd() {
 // and that is a legitimate, self-healing state rather than an error - every
 // caller reports NO_CATALOG_HINT instead of guessing.
 
-/** The one remedy string every no-candidates code path prints, so the user sees
- *  the same two commands whichever surface they hit it from. */
+/** The remedy when there is genuinely nothing to pick from, so the user sees the
+ *  same two commands whichever surface they hit it from. */
 export const NO_CATALOG_HINT =
 	"No model candidates available - import one with `agent-cli models research --fetch`, then assign aliases with `agent-cli models suggest --apply`.";
+
+/** The remedy when a catalog IS imported and the aliases simply are not assigned
+ *  from it yet. Telling that user to fetch a catalog they already have sends
+ *  them down a step that changes nothing. */
+export const CATALOG_READY_HINT =
+	"A live catalog is imported but no alias is assigned from it yet - run `agent-cli models suggest --apply` to pick from it, or `agent-cli models research --fetch` to refresh the catalog first.";
+
+/** The right remedy for the CURRENT state. Every surface that reports "no
+ *  aliases" or "nothing applied" should call this rather than reaching for a
+ *  fixed string, because those two outcomes have two different causes. */
+export function catalogHint() {
+	return hasCatalog() ? CATALOG_READY_HINT : NO_CATALOG_HINT;
+}
 
 /** True when a live catalog has been imported and yields at least one usable
  *  candidate. Callers use this to distinguish "nothing matched this category"

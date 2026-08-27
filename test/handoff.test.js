@@ -1,7 +1,14 @@
 // Handoff artifact tests.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	writeFileSync,
+	existsSync,
+	statSync,
+	readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -110,8 +117,14 @@ test("attachContextForTask keeps a traversal task id inside the handoff dir", as
 
 	const r = h.attachContextForTask({ taskId: evil, session, home: base });
 	assert.equal(r.ok, true);
-	assert.ok(
-		r.artifactPath.startsWith(h.HANDOFF_DIR),
+	// Containment is against the handoff dir of the home that was PASSED. This
+	// asserted h.HANDOFF_DIR before, which passed only because the artifact
+	// ignored `home` entirely — the escape and the misroute cancelled out.
+	// Compare resolved dirnames, not a string prefix: `<dir>EVIL` startsWith
+	// `<dir>`.
+	assert.equal(
+		path.resolve(path.dirname(r.artifactPath)),
+		path.resolve(path.join(base, ".agents", "handoffs")),
 		`artifact escaped the handoff dir: ${r.artifactPath}`,
 	);
 	assert.ok(
@@ -119,7 +132,7 @@ test("attachContextForTask keeps a traversal task id inside the handoff dir", as
 		`filename must not carry traversal segments: ${r.artifactPath}`,
 	);
 	// the raw id is still faithfully recorded in the (inert) document body
-	const shown = await h.showHandoff(path.basename(r.artifactPath, ".md"));
+	const shown = await h.showHandoff(path.basename(r.artifactPath, ".md"), { home: base });
 	assert.equal(shown.ok, true);
 	assert.match(shown.content, /# Handoff for \.\.\/\.\.\/\.\.\/PWNED/);
 });
@@ -134,4 +147,118 @@ test("showHandoff / setHandoffStatus refuse a traversal id", async () => {
 	assert.equal(escaped.ok, false);
 	const written = await h.setHandoffStatus("../../../../etc/passwd", "closed");
 	assert.equal(written.ok, false);
+});
+
+// `home` is honoured for the ledger read (handoffHome) but the artifact went to
+// the module-level HANDOFF_DIR, frozen from util.HOME at import. The two paths
+// have to agree, or a caller passing an explicit home reads one tree and writes
+// another.
+test("attachContextForTask writes under the home it was given", async () => {
+	const argHome = mkdtempSync(path.join(tmpdir(), "agent-ho-arg-"));
+	const session = "11111111-2222-3333-4444-555555555555";
+	const logs = path.join(argHome, ".agents", ".logs");
+	mkdirSync(logs, { recursive: true });
+	writeFileSync(
+		path.join(logs, `${session}.dispatch.log`),
+		JSON.stringify({
+			ts: "2026-08-01T00:00:00.000Z",
+			session,
+			role: "dev",
+			task: "P1",
+			model: "m",
+			status: "succeeded",
+			ms: 1,
+			note: "did it",
+		}) + "\n",
+		"utf8",
+	);
+
+	const r = h.attachContextForTask({ taskId: "T", dependsOn: ["P1"], session, home: argHome });
+	assert.equal(r.ok, true, r.reason);
+	assert.equal(
+		path.resolve(path.dirname(r.artifactPath)),
+		path.resolve(path.join(argHome, ".agents", "handoffs")),
+		`artifact must land under the given home, not ${h.HANDOFF_DIR}`,
+	);
+	assert.ok(existsSync(r.artifactPath));
+	// The pairing the module promises: whatever home the artifact was written
+	// under, the module's own reader opens it under that same home. Fixing the
+	// write alone would only have moved the inconsistency into the reader.
+	const shown = await h.showHandoff(path.basename(r.artifactPath, ".md"), { home: argHome });
+	assert.equal(shown.ok, true);
+	assert.match(shown.content, /# Handoff for T/);
+	assert.deepEqual(
+		(await h.listHandoffs({ home: argHome })).map((e) => e.file),
+		[r.artifactPath],
+	);
+});
+
+// Omitting `home` must keep landing in the module-level dir — the fix resolves
+// an explicit home, it does not relocate the default.
+test("attachContextForTask still defaults to HANDOFF_DIR when no home is given", () => {
+	const base = process.env.AGENT_CLI_HOME;
+	const session = "cccccccc-dddd-eeee-ffff-000000000000";
+	mkdirSync(path.join(base, ".agents", ".logs"), { recursive: true });
+	writeFileSync(
+		path.join(base, ".agents", ".logs", `${session}.dispatch.log`),
+		JSON.stringify({
+			ts: "2026-08-02T00:00:00.000Z",
+			session,
+			role: "dev",
+			task: "P1",
+			model: "m",
+			status: "succeeded",
+			ms: 1,
+			note: "n",
+		}) + "\n",
+		"utf8",
+	);
+	const r = h.attachContextForTask({ taskId: "DEF", dependsOn: ["P1"], session });
+	assert.equal(r.ok, true, r.reason);
+	assert.equal(path.resolve(path.dirname(r.artifactPath)), path.resolve(h.HANDOFF_DIR));
+});
+
+// The write is documented as atomic. A raw writeFileSync truncates first, so a
+// concurrent reader can observe a partial (or empty) artifact; the atomic
+// helper renames a fully-written temp file over the target instead. Assert the
+// mechanism — a timing race would be flaky in CI.
+test("attachContextForTask never truncates the artifact in place", async () => {
+	const base = process.env.AGENT_CLI_HOME;
+	const session = "99999999-8888-7777-6666-555555555555";
+	const logs = path.join(base, ".agents", ".logs");
+	mkdirSync(logs, { recursive: true });
+	writeFileSync(
+		path.join(logs, `${session}.dispatch.log`),
+		JSON.stringify({
+			ts: "2026-08-01T00:00:00.000Z",
+			session,
+			role: "dev",
+			task: "P1",
+			model: "m",
+			status: "succeeded",
+			ms: 1,
+			note: "first",
+		}) + "\n",
+		"utf8",
+	);
+
+	const first = h.attachContextForTask({ taskId: "AT", dependsOn: ["P1"], session, home: base });
+	assert.equal(first.ok, true, first.reason);
+	const inode = statSync(first.artifactPath).ino;
+
+	// Rewriting must replace the file, not reopen-and-truncate the same one.
+	const second = h.attachContextForTask({ taskId: "AT", dependsOn: ["P1"], session, home: base });
+	assert.equal(second.ok, true, second.reason);
+	assert.equal(second.artifactPath, first.artifactPath);
+	assert.notEqual(
+		statSync(second.artifactPath).ino,
+		inode,
+		"a rename-over leaves a new inode; an in-place truncate reuses the old one",
+	);
+
+	// And no temp file is left behind next to it.
+	assert.deepEqual(
+		readdirSync(path.dirname(second.artifactPath)).filter((f) => f.endsWith(".tmp")),
+		[],
+	);
 });

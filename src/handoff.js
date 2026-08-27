@@ -11,12 +11,20 @@ import {
 	exists,
 	ensureDir,
 	writeFile,
+	writeFileSync,
 	sanitizePathSegment,
 } from "./util.js";
 import { gitInfo } from "./memory.js";
 import { summarizeSession } from "./team-eval.js";
 
 export const HANDOFF_DIR = path.join(HOME, ".agents", "handoffs");
+
+/** The artifacts dir for an explicit home, or the module-level one when the
+ *  caller does not name a home. `attachContextForTask` resolves its ledger from
+ *  the same argument, so read and write must not be allowed to drift apart. */
+function handoffDir(home) {
+	return home ? path.join(home, ".agents", "handoffs") : HANDOFF_DIR;
+}
 
 function slug(s) {
 	return String(s || "")
@@ -60,14 +68,15 @@ ${task}
 	return { ok: true, id, to, task, file, status: "open" };
 }
 
-export async function listHandoffs({ status = null } = {}) {
-	if (!(await exists(HANDOFF_DIR))) return [];
+export async function listHandoffs({ status = null, home = null } = {}) {
+	const dir = handoffDir(home);
+	if (!(await exists(dir))) return [];
 	const entries = fs
-		.readdirSync(HANDOFF_DIR, { withFileTypes: true })
+		.readdirSync(dir, { withFileTypes: true })
 		.filter((e) => e.isFile() && e.name.endsWith(".md"));
 	const out = [];
 	for (const e of entries) {
-		const file = path.join(HANDOFF_DIR, e.name);
+		const file = path.join(dir, e.name);
 		const content = fs.readFileSync(file, "utf8");
 		const fm = parseFm(content);
 		if (status && fm.status !== status) continue;
@@ -87,7 +96,7 @@ function parseFm(content) {
 	return fm;
 }
 
-function findFile(id) {
+function findFile(id, home = null) {
 	// Shared chokepoint for showHandoff (read) and setHandoffStatus (WRITE), so
 	// the id is folded to one segment here rather than at each call site. Every
 	// id this module mints already lives in the safe set — `h-<ts>-<slug>` and
@@ -95,18 +104,18 @@ function findFile(id) {
 	// a crafted one.
 	const safe = sanitizePathSegment(id);
 	if (!safe) return null;
-	const file = path.join(HANDOFF_DIR, `${safe}.md`);
+	const file = path.join(handoffDir(home), `${safe}.md`);
 	return fs.existsSync(file) ? file : null;
 }
 
-export async function showHandoff(id) {
-	const file = findFile(id);
+export async function showHandoff(id, { home = null } = {}) {
+	const file = findFile(id, home);
 	if (!file) return { ok: false, reason: `no such handoff: ${id}` };
 	return { ok: true, id, file, content: fs.readFileSync(file, "utf8") };
 }
 
-export async function setHandoffStatus(id, status) {
-	const file = findFile(id);
+export async function setHandoffStatus(id, status, { home = null } = {}) {
+	const file = findFile(id, home);
 	if (!file) return { ok: false, reason: `no such handoff: ${id}` };
 	const content = fs.readFileSync(file, "utf8");
 	const next = content.replace(
@@ -306,13 +315,21 @@ export function attachContextForTask({ taskId, dependsOn, session, home } = {}) 
 	const safeTid = sanitizePathSegment(tid) ?? "task";
 	const safePred = sanitizePathSegment(deps[0] || tid) ?? safeTid;
 	const fileName = `${safeTid}-from-${safePred}.md`;
-	const file = path.join(HANDOFF_DIR, fileName);
+	// Under `base`, not the module-level HANDOFF_DIR: that constant froze to
+	// util.HOME at import, so a caller passing an explicit `home` (as the tests
+	// and any embedder do) read its ledger from one tree and got the artifact
+	// written into another. Same home in, same home out.
+	const outDir = handoffDir(base);
+	const file = path.join(outDir, fileName);
 	const content = buildHandoffDoc({ taskId: tid, session: sessionId, deps, blocks });
 
 	try {
-		fs.mkdirSync(HANDOFF_DIR, { recursive: true });
-		// Atomic write (exclusive-create → fsync → rename), same as every lesson-store write.
-		fs.writeFileSync(file, content);
+		fs.mkdirSync(outDir, { recursive: true });
+		// util.js's sync writer — exclusive-create → fsync → rename-over, the
+		// guarantee this comment always claimed. A raw fs.writeFileSync truncates
+		// the target before writing, so `handoff show` on a task being re-attached
+		// could read a half-written (or empty) artifact.
+		writeFileSync(file, content);
 	} catch (err) {
 		return { ok: false, reason: "handoff write failed" };
 	}

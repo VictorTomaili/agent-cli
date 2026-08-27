@@ -290,6 +290,40 @@ function probeFdIdentity() {
 	}
 }
 
+/** How many independent probes must agree before fd identity is called useless. */
+const PROBE_CORROBORATION = 3;
+
+/**
+ * probeFdIdentity, but "unreliable" has to be corroborated.
+ *
+ * A single probe is racy by construction: it lstats a path and then opens it,
+ * and CodeQL flags that ordering (js/file-system-race) correctly. mkdtemp makes
+ * the directory unpredictable, but this branch is win32-only and Windows largely
+ * ignores mkdtemp's mode — the new directory inherits its parent's ACLs, which
+ * are private for a per-user %TEMP% and not necessarily private for a service
+ * identity on C:\Windows\Temp. Justifying the single probe with "0700" would be
+ * POSIX reasoning applied to a code path that never runs on POSIX.
+ *
+ * So instead of arguing the race cannot be won, remove the reason to win it.
+ * Only ONE verdict helps an attacker — "unreliable", which downgrades the caller
+ * to the weaker check for the rest of the process — and it is now the verdict
+ * that has to be reproduced N times, in N separately created directories, before
+ * it is believed. A single won race no longer changes anything; the attacker has
+ * to win every one of them, back to back, at unpredictable paths. "Reliable" is
+ * the fail-closed answer and is taken from the first probe that reports it.
+ *
+ * Bounded cost: at most N probes, once per process, and only when a mismatch was
+ * observed in the first place.
+ *
+ * @returns {boolean} true when fd identity can be trusted to mean something
+ */
+function probeFdIdentityCorroborated() {
+	for (let i = 0; i < PROBE_CORROBORATION; i++) {
+		if (probeFdIdentity()) return true;
+	}
+	return false;
+}
+
 /** Test-only: forget the cached probe result so a suite can exercise both the
  *  reliable and unreliable branches in one process. Not part of the CLI surface. */
 export function __resetFdIdentityProbe() {
@@ -384,7 +418,8 @@ export function readFileNoFollow(p, { maxBytes, encoding = "utf8" } = {}) {
 		// inferred from the numbers, since a swap preserving dev/ino would slip
 		// past a numeric comparison alone.
 		if (pre && pre.ino && st.ino && (pre.ino !== st.ino || pre.dev !== st.dev)) {
-			if (fdIdentityReliable === null) fdIdentityReliable = probeFdIdentity();
+			if (fdIdentityReliable === null)
+				fdIdentityReliable = probeFdIdentityCorroborated();
 			if (fdIdentityReliable) {
 				throw symlinkRefusal(p);
 			}

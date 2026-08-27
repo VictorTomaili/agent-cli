@@ -393,11 +393,24 @@ function onConfirmingLstat(target, over) {
 const brokenFstat = (st) => statWith(st, { ino: st.ino + 1, dev: st.dev + 1 });
 
 /**
- * Simulate a HEALTHY runtime under attack: only the first fstat -- the caller's
- * file -- diverges. The probe's own fstat, the second call, is left real, so it
- * reports identity as trustworthy and the mismatch is taken at face value.
+ * Simulate a HEALTHY runtime under attack: the caller's file diverges, and the
+ * probe's own measurements agree with each other so it reports the comparison
+ * trustworthy and the mismatch is taken at face value.
+ *
+ * Both halves of the probe are PINNED to one synthetic identity rather than left
+ * real. Leaving them real borrows health from the host, and the first CI run of
+ * the 22.13.0 leg caught exactly that: on the runtime this whole fix exists for,
+ * the real lstat and fstat genuinely disagree, so the probe correctly reported
+ * UNRELIABLE, the guard correctly took the fallback, and the test failed while
+ * the product was behaving as designed. A test whose premise is supplied by the
+ * machine it happens to run on asserts something different on each machine.
  */
-const attackedFstat = (st, i) => (i === 1 ? statWith(st, { ino: st.ino + 1 }) : st);
+const PROBE_IDENTITY = { ino: 424242, dev: 77 };
+const attackedFstat = (st, i) =>
+	i === 1 ? statWith(st, { ino: st.ino + 1 }) : statWith(st, PROBE_IDENTITY);
+/** Pin the probe's lstat to the same identity; leave the caller's file alone. */
+const probeLstatAgrees = (target) => (st, _i, args) =>
+	args[0] === target ? st : statWith(st, PROBE_IDENTITY);
 
 /** The probe caches per process; each test needs its own verdict. */
 function freshProbe(fn) {
@@ -472,16 +485,18 @@ test("readFileNoFollow: win32 refuses a swap REVERTED before the confirming lsta
 	const f = path.join(TMP, "rfn-reverted.txt");
 	fs.writeFileSync(f, "payload");
 	// The looping-TOCTOU shape: swap the path, let the open land on the attacker's
-	// file, then swap it back. Both lstats see the victim and agree, so the
-	// same-family confirmation cannot see this -- only the fd can, and here the fd
-	// is trustworthy because the probe says so. Every unmodified lstat below is
-	// the point: nothing about the PATH looks wrong.
+	// file, then swap it back. Both lstats of the TARGET see the victim and agree,
+	// so the same-family confirmation cannot see this -- only the fd can, and here
+	// the fd is trustworthy because the probe says so. That the target's lstats are
+	// never rewritten below is the point: nothing about the PATH looks wrong.
 	assert.throws(
 		() =>
 			freshProbe(() =>
 				asWin32(() =>
 					withStatPatched("fstatSync", attackedFstat, () =>
-						util.readFileNoFollow(f),
+						withStatPatched("lstatSync", probeLstatAgrees(f), () =>
+							util.readFileNoFollow(f),
+						),
 					),
 				),
 			),
@@ -577,22 +592,79 @@ test("readFileNoFollow: the fd-identity probe creates its file inside a private 
 	} finally {
 		fs.writeFileSync = realWrite;
 	}
-	assert.equal(written.length, 1, "the probe writes exactly one file");
-	const probeFile = written[0];
-	assert.notEqual(
-		path.dirname(probeFile),
-		os.tmpdir(),
-		"probe file must NOT sit directly in the shared temp directory",
-	);
+	// An "unreliable" verdict is corroborated, so this runs the probe more than
+	// once -- and every attempt must get its own fresh directory. Reusing one
+	// would hand the attacker a predictable path for attempts 2..N, which is
+	// exactly what corroboration is supposed to deny.
+	assert.ok(written.length > 1, "an unreliable verdict must be corroborated");
 	assert.equal(
-		path.dirname(path.dirname(probeFile)),
-		os.tmpdir(),
-		"probe directory must be one level under the temp directory",
+		new Set(written.map((p) => path.dirname(p))).size,
+		written.length,
+		"every probe attempt needs its own directory",
 	);
-	assert.ok(
-		!fs.existsSync(path.dirname(probeFile)),
-		"the probe directory must be removed afterwards",
+	for (const probeFile of written) {
+		assert.notEqual(
+			path.dirname(probeFile),
+			os.tmpdir(),
+			"probe file must NOT sit directly in the shared temp directory",
+		);
+		assert.equal(
+			path.dirname(path.dirname(probeFile)),
+			os.tmpdir(),
+			"probe directory must be one level under the temp directory",
+		);
+		assert.ok(
+			!fs.existsSync(path.dirname(probeFile)),
+			"the probe directory must be removed afterwards",
+		);
+	}
+});
+
+test("readFileNoFollow: one won race cannot downgrade the guard for the process", () => {
+	const f = path.join(TMP, "rfn-probe-oracle.txt");
+	fs.writeFileSync(f, "payload");
+	// The downgrade oracle, as an assertion rather than a comment. Only ONE probe
+	// verdict helps an attacker -- "unreliable" -- so that verdict has to be
+	// reproduced in several separately created directories before it is believed.
+	// Here the attacker wins the FIRST probe (its identities are made to differ)
+	// and loses the rest. The guard must stay strict and refuse.
+	let probeSeen = 0;
+	assert.throws(
+		() =>
+			freshProbe(() =>
+				asWin32(() =>
+					withStatPatched(
+						"fstatSync",
+						(st, i) =>
+							i === 1
+								? statWith(st, { ino: st.ino + 1 }) // the caller's file
+								: statWith(st, ++probeSeen === 1 ? { ino: 999 } : PROBE_IDENTITY),
+						() =>
+							withStatPatched("lstatSync", probeLstatAgrees(f), () =>
+								util.readFileNoFollow(f),
+							),
+					),
+				),
+			),
+		{ code: "ESYMLINKREFUSED" },
 	);
+	assert.ok(probeSeen >= 2, "a losing first probe must not end the corroboration");
+});
+
+test("readFileNoFollow: on an unreliable runtime a REVERTED swap is not caught", () => {
+	const f = path.join(TMP, "rfn-accepted-gap.txt");
+	fs.writeFileSync(f, "payload");
+	// The mirror of the healthy-runtime test, and the accepted trade stated as a
+	// fact the suite asserts rather than a sentence in a comment: where the
+	// runtime cannot answer the strong question, a swap reverted before the
+	// confirming lstat goes through. If this ever starts throwing, the guard got
+	// STRONGER on such builds and the docblock is the thing that is now wrong.
+	const out = freshProbe(() =>
+		asWin32(() =>
+			withStatPatched("fstatSync", brokenFstat, () => util.readFileNoFollow(f)),
+		),
+	);
+	assert.equal(out, "payload");
 });
 
 test("readFileNoFollow: the fd-identity probe reports true when it cannot run", () => {

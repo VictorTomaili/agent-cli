@@ -114,6 +114,12 @@ test("regenerating a key invalidates old ciphertext (garbage on decrypt)", () =>
 // replaced the whole store with just that one name. Both caps below must stay
 // under the read cap for the store to survive a refusal.
 
+// Size of the store on disk, measured by reading it rather than by stat-ing
+// the path — a stat followed by a write is the check-then-use shape CodeQL
+// flags as js/file-system-race, and this is exact anyway.
+const storeBytes = (scope, cwd) =>
+	Buffer.byteLength(readFileSync(secrets.secretsPath(scope, cwd), "utf8"), "utf8");
+
 test("an oversized value is refused, and the secrets already stored survive", () => {
 	const cwd = mkdtempSync(path.join(tmpdir(), "secrets-cap-value-"));
 	const scope = "project";
@@ -132,7 +138,7 @@ test("an oversized value is refused, and the secrets already stored survive", ()
 	// and everything in it still decrypts.
 	assert.deepEqual(secrets.listSecretNames({ scope, cwd }), ["KEEP"]);
 	assert.equal(secrets.getSecret("KEEP", { scope, cwd }), "keep-me");
-	assert.ok(statSync(secrets.secretsPath(scope, cwd)).size < secrets.MAX_STORE_BYTES);
+	assert.ok(storeBytes(scope, cwd) < secrets.MAX_STORE_BYTES);
 
 	// a normal-sized secret still stores
 	assert.equal(secrets.setSecret("OK", "y".repeat(1024), { scope, cwd }).ok, true);
@@ -153,9 +159,8 @@ test("a write that would grow the store past the cap is refused, not silently ap
 	const serialize = (s) => JSON.stringify(s, null, 2) + "\n";
 	const target = secrets.MAX_STORE_BYTES - 512;
 	store.secrets.PAD.data = "A".repeat(target - Buffer.byteLength(serialize(store), "utf8"));
-	// lgtm[js/file-system-race] -- test fixture: a store already near the cap
 	writeFileSync(p, serialize(store));
-	assert.equal(statSync(p).size, target);
+	assert.equal(storeBytes(scope, cwd), target);
 
 	// One more ordinary secret does not fit under the cap.
 	const r = secrets.setSecret("ONE_MORE", "z".repeat(1024), { scope, cwd });
@@ -165,7 +170,7 @@ test("a write that would grow the store past the cap is refused, not silently ap
 
 	// The store on disk is untouched, still under the READ cap, still readable —
 	// this is the assertion that fails if the write cap ever drifts above it.
-	assert.equal(statSync(p).size, target);
+	assert.equal(storeBytes(scope, cwd), target);
 	assert.ok(secrets.MAX_STORE_BYTES < secrets.MAX_STORE_READ_BYTES);
 	assert.deepEqual(secrets.listSecretNames({ scope, cwd }), ["KEEP", "PAD"]);
 	assert.equal(secrets.getSecret("KEEP", { scope, cwd }), "keep-me");

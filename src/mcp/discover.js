@@ -112,6 +112,14 @@ function plainStringMap(value) {
  * rotated credential going to a server you approved is fine, but a changed
  * credential is still a change to what the invocation does, and the hash is
  * one-way so nothing about the value is recoverable from it.
+ *
+ * Truncated to 16 hex characters on purpose. Forging a match against an
+ * ALREADY-APPROVED definition needs a second preimage (2^64), not a collision
+ * (2^32) — the approved value is fixed and not attacker-chosen. And the hash
+ * covers the invocation, never the bytes that run, so anyone positioned to
+ * grind hashes can instead edit the script the command points at, or publish a
+ * new version of an npx package, for free. Short also keeps the
+ * approved-vs-current mismatch message readable.
  */
 export function fingerprint(def) {
 	const material = JSON.stringify([

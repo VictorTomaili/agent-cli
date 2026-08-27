@@ -85,6 +85,36 @@ export function cleanRemote(text, values = [], opts) {
 }
 
 /**
+ * cleanRemote over every string in a JSON-able structure, keys included.
+ *
+ * A tool's `structuredContent` is server-authored JSON that goes straight into
+ * an envelope an agent reads as context. Cleaning only the `content` array would
+ * leave that path unfiltered, so anything server-derived that reaches an
+ * envelope goes through here instead.
+ *
+ * `maxDepth` bounds recursion: the payload is third-party, and a deeply nested
+ * object would otherwise be able to exhaust the stack.
+ */
+export function cleanRemoteDeep(value, values = [], { maxDepth = 32, ...opts } = {}) {
+	if (maxDepth < 0) return null;
+	if (typeof value === "string") return cleanRemote(value, values, opts);
+	if (Array.isArray(value))
+		return value.map((v) => cleanRemoteDeep(v, values, { maxDepth: maxDepth - 1, ...opts }));
+	if (value && typeof value === "object") {
+		const out = {};
+		for (const [k, v] of Object.entries(value)) {
+			if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+			out[cleanRemote(k, values, opts)] = cleanRemoteDeep(v, values, {
+				maxDepth: maxDepth - 1,
+				...opts,
+			});
+		}
+		return out;
+	}
+	return value;
+}
+
+/**
  * Describe secret-bearing config fields WITHOUT their values.
  *
  * Envelopes report env/headers as key names plus a state, never a value and

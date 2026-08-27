@@ -112,11 +112,45 @@ export function buildChildEnv(serverEnv = {}, parent = process.env) {
 
 // --- URL policy -------------------------------------------------------------
 
-// Literal addresses that must never be reachable through a config-supplied URL.
+// Address prefixes that must never be reachable through a config-supplied URL.
 // Cloud metadata endpoints are the headline case: a single GET against
 // 169.254.169.254 can return instance credentials.
+//
+// Matched against the whole hostname rather than against parsed IP literals, so
+// it also refuses a DNS name whose first label is bare digits (10.example.com).
+// That over-block is deliberate. Putting an SSRF control behind a second
+// "is this an IP literal" parser means every form that parser misses becomes a
+// live path to 169.254.169.254, and the URL parser accepts more forms than are
+// obvious (`https://2130706433/` and `https://0x7f.1/` both normalize to
+// 127.0.0.1). Blunt and fail-closed beats clever and exhaustive here.
 const BLOCKED_HOST_RE =
-	/^(?:169\.254\.|127\.|0\.0\.0\.0$|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|\[?::1\]?$|\[?fd[0-9a-f]{2}:|\[?fe80:)/i;
+	/^(?:169\.254\.|127\.|0\.0\.0\.0$|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|\[?::1\]?$|\[::\]$|\[?fd[0-9a-f]{2}:|\[?fe80:)/i;
+
+// IPv6 can carry an IPv4 address inside it, and the URL parser rewrites the
+// dotted form to hex — `[::ffff:169.254.169.254]` becomes `[::ffff:a9fe:a9fe]`,
+// which none of the IPv4 prefixes above can see. That is a real bypass of the
+// metadata block, so every embedded form is expanded back to a dotted quad and
+// tested as well. `::ffff:` is the IPv4-mapped form; `64:ff9b::` is the
+// well-known NAT64 prefix, which reaches the same address through a translator.
+const V4_IN_V6_RE = /^\[(?:::ffff:|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})\]$/i;
+
+/**
+ * Every spelling of a host that the denylist should be tested against.
+ *
+ * This only ever ADDS candidates. A gap in the expansion below can therefore
+ * only fail to block something the current regex already missed — it can never
+ * un-block an address, which is the failure mode that matters.
+ */
+function hostCandidates(host) {
+	const candidates = [host];
+	const m = V4_IN_V6_RE.exec(host);
+	if (m) {
+		const hi = Number.parseInt(m[1], 16);
+		const lo = Number.parseInt(m[2], 16);
+		candidates.push(`${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`);
+	}
+	return candidates;
+}
 
 const LOOPBACK_RE = /^(?:localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/i;
 
@@ -149,7 +183,7 @@ export function assertUrlAllowed(rawUrl, { allowInsecureLoopback = false } = {})
 	}
 	// Loopback is blocked by the range test too, so exempt it once it has
 	// cleared the scheme check above.
-	if (!loopback && BLOCKED_HOST_RE.test(host)) {
+	if (!loopback && hostCandidates(host).some((h) => BLOCKED_HOST_RE.test(h))) {
 		throw new McpError(
 			ERROR_KIND.POLICY,
 			`refusing ${host} — link-local, metadata and private-range addresses are not reachable through a config-supplied URL`,
@@ -418,6 +452,11 @@ class HttpSession extends Session {
 		timer.unref?.();
 		let res;
 		try {
+			// lgtm[js/file-access-to-http] — the config-sourced url and headers ARE
+			// the destination and its own credential, going to the party that issued
+			// it; redirect:"manual" and assertUrlAllowed bound where they can go, and
+			// fingerprint() covers both so an edited config revokes trust instead of
+			// redirecting it.
 			res = await fetch(this.url, {
 				method: "POST",
 				// Refused outright rather than followed: the Authorization header
@@ -443,15 +482,36 @@ class HttpSession extends Session {
 				this.clean(`request failed: ${err?.message || err}`),
 			);
 		}
-		clearTimeout(timer);
 
 		if (res.status >= 300 && res.status < 400) {
+			clearTimeout(timer);
 			throw new McpError(
 				ERROR_KIND.POLICY,
 				`server redirected (${res.status}) — refusing to follow, credentials would travel to the new host`,
 			);
 		}
-		const body = await this.#readCapped(res);
+
+		// The timer stays armed across the body read. Clearing it at the end of
+		// the fetch would leave the abort signal dead for the whole download, and
+		// a server that drips one byte per second then holds the CLI open
+		// indefinitely — the byte cap below does not bound TIME, only size.
+		let body;
+		try {
+			body = await this.#readCapped(res);
+		} catch (err) {
+			if (err?.name === "AbortError")
+				throw new McpError(
+					ERROR_KIND.TIMEOUT,
+					`${method} timed out after ${timeoutMs}ms`,
+				);
+			throw new McpError(
+				ERROR_KIND.TRANSPORT,
+				this.clean(`reading response failed: ${err?.message || err}`),
+			);
+		} finally {
+			clearTimeout(timer);
+		}
+
 		if (!res.ok) {
 			throw new McpError(
 				ERROR_KIND.TRANSPORT,
@@ -469,9 +529,33 @@ class HttpSession extends Session {
 		return payload?.result;
 	}
 
+	/**
+	 * Read the body, stopping at `maxBytes` of ACTUAL bytes.
+	 *
+	 * `res.text()` would materialize the whole response first and let the cap
+	 * trim a string that is already resident — measured at 426MB of RSS for a
+	 * 400MB body under a 1KB cap, and undici decompresses gzip transparently, so
+	 * ~300KB on the wire is enough to reach it. Reading incrementally gives the
+	 * HTTP transport the same bounded-buffer guarantee protocol.js already gives
+	 * stdio, and the reader is CANCELLED rather than drained so a hostile server
+	 * does not keep streaming into a socket nobody is reading.
+	 */
 	async #readCapped(res) {
-		const text = await res.text();
-		return text.length > this.maxBytes ? text.slice(0, this.maxBytes) : text;
+		if (!res.body) return "";
+		const reader = res.body.getReader();
+		const chunks = [];
+		let total = 0;
+		try {
+			while (total < this.maxBytes) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				total += value.byteLength;
+				chunks.push(value);
+			}
+		} finally {
+			await reader.cancel().catch(() => {});
+		}
+		return Buffer.concat(chunks).subarray(0, this.maxBytes).toString("utf8");
 	}
 
 	/** Accepts a plain JSON body or an SSE stream carrying `data:` frames,

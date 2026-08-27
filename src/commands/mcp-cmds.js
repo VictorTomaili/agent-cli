@@ -25,7 +25,7 @@ import { readFileNoFollow } from "../util.js";
 import { ERROR_KIND } from "../mcp/protocol.js";
 import { McpError, withSession, listTools, callTool } from "../mcp/client.js";
 import { discoverAll, resolveRef } from "../mcp/discover.js";
-import { cleanRemote, describeSecretRefs } from "../mcp/redact.js";
+import { cleanRemote, cleanRemoteDeep, describeSecretRefs } from "../mcp/redact.js";
 import {
 	TRUST,
 	cacheIsCold,
@@ -50,8 +50,20 @@ const SUBCOMMANDS = new Set(["servers", "tools", "call", "enable", "disable"]);
  * `call`'s own parsing strict and unchanged.
  */
 export function expandMcpShorthand(argv) {
-	const i = argv.indexOf("mcp");
-	if (i === -1) return argv;
+	// Anchored to the TOP-LEVEL command, not scanned for anywhere. `mcp` is this
+	// project's own vocabulary, so it turns up inside ordinary free text — an
+	// unanchored scan rewrote `agent-cli run refactor mcp client` into "refactor
+	// mcp call client" and dispatched that altered prompt to a coding agent,
+	// silently and with exit 0.
+	//
+	// Expects a full process.argv (execPath, script, then the command). Leading
+	// global flags are skipped; every top-level option in cli.js is boolean, so
+	// skipping "-"-prefixed tokens cannot skip an option's VALUE. Adding a
+	// value-taking global option there would break that assumption — see the
+	// note at the program.option() block.
+	let i = 2;
+	while (i < argv.length && argv[i].startsWith("-")) i++;
+	if (argv[i] !== "mcp") return argv;
 	const next = argv[i + 1];
 	if (!next || next.startsWith("-") || SUBCOMMANDS.has(next)) return argv;
 	return [...argv.slice(0, i + 1), "call", ...argv.slice(i + 1)];
@@ -425,7 +437,12 @@ export function registerMcpCommands(program, { emit, log, c, isJson, EXIT }) {
 					tool: toolName,
 					isError,
 					content: text,
-					...(result?.structuredContent ? { structuredContent: result.structuredContent } : {}),
+					// Server-authored JSON that lands in an envelope an agent reads as
+					// context — it gets the same treatment as the text content, not a
+					// pass because it happens to be structured.
+					...(result?.structuredContent
+						? { structuredContent: cleanRemoteDeep(result.structuredContent) }
+						: {}),
 				});
 				if (!isJson()) {
 					if (isError) log.error(`${toolName} reported failure`);

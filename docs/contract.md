@@ -380,9 +380,17 @@ Additional guarantees:
   `--allow-insecure-loopback`), redirects are refused rather than followed, and
   link-local / metadata / private-range hosts are rejected outright.
 - Every string that came from a server — errors, stderr, tool names,
-  descriptions, results — is redacted for credential values and stripped of
-  terminal control sequences before it reaches stdout or an envelope. Envelopes
-  report credential fields as `{field, state}`, never a value and never a prefix.
+  descriptions, results, `structuredContent` — is stripped of terminal control
+  sequences and pattern-redacted for credential-shaped text before it reaches
+  stdout or an envelope. Diagnostics specifically (a thrown error, a server's
+  stderr, an HTTP error body) are additionally redacted against the concrete
+  secret values that server was handed, because that is the path where a helpful
+  message most easily becomes a leak. Tool results are not, deliberately: the
+  value list is every env and header value, not only the credential-shaped ones,
+  so applying it there would mask ordinary strings inside legitimate output —
+  including a tool's own name, which `mcp call` resolves by.
+- Envelopes report credential fields as `{field, state}`, never a value and
+  never a prefix.
 - A tool that runs and reports failure is a successful round trip: the envelope
   carries `isError: true` and `errorKind: "tool"`, and the exit code is 1 so a
   script can still tell it from success.

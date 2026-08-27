@@ -202,8 +202,20 @@ export function writeFileIfAbsent(p, content, { mode } = {}) {
 	}
 }
 
+/** The symlink refusal thrown by readFileNoFollow. Carries a stable `code` so
+ *  callers can fail closed on it without matching the message text. */
+function symlinkRefusal(p) {
+	const err = new Error(`refusing to follow symlink: ${p}`);
+	err.code = "ESYMLINKREFUSED";
+	return err;
+}
+
 /**
- * Read `p` as utf-8, refusing to follow symlinks or read non-regular files.
+ * Read `p`, refusing to follow symlinks or read non-regular files.
+ *
+ * Decodes as utf-8 by default; pass `encoding: null` for a Buffer, which is
+ * what binary content such as the 32-byte secrets key needs (utf8 decoding
+ * would silently corrupt it).
  *
  * Opens with O_NOFOLLOW where available (POSIX), so the kernel refuses the open
  * when the final component is a symlink.
@@ -222,17 +234,9 @@ export function writeFileIfAbsent(p, content, { mode } = {}) {
  * from src/skills/lib/store.js for the skill-store path).
  *
  * @param {string} p
- * @param {{ maxBytes?: number }} [opts]
- * @returns {string}
+ * @param {{ maxBytes?: number, encoding?: string|null }} [opts]
+ * @returns {string|Buffer} a string unless `encoding` is null
  */
-/** The symlink refusal thrown by readFileNoFollow. Carries a stable `code` so
- *  callers can fail closed on it without matching the message text. */
-function symlinkRefusal(p) {
-	const err = new Error(`refusing to follow symlink: ${p}`);
-	err.code = "ESYMLINKREFUSED";
-	return err;
-}
-
 export function readFileNoFollow(p, { maxBytes, encoding = "utf8" } = {}) {
 	const isWin = process.platform === "win32";
 	const flags = isWin

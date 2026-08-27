@@ -84,7 +84,13 @@ export function encode(msg) {
  * are handed back separately as `noise` for diagnostics rather than thrown.
  *
  * `maxLineBytes` caps a single line so a server that never emits a newline
- * cannot grow the buffer without bound.
+ * cannot grow the buffer without bound. It is compared against `String.length`
+ * — UTF-16 code units, so up to ~3x more UTF-8 bytes for CJK text. That is
+ * deliberate: recomputing `Buffer.byteLength` over the whole buffer on every
+ * chunk is O(n^2), measured ~4000x slower on an 8MiB buffer, which would turn a
+ * bounded memory blip into a CPU-burn primitive. The guard needs to be bounded,
+ * not byte-exact. (The HTTP transport does count real bytes — it reads
+ * incrementally, so the accounting is free there.)
  */
 export function createDecoder({ maxLineBytes = 8 * 1024 * 1024 } = {}) {
 	let buf = "";
@@ -114,7 +120,7 @@ export function createDecoder({ maxLineBytes = 8 * 1024 * 1024 } = {}) {
 			}
 			return { messages, noise, overflow };
 		},
-		/** Bytes still buffered without a terminating newline. */
+		/** Characters still buffered without a terminating newline. */
 		pending() {
 			return buf.length;
 		},

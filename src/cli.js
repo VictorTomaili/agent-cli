@@ -706,6 +706,12 @@ program
 		"Manage AGENTS.md and point every coding agent at one canonical source (~/.agents/AGENTS.md). Bundles skill-cli.",
 	)
 	.version(VERSION, "-v, --version")
+	// Every global option below is BOOLEAN, and expandMcpShorthand() in
+	// commands/mcp-cmds.js depends on that: it skips leading "-"-prefixed tokens
+	// to find the top-level command, which is only safe while none of them takes
+	// a value. Adding a value-taking global here (say `--config <path>`) would
+	// make `agent-cli --config x.json mcp <tool>` stop expanding — update that
+	// function in the same change.
 	.option("--json", "Emit machine-readable JSON (AI/CI friendly)")
 	.option("--compact", "With --json: emit compact (single-line) JSON")
 	.option("-q, --quiet", "Suppress informational output (errors still print)")

@@ -151,7 +151,8 @@ when the reporter is another agent, and including when it is the orchestrator.
 `~/.agents`. Any CLI exercise sets `HOME`, `USERPROFILE` and `AGENT_CLI_HOME` to
 a throwaway temp dir first. Never print a secret value.
 
-**Commits.** No attribution trailers. Comments explain why, not what, and match
+**Commits.** Seat trailer only — see §Commit identity; never a `Claude` or
+`anthropic.com` trailer. Comments explain why, not what, and match
 the density of the surrounding code.
 
 ## Why per project directory

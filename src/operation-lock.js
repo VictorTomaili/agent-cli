@@ -308,6 +308,11 @@ async function acquireOne(lockFile, metadataStr, ctx) {
 				await sleep(10);
 				continue;
 			}
+			// Ordinary EEXIST contention: clear any earlier transient code so a
+			// timeout here reports a busy lock rather than blaming a permission
+			// error the loop has since recovered from. Without this, one EPERM
+			// early in a long wait would mislabel every later timeout.
+			ctx.lastTransient = null;
 			const meta = readMetadata(lockFile);
 			if (isStale(meta)) {
 				try {

@@ -90,6 +90,21 @@ test("workflowContent ships a greppable entry format with the required fields", 
 		assert.ok(c.includes(field), `entry format missing field: ${field}`);
 });
 
+test("workflowContent ships no literal calendar date", () => {
+	const c = arc.workflowContent();
+	// A date baked into the shipped seed is wrong for every user who runs `init`
+	// after it, and — depending on when they install relative to the release —
+	// can even be in their future. The example entries say the same thing
+	// honestly with `Runs: 0` and `Last run: —`.
+	assert.doesNotMatch(
+		c,
+		/\d{4}-\d{2}-\d{2}/,
+		"the WORKFLOW.md seed must not hardcode a date",
+	);
+	// The format is still specified — as a placeholder, not a real day.
+	assert.ok(c.includes("YYYY-MM-DD"), "entry format must still show the date shape");
+});
+
 test("workflowContent keeps the confirmation gate for recorded steps", () => {
 	// A recorded recipe must never read as pre-approval for an irreversible
 	// step — that is the whole safety contract of replaying a workflow.

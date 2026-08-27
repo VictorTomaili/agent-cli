@@ -272,6 +272,15 @@ Copy this shape exactly so entries stay greppable.
 
 ---
 
+<!--
+The two entries below ship with agent-cli, so they carry no Recorded date:
+they were not recorded on any particular day, and a literal date here would
+be wrong for every user who runs \`init\` after it — possibly a date in their
+future, depending on when they installed. Their own \`Runs: 0\` and
+\`Last run: —\` already say the same thing. Put a real YYYY-MM-DD on entries
+you record yourself; the Entry format above is where the shape is specified.
+-->
+
 ## Workflows
 
 ### triage-inbox
@@ -288,7 +297,7 @@ Copy this shape exactly so entries stay greppable.
      Do not paste message bodies unless asked.
 - **Verify:** every unread message appears in exactly one group and the counts
   add up to the fetched total.
-- **Recorded:** 2026-08-27 · **Runs:** 0 · **Last run:** —
+- **Recorded:** — (shipped example) · **Runs:** 0 · **Last run:** —
 
 ### accept-meeting-invitations
 - **Trigger:** accept the invites, accept meeting invitations, respond to those invites
@@ -302,7 +311,7 @@ Copy this shape exactly so entries stay greppable.
   4. Accept only the confirmed ones; report each result individually.
 - **Verify:** each accepted invitation shows as accepted in the calendar, and
   nothing outside the confirmed list was touched.
-- **Recorded:** 2026-08-27 · **Runs:** 0 · **Last run:** —
+- **Recorded:** — (shipped example) · **Runs:** 0 · **Last run:** —
 
 <!--
 These two entries also show the intended split. "Check my emails" and "accept

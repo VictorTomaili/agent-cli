@@ -99,10 +99,13 @@ Refer to models only by alias — \`smart-model\`, \`fast-model\`, \`cheap-model
 Never write a concrete provider or version into this file, a workflow, or a
 task you hand to a sub-agent: model names change, roles do not.
 
-MODELS.md resolves aliases to concrete models. If an alias is missing or
-resolves to nothing, find what this machine actually has (\`agent-cli models
-list\`, plus the provider CLIs' own auth/model checks), propose a mapping, and
-write it back only after the user confirms:
+MODELS.md resolves aliases to concrete models. agent-cli itself ships no model
+list, so on a fresh machine there is nothing to resolve against until one is
+imported. If an alias is missing or resolves to nothing, find what this machine
+actually has (\`agent-cli models research --fetch\` imports a candidate list;
+\`agent-cli models list\` shows what is already assigned; the provider CLIs have
+their own auth/model checks), propose a mapping, and write it back only after
+the user confirms:
 \`agent-cli models set <alias> <provider/model> --category <c> --thinking <t>\`.
 Never invent a mapping silently and never leave an alias dangling.
 

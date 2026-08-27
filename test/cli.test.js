@@ -1398,31 +1398,65 @@ test("env set writes a field into ENVIRONMENTS.md", () => {
 	);
 });
 
-test("models suggest shows auto-resolved state after init", () => {
+test("models suggest reports every alias unresolved when no catalog is imported", () => {
 	const home = run(["init"]).home;
-	// init auto-applies models; suggest should show 0 unresolved.
+	// agent-cli ships no model data, so init cannot auto-pick anything. Each
+	// seeded persona alias must come back unresolved with a null pick - and the
+	// init payload must say WHY, rather than omitting the step.
+	const init = parseJson(run(["init", "--json"], { envHome: home }).stdout);
+	assert.equal(init.data.steps.autoModels.reason, "no-catalog");
+	assert.equal(init.data.steps.autoModels.applied, 0);
+	assert.ok(init.data.steps.autoModels.hint.includes("research --fetch"));
+
 	const r = parseJson(
 		run(["models", "suggest", "--json"], { envHome: home }).stdout,
 	);
 	assert.equal(r.command, "models");
-	assert.equal(r.data.count, 0);
+	assert.ok(r.data.count > 0, "unresolved aliases must be reported, not hidden");
+	assert.ok(
+		r.data.unresolved.every((row) => row.pick === null),
+		"no catalog means no pick is possible for any row",
+	);
 });
 
-test("models suggest --reassign lists every alias even when all resolve", () => {
+test("models suggest reports 0 unresolved once aliases are assigned", () => {
 	const home = run(["init"]).home;
-	// init auto-applies aliases; reassign must consider them all (count > 0),
-	// even though 'suggest' alone reports 0 unresolved.
+	const before = parseJson(
+		run(["models", "suggest", "--json"], { envHome: home }).stdout,
+	);
+	// Assign each reported alias by hand - the path a user takes without a
+	// catalog - and the same command must then report a clean slate.
+	for (const row of before.data.unresolved)
+		run(["models", "set", row.alias, "prov-a/model-one"], { envHome: home });
+	const after = parseJson(
+		run(["models", "suggest", "--json"], { envHome: home }).stdout,
+	);
+	assert.equal(after.data.count, 0);
+});
+
+test("models suggest --reassign lists every configured alias", () => {
+	const home = run(["init"]).home;
+	// --reassign iterates the CONFIGURED aliases, so seed them by hand: init no
+	// longer creates any, because agent-cli ships nothing to pick from.
+	const seeded = ["smart-model", "coding-model", "fast-model", "deepsearch-model"];
+	for (const alias of seeded)
+		run(["models", "set", alias, "prov-a/model-one"], { envHome: home });
+
 	const r = parseJson(
 		run(["models", "suggest", "--reassign", "--json"], { envHome: home }).stdout,
 	);
 	assert.equal(r.command, "models");
-	assert.ok(
-		r.data.count >= 4,
-		"expected all seeded aliases in the reassign list",
+	assert.equal(
+		r.data.count,
+		seeded.length,
+		"reassign must consider every configured alias",
 	);
+	// Guard against a vacuous .every() on an empty array - the exact weakness
+	// that would have masked this regression.
+	assert.ok(r.data.unresolved.length > 0);
 	assert.ok(
-		r.data.unresolved.every((row) => row.pick),
-		"every existing alias should have a current best pick",
+		r.data.unresolved.every((row) => row.pick === null),
+		"with no imported catalog there is no current best pick to offer",
 	);
 });
 

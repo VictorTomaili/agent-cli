@@ -41,14 +41,26 @@ test("buildActions produces structured, ordered actions", async () => {
 	assert.deepEqual(severities, [...severities].sort((a, b) => b - a));
 });
 
-test("a fresh init auto-resolves model aliases (no unresolved actions)", async () => {
+// agent-cli used to ship a hardcoded model catalog, so `init` could auto-pick
+// an alias for every seeded persona and this asserted zero models:set actions.
+// It ships no model data now, so a fresh machine genuinely cannot resolve an
+// alias until a catalog is imported. The contract that matters is that the gap
+// is VISIBLE as an action rather than silently left unresolved.
+test("a fresh init surfaces unresolved aliases and offers the catalog import", async () => {
 	initHome();
 	const s = await actions.collectState();
 	const list = actions.buildActions(s);
-	// init now auto-applies models from the bundled catalog, so no
-	// models:set actions should remain.
-	assert.ok(!list.some((a) => a.id.startsWith("models:set:")),
-		"init should have auto-resolved all model aliases");
+	assert.ok(
+		list.some((a) => a.id.startsWith("models:set:")),
+		"seeded personas with no catalog must surface models:set actions",
+	);
+	const fetch = list.find((a) => a.id === "models:research:fetch");
+	assert.ok(fetch, "the catalog import must be offered when none was imported");
+	assert.equal(
+		fetch.safeToAutomate,
+		false,
+		"apply-safe must never make a live network call on the user's behalf",
+	);
 });
 test("suggestedStrings derives legacy shell strings", async () => {
 	initHome();

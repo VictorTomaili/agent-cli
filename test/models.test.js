@@ -95,19 +95,27 @@ test("writeModelsMd writes a tagged XML alias document", () => {
 });
 
 // Regression: agent-cli models set/write must never destroy hand-curated content
-// (a custom catalog, or trailing sections like "Pi Agent Bridge") — only the
+// (a custom catalog, or trailing sections like "Pi Agent Bridge") - only the
 // "## Aliases" block is config-truth and safe to regenerate unconditionally.
-test("writeModelsMd preserves an existing custom catalog and trailing sections by default", () => {
+//
+// The fixture APPENDS its sections instead of anchoring on a heading agent-cli
+// emits. agent-cli no longer writes any catalog section, and a fixture built by
+// replacing one silently became a no-op the moment that stopped: the assertions
+// kept passing while testing nothing.
+test("writeModelsMd preserves a hand-written catalog and trailing sections", () => {
 	const f = models.writeModelsMd();
 	const before = readFileSync(f, "utf8");
 	const customized =
-		before.replace(
-			/## Curated model catalog[\s\S]*$/,
-			"## Curated model catalog\n\n| id | notes |\n|---|---|\n| `hand-written-entry` | do not clobber me |\n",
-		) + "\n## Pi Agent Bridge\n\nSome hand-written notes that must survive.\n";
+		before.trimEnd() +
+		"\n\n## Curated model catalog\n\n| id | notes |\n|---|---|\n| `hand-written-entry` | do not clobber me |\n" +
+		"\n## Pi Agent Bridge\n\nSome hand-written notes that must survive.\n";
 	writeFileSync(f, customized);
+	assert.ok(
+		customized.includes("hand-written-entry"),
+		"fixture must actually contain the row it then asserts on",
+	);
 
-	models.setAlias("smart-model", { model: "zai/glm-5.2", category: "smart" });
+	models.setAlias("smart-model", { model: "prov-a/model-one", category: "smart" });
 	models.writeModelsMd(); // default call, as used by `agent-cli models set`
 
 	const after = readFileSync(f, "utf8");
@@ -117,26 +125,41 @@ test("writeModelsMd preserves an existing custom catalog and trailing sections b
 		"trailing custom section survived",
 	);
 	assert.ok(after.includes("<ALIAS "), "alias section still regenerated");
-	assert.match(after, /smart-model[\s\S]*?zai\/glm-5\.2|zai\/glm-5\.2<\/ALIAS>/);
+	assert.ok(after.includes("prov-a/model-one"), "the new alias was written");
 });
 
-test("writeModelsMd({ refreshCatalog: true }) explicitly replaces an existing catalog (agent-cli models research --refresh)", () => {
+// agent-cli used to ship a hardcoded model catalog, and `models research
+// --refresh` re-embedded it over whatever was on disk - the one code path in the
+// product that could destroy hand-curated content. Both are gone. This pins the
+// removal so no option can resurrect a clobbering path.
+test("no writeModelsMd option can clobber a hand-written catalog", () => {
 	const f = models.writeModelsMd();
-	const before = readFileSync(f, "utf8");
-	const customized = before.replace(
-		/## Curated model catalog[\s\S]*$/,
-		"## Curated model catalog\n\n| id | notes |\n|---|---|\n| `stale-custom-entry` | should be replaced by --refresh |\n",
+	writeFileSync(
+		f,
+		readFileSync(f, "utf8").trimEnd() +
+			"\n\n## Curated model catalog\n\n| id | notes |\n|---|---|\n| `user-curated-entry` | mine |\n",
 	);
-	writeFileSync(f, customized);
 
+	// The old clobbering options, passed explicitly. They are no longer read,
+	// so they must be inert rather than destructive.
 	models.writeModelsMd({ includeCatalog: true, refreshCatalog: true });
 
 	const after = readFileSync(f, "utf8");
 	assert.ok(
-		!after.includes("stale-custom-entry"),
-		"refreshCatalog:true replaces the catalog as intended",
+		after.includes("user-curated-entry"),
+		"a hand-written catalog must survive every write path",
 	);
-	assert.ok(after.includes("Bundled 2026-Q2 baseline"), "bundled catalog restored");
+	assert.equal(typeof models.CATALOG, "undefined", "CATALOG must stay deleted");
+	assert.equal(
+		typeof models.catalogMarkdown,
+		"undefined",
+		"catalogMarkdown must stay deleted - it emitted the bundled data",
+	);
+	assert.equal(
+		typeof models.findInCatalog,
+		"undefined",
+		"findInCatalog must stay deleted",
+	);
 });
 
 test("getAliases treats corrupt config as empty (no throw)", () => {

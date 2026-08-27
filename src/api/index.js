@@ -154,7 +154,12 @@ export async function brief({ cwd = process.cwd() } = {}) {
 	const warnings = [];
 	if (s.archetypeNeeded) warnings.push("identity onboarding incomplete");
 	if (s.unresolvedModels.length)
-		warnings.push(`${s.unresolvedModels.length} unresolved model alias(es)`);
+		warnings.push(
+			`${s.unresolvedModels.length} unresolved model alias(es)` +
+				(s.liveCatalogAge == null
+					? " — run `agent-cli models research --fetch` then `agent-cli models suggest --apply`"
+					: " — run `agent-cli models suggest --apply`"),
+		);
 	if (s.consG.recommend || s.consP.recommend)
 		warnings.push("lesson consolidation recommended");
 	const sessionMod = await import("../session.js");

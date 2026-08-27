@@ -1,5 +1,5 @@
 {
-  "$comment": "CodeQL severity policy for agent-cli. Maps each CodeQL rule family to either 'block' (PR fails branch-protection required check on the CodeQL Analyze job) or 'advisory' (SARIF upload keeps showing it on the Security tab but does not block). Updated 2026-08-25 by the CodeQL fix planning team (qa-engineer + devops-engineer + software-architect + GPT-architect gpt-5.6-sol peer review).",
+  "$comment": "CodeQL severity policy for agent-cli. Maps each CodeQL rule family to either 'block' (PR fails branch-protection required check on the CodeQL Analyze job) or 'advisory' (SARIF upload keeps showing it on the Security tab but does not block). Updated 2026-08-25 by the CodeQL fix planning team (qa-engineer + devops-engineer + software-architect + external architect peer review).",
 
   "block_on_pr": [
     "$comment_real_security_rules_that_must_be_fixed_before_merge",

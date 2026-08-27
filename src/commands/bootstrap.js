@@ -257,8 +257,10 @@ export function registerBootstrapCommands(
 				result.steps.envCapture = { error: e.message };
 			}
 
-			// 9. auto-pick model aliases from the bundled catalog so personas
-			//    are immediately usable without manual model assignment.
+			// 9. auto-pick model aliases from the imported live catalog, when one
+			//    has been fetched, so personas are usable without manual assignment.
+			//    agent-cli ships no model data, so on a fresh machine there is
+			//    nothing to pick from and the step reports why.
 			try {
 				const hooks = await import("../agents-lib.js");
 				const unresolved = await hooks.findUnresolvedModels();
@@ -291,9 +293,18 @@ export function registerBootstrapCommands(
 							});
 						}
 					}
+					// Always assign the step key. It used to vanish from `init --json`
+					// in exactly the failure case a caller needs to detect.
 					if (applied.length > 0) {
 						models.writeModelsMd();
 						result.steps.autoModels = { applied: applied.length, aliases: applied };
+					} else {
+						result.steps.autoModels = {
+							applied: 0,
+							reason: "no-catalog",
+							unresolved: [...byAlias.keys()].sort(),
+							hint: models.NO_CATALOG_HINT,
+						};
 					}
 				}
 			} catch (e) {
@@ -324,6 +335,10 @@ export function registerBootstrapCommands(
 						);
 					}
 				}
+				// Without this, a fresh install silently ends with every persona's
+				// model alias unresolved and nothing on screen saying why.
+				if (result.steps.autoModels?.reason === "no-catalog")
+					log.dim(models.NO_CATALOG_HINT);
 				// Home pointer stub status is independent of target count: report
 				// created/overwritten/updated/native-content whenever it happened.
 				if (

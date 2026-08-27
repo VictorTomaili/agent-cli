@@ -122,7 +122,9 @@ export async function buildDoctorReport(
 				detail: "unfilled template",
 			});
 			issues.push(
-				`${f.kind} is an unfilled template — edit it: agent-cli edit ${f.kind}`,
+				f.kind === "models"
+					? "MODELS.md has no aliases yet — run `agent-cli models research --fetch` then `agent-cli models suggest --apply`"
+					: `${f.kind} is an unfilled template — edit it: agent-cli edit ${f.kind}`,
 			);
 		}
 	}

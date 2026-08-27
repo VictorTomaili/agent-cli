@@ -108,10 +108,82 @@ export async function syncInit({ remote = null } = {}) {
 	return { ok: true, dir, gitignore: SYNC_EXCLUDES, added: added, remote: remote ?? remoteUrl(dir) };
 }
 
+/** Files whose exposure is unrecoverable: the store and the key that decrypts it. */
+const SECRET_FILES = [".secrets.json", ".secrets.key"];
+
+/**
+ * Re-assert SYNC_EXCLUDES into .git/info/exclude.
+ *
+ * .gitignore is a TRACKED file, so syncPull merges whatever the remote says it
+ * should contain — including a version with the .secrets lines removed. Anything
+ * that relies on .gitignore alone is therefore only as trustworthy as the remote.
+ * .git/info/exclude is never tracked and never merged, so a remote cannot reach
+ * it. Written on every push, not just at init, so a brain that became a repo by
+ * hand (git init, no `sync init`) is covered too.
+ */
+function writeLocalExcludes(dir) {
+	const infoDir = path.join(dir, ".git", "info");
+	try {
+		fs.mkdirSync(infoDir, { recursive: true });
+		const p = path.join(infoDir, "exclude");
+		let existing = "";
+		try {
+			existing = fs.readFileSync(p, "utf8");
+		} catch (err) {
+			if (err?.code !== "ENOENT") throw err;
+		}
+		const lines = existing ? existing.split(/\r?\n/) : [];
+		const added = SYNC_EXCLUDES.filter((pat) => !lines.includes(pat));
+		if (added.length)
+			writeFileAtomicSync(p, [...lines, ...added].join("\n") + "\n");
+	} catch {
+		// Best-effort hardening. If it fails, secretsWouldLeak below is still the
+		// authoritative gate — never let this become the thing that blocks a push.
+	}
+}
+
+/**
+ * Names of secret files that `git add -A` would actually pick up right now.
+ *
+ * Asks git rather than reasoning about .gitignore ourselves: `check-ignore`
+ * applies the full precedence chain, so it accounts for a remote-supplied
+ * `!.secrets.json` negation — which WOULD override .git/info/exclude, since
+ * .gitignore outranks it. Also reports a file already committed by an earlier
+ * push, which no ignore rule can undo.
+ */
+function secretsWouldLeak(dir) {
+	const exposed = [];
+	for (const name of SECRET_FILES) {
+		if (!fs.existsSync(path.join(dir, name))) continue;
+		if (git(["ls-files", "--error-unmatch", "--", name], { cwd: dir }).ok) {
+			exposed.push({ name, why: "tracked" });
+			continue;
+		}
+		if (!git(["check-ignore", "-q", "--", name], { cwd: dir }).ok)
+			exposed.push({ name, why: "not-ignored" });
+	}
+	return exposed;
+}
+
 /** Commit all tracked changes; push when a remote exists. */
 export async function syncPush({ message = "agent-cli sync" } = {}) {
 	const dir = AGENTS_DIR;
 	if (!isGitRepo(dir)) return { ok: false, reason: "not a sync repo — run agent-cli sync init" };
+	// Exclusion is a push-time precondition, not a one-time file write at init.
+	// The key travels with the ciphertext, so a single leaked push hands over
+	// plaintext — there is no residual protection from encryption to fall back on.
+	writeLocalExcludes(dir);
+	const exposed = secretsWouldLeak(dir);
+	if (exposed.length) {
+		const tracked = exposed.filter((e) => e.why === "tracked");
+		return {
+			ok: false,
+			reason: tracked.length
+				? `refusing to push: ${tracked.map((e) => e.name).join(", ")} ${tracked.length > 1 ? "are" : "is"} already tracked by git, so ${tracked.length > 1 ? "they are" : "it is"} in the remote's history. Purge ${tracked.length > 1 ? "them" : "it"} from history and rotate every stored secret — untracking now would not unpublish what was already pushed.`
+				: `refusing to push: ${exposed.map((e) => e.name).join(", ")} would be committed — the .gitignore in ${dir} no longer excludes ${exposed.length > 1 ? "them" : "it"}. Restore the .secrets entries (or run agent-cli sync init) and push again.`,
+			exposedSecrets: exposed,
+		};
+	}
 	const add = git(["add", "-A"], { cwd: dir });
 	if (!add.ok) return { ok: false, reason: add.stderr || "git add failed" };
 	const changed = git(["diff", "--cached", "--name-only"], { cwd: dir }).stdout;

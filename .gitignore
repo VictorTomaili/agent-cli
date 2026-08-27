@@ -27,3 +27,7 @@ docs/*
 
 # DeepSeek Harness session data — workspace-local, never in repo history.
 .dsh/
+
+# Team event bus — written by .claude/hooks/team-event.mjs into the shared
+# .git dir, but ignore any stray local copy too.
+.claude/team/

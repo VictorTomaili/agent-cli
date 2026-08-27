@@ -17,6 +17,23 @@ import {
 export const SECRETS_FILE = ".secrets.json";
 export const SECRETS_KEY = ".secrets.key";
 
+// Size caps. The read cap and the write caps are two halves of ONE invariant,
+// so they live together: if they ever drift apart the failure is silent data
+// loss, not an error.
+//
+// readStore() refuses a store larger than MAX_STORE_READ_BYTES and — as the
+// SEC-3/SEC-3b symlink tests require — reports EVERY refusal as an empty store.
+// That is the right answer for a planted symlink, but it means a store that has
+// merely grown too large also reads as empty, and the next setSecret() would
+// then write a store holding only the new name, orphaning every secret already
+// in it. So the write side caps first, with a real error, and stops well below
+// the read cap: whatever is already on disk stays readable.
+//
+// This store holds API keys and tokens. One of those is well under 8 KB.
+export const MAX_SECRET_BYTES = 8 * 1024; // one value, before encryption
+export const MAX_STORE_BYTES = 3 * 1024 * 1024; // whole store, enforced on write
+export const MAX_STORE_READ_BYTES = 4 * 1024 * 1024; // whole store, enforced on read
+
 function scopeDir(scope, cwd = process.cwd()) {
 	return scope === "project" ? path.join(path.resolve(cwd), ".agents") : AGENTS_DIR;
 }
@@ -125,7 +142,7 @@ function readStore(scope, cwd) {
 	// path, so testing first would only add a check-then-use race for a result
 	// this catch already handles.
 	try {
-		const parsed = JSON.parse(readFileNoFollow(p, { maxBytes: 4 * 1024 * 1024 }));
+		const parsed = JSON.parse(readFileNoFollow(p, { maxBytes: MAX_STORE_READ_BYTES }));
 		if (parsed && typeof parsed === "object" && parsed.secrets) return parsed;
 	} catch {
 		/* missing, refused, corrupt, or oversized → treat as an empty store */
@@ -133,14 +150,20 @@ function readStore(scope, cwd) {
 	return { version: 1, secrets: {} };
 }
 
-function writeStore(store, scope, cwd) {
+function serializeStore(store) {
+	return JSON.stringify(store, null, 2) + "\n";
+}
+
+// `body` is a parameter so setSecret can weigh the exact bytes it is about to
+// write against MAX_STORE_BYTES without serializing the store twice.
+function writeStore(store, scope, cwd, body = serializeStore(store)) {
 	const p = secretsPath(scope, cwd);
 	// Route through the symlink-safe atomic writer (temp + exclusive 'wx' create
 	// + rename-over). A plain 'w' write followed a symlink pre-planted at
 	// [cwd]/.agents/.secrets.json in an untrusted repo and truncated its target;
 	// rename-over replaces the symlink itself, leaving the target untouched. Keep
 	// the 0600 mode so the store is never briefly world-readable.
-	writeFileSync(p, JSON.stringify(store, null, 2) + "\n", { mode: 0o600 });
+	writeFileSync(p, body, { mode: 0o600 });
 }
 
 function encrypt(key, value) {
@@ -164,10 +187,31 @@ function decrypt(key, entry) {
 export function setSecret(name, value, { scope = "global", cwd = process.cwd() } = {}) {
 	if (!name || typeof name !== "string")
 		return { ok: false, reason: "secret name is required" };
+	// Refuse before loadKey, so a rejected set leaves nothing behind.
+	const size = Buffer.byteLength(String(value), "utf8");
+	if (size > MAX_SECRET_BYTES)
+		return {
+			ok: false,
+			reason: `secret '${name}' is ${size} bytes — the limit is ${MAX_SECRET_BYTES} bytes per secret`,
+		};
 	const key = loadKey(scope, cwd);
 	const store = readStore(scope, cwd);
 	store.secrets[name] = encrypt(key, value);
-	writeStore(store, scope, cwd);
+	// The store as a whole must stay under MAX_STORE_BYTES, which sits below
+	// readStore()'s cap. Past that cap the file reads back as empty and the NEXT
+	// write would silently drop every other secret, so refuse this one instead.
+	// Only growth is capped — rmSecret never checks, so a store that an older
+	// version already grew past the cap can still be shrunk.
+	const body = serializeStore(store);
+	const total = Buffer.byteLength(body, "utf8");
+	if (total > MAX_STORE_BYTES)
+		return {
+			ok: false,
+			reason:
+				`storing '${name}' would grow the secrets store to ${total} bytes — ` +
+				`the limit is ${MAX_STORE_BYTES} bytes (${secretsPath(scope, cwd)})`,
+		};
+	writeStore(store, scope, cwd, body);
 	return { ok: true, name, scope, file: secretsPath(scope, cwd) };
 }
 

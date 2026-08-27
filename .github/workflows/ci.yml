@@ -21,16 +21,16 @@ jobs:
         # glob), and skill tool modules are ESM-in-.js relying on module
         # syntax detection. 18 and 20 are both EOL.
         #
-        # 22.13.0 is the EXACT advertised floor, and it is listed separately
-        # because setup-node resolves a bare `22` to the newest 22.x — so a
-        # matrix of just [22, 24] tests two recent releases and never the
-        # version the package claims to support. The floor is set by the
-        # dependency tree, not by taste: every @inquirer/* package declares
-        # `^22.13.0` on the 22 line and commander declares `>=22.12.0`, so
-        # 22.13.0 is the lowest 22.x that satisfies all of them. Pinning it
-        # here means a dependency bump that raises the real floor fails this
-        # job instead of silently invalidating the claim in package.json.
-        node: [22.13.0, 22, 24]
+        # KNOWN GAP: a bare `22` resolves to the newest 22.x, so the floor this
+        # package advertises is never actually executed here. Pinning the exact
+        # floor as a third leg is the fix, and it is deliberately NOT done yet:
+        # doing so found that agent-cli is broken on Windows + Node 22.13.0 —
+        # readFileNoFollow refuses every regular file, taking 27 tests with it,
+        # because lstat and fstat disagree on dev/ino there. Pinning a version
+        # the package does not actually work on would assert support that does
+        # not exist. Restore the leg with the real floor once that is fixed or
+        # the floor is raised past it.
+        node: [22, 24]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

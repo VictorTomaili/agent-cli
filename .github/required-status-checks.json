@@ -6,14 +6,10 @@
   "$comment_strict": "strict = GitHub's 'require branches to be up to date before merging'. Recorded here because the apply command PATCHes the whole required_status_checks object: omitting it would silently turn the setting off.",
   "strict": true,
 
-  "$comment_pending": "NOT YET APPLIED TO GITHUB: the two `22.13.0` contexts are added by the same PR that adds that leg to ci.yml's matrix. main's branch protection still requires only the other five. Apply this manifest with `node scripts/workflow-checks.js --remote` ONLY AFTER that PR has merged — a required context is never satisfied until a job by that name has actually run on main, so applying it first would block every pull request. Delete this note once applied.",
-
   "required": [
     "Analyze (javascript-typescript)",
-    "test (ubuntu-latest, 22.13.0)",
     "test (ubuntu-latest, 22)",
     "test (ubuntu-latest, 24)",
-    "test (windows-latest, 22.13.0)",
     "test (windows-latest, 22)",
     "test (windows-latest, 24)"
   ],

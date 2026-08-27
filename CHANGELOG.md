@@ -9,6 +9,31 @@ to npm and pushes the matching `vX.Y.Z` tag.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`models set` destroyed every other alias in MODELS.md (data loss, high).**
+  `writeModelsMd()` rendered the whole `## Aliases` block from
+  `config.json#models.aliases`, so a single `agent-cli models set <alias>
+  <provider/model>` deleted every `<ALIAS>` line the config had not (yet) heard
+  of, and `setAlias()` merged over a config-only `prev`, so the target's
+  `fallbacks=""` chain was cleared as well. `~/.agents/MODELS.md` is
+  hand-editable by design, is the record the whole alias system reads, and is
+  not tracked by git — so the drift that triggers this (a hand-edited file, a
+  restored MODELS.md, a repaired or reset `config.json`) is normal and the loss
+  was unrecoverable. The command printed a success line either way.
+
+  The `## Aliases` block is now maintained by a per-line upsert: a line is
+  rewritten only when config says something different about that alias,
+  appended when config has an alias the file lacks, and deleted only for names
+  passed in the new `writeModelsMd({ drop })` option (which `models rm` now
+  supplies). Every other line — including one for an alias `config.json` has
+  never seen, and one whose attributes are hand-ordered — comes back
+  byte-identical. `setAlias()` fills gaps from MODELS.md before merging, so
+  `models set` without `--fallback` preserves the existing chain (and its
+  category/thinking); `--fallback` still replaces it. `models rm` can now also
+  clear a line that exists only in MODELS.md, which was previously unremovable.
+  Regression coverage in `test/models-md-preserve.test.js`.
+
 ## [0.9.0]
 
 Closes 57 of 58 open CodeQL security alerts (the 1 remaining is the

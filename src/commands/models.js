@@ -112,7 +112,10 @@ export function registerModelsCommands(
 						"Usage: agent-cli models rm <alias>   (quote a name with spaces, or pass it after --)",
 					);
 				}
-				const removed = m.removeAlias(alias);
+				// config.json and MODELS.md can drift, so an alias may exist as a
+				// line in the file with no config entry behind it. `rm` has to be
+				// able to clear those too, or the line would be unremovable.
+				const removed = m.removeAlias(alias) || m.getModelsMdAlias(alias);
 				if (!removed) {
 					fail(`No such alias: ${alias}`, {
 						command: "models",
@@ -120,8 +123,9 @@ export function registerModelsCommands(
 						alias,
 					});
 				}
-				// Keep MODELS.md in sync with the alias configuration.
-				m.writeModelsMd();
+				// Keep MODELS.md in sync — `drop` is what deletes the alias line;
+				// the writer preserves every line it was not told about.
+				m.writeModelsMd({ drop: [alias] });
 				emit({
 					command: "models",
 					action: "rm",

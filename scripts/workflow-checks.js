@@ -22,8 +22,17 @@
 //             set — enforced on every PR by test/workflow-supply-chain.test.js.
 //             Requiring every derived name to be classified as required or
 //             explicitly-not-required-with-a-reason is what catches a new
-//             matrix leg; requiring the manifest to be a subset of the derived
-//             names is what catches a phantom.
+//             matrix leg; requiring every classified name to be accounted for
+//             is what catches a phantom.
+//
+//             "Accounted for" is not the same as "derived". Not every real
+//             check run comes from a job in this repository — GitHub's
+//             code-scanning gate surfaces as a check run called "CodeQL", and
+//             Apps and external CI post their own. Those are declared in the
+//             manifest's `external` map, with a reason, and are exempt from
+//             the derived-subset test. Without that, requiring any of them
+//             would trip the phantom check, and this guard would cause the
+//             outage it exists to prevent.
 //
 //   remote    `node scripts/workflow-checks.js --remote` PRINTS the gh
 //             commands to inspect and to apply the manifest. It deliberately
@@ -209,20 +218,36 @@ export function readManifest() {
 
 /**
  * Compare derived names against the manifest. Returns
- * `{ unclassified, phantom, required }` — `unclassified` is a real job the
- * manifest does not mention (silent gap), `phantom` is a manifest entry no job
- * produces (the outage).
+ * `{ unclassified, phantom, required, staleExternal }` — `unclassified` is a
+ * real job the manifest does not mention (silent gap), `phantom` is a manifest
+ * entry nothing produces (the outage).
+ *
+ * `manifest.external` names check runs that are real but come from somewhere
+ * other than a job in .github/workflows — GitHub's code-scanning gate surfaces
+ * as a check run called "CodeQL", and Apps and external CI can post their own.
+ * Without that escape hatch this function reports any such context as a
+ * phantom, so a legitimate configuration would fail the very guard written to
+ * keep main mergeable. It stays narrow on purpose: an entry needs a written
+ * reason, so a typo is still a phantom rather than something that can be waved
+ * through by adding it here.
+ *
+ * `staleExternal` is the opposite mistake — a name declared external that a
+ * workflow job now does produce, which means the declaration is describing
+ * something that is no longer true.
  */
 export function reconcile(derived = deriveCheckNames(), manifest = readManifest()) {
 	const derivedNames = new Set(derived.map((d) => d.name));
+	const external = Object.keys(manifest.external ?? {});
 	const required = manifest.required ?? [];
 	const notRequired = Object.keys(manifest.not_required ?? {});
-	const classified = new Set([...required, ...notRequired]);
+	const classified = new Set([...required, ...notRequired, ...external]);
+	const accountedFor = new Set([...derivedNames, ...external]);
 
 	return {
 		required,
 		unclassified: [...derivedNames].filter((n) => !classified.has(n)).sort(),
-		phantom: [...classified].filter((n) => !derivedNames.has(n)).sort(),
+		phantom: [...classified].filter((n) => !accountedFor.has(n)).sort(),
+		staleExternal: external.filter((n) => derivedNames.has(n)).sort(),
 	};
 }
 
@@ -238,7 +263,7 @@ function repoSlug() {
 function main(argv) {
 	const manifest = readManifest();
 	const derived = deriveCheckNames();
-	const { unclassified, phantom } = reconcile(derived, manifest);
+	const { unclassified, phantom, staleExternal } = reconcile(derived, manifest);
 
 	if (argv.includes("--remote")) {
 		const slug = repoSlug();
@@ -277,9 +302,18 @@ function main(argv) {
 		process.stdout.write(`  [${mark}] ${name}  (${workflow})\n`);
 	}
 
+	const externalNames = Object.keys(manifest.external ?? {});
+	if (externalNames.length) {
+		process.stdout.write(`\nDeclared external (not produced by a workflow job):\n`);
+		for (const name of externalNames) {
+			const mark = requiredSet.has(name) ? "required" : "not required";
+			process.stdout.write(`  [${mark}] ${name}\n`);
+		}
+	}
+
 	for (const name of phantom) {
 		process.stdout.write(
-			`\nPHANTOM: manifest lists "${name}" but no workflow job produces it.\n`,
+			`\nPHANTOM: manifest lists "${name}" but nothing produces it - no workflow job, and it is not declared in 'external'.\n`,
 		);
 	}
 	for (const name of unclassified) {
@@ -288,7 +322,14 @@ function main(argv) {
 		);
 	}
 
-	const clean = !phantom.length && !unclassified.length;
+	for (const name of staleExternal) {
+		process.stdout.write(
+			`\nSTALE EXTERNAL: "${name}" is declared external but a workflow job now produces it.\n`,
+		);
+	}
+
+	const clean =
+		!phantom.length && !unclassified.length && !staleExternal.length;
 	if (argv.includes("--verify")) {
 		process.stdout.write(
 			clean ? "\nmanifest matches the workflows\n" : "\nmanifest is out of sync\n",

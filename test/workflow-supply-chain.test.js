@@ -190,6 +190,68 @@ test("required-status-checks.json classifies exactly the checks the workflows pr
 	);
 });
 
+test("a check run that no workflow produces can still be required", () => {
+	// The phantom check assumes every required context comes from a job in
+	// .github/workflows. That is true here today and false in general: the
+	// code-scanning gate surfaces as a check run called "CodeQL", and Apps and
+	// external CI post their own. Before `external` existed, requiring any of
+	// them failed this guard with "no workflow job produces it" — so the guard
+	// written to keep main mergeable would have refused a legitimate config and
+	// caused the outage itself.
+	const manifest = readManifest();
+	const derived = deriveCheckNames();
+	const externalName = Object.keys(manifest.external ?? {})[0];
+	assert.ok(externalName, "expected at least one declared external check run");
+
+	const asRequired = {
+		...manifest,
+		required: [...(manifest.required ?? []), externalName],
+	};
+	assert.deepEqual(
+		reconcile(derived, asRequired).phantom,
+		[],
+		`requiring the declared-external "${externalName}" must not read as a phantom`,
+	);
+});
+
+test("a name that nothing produces is still a phantom", () => {
+	// The other half: `external` must not become a way to wave anything through.
+	// A typo is not in the map, so it still fires — which is the property that
+	// caught the real `CI` context that once left main unmergeable.
+	const manifest = readManifest();
+	const typo = { ...manifest, required: [...(manifest.required ?? []), "CI"] };
+	assert.deepEqual(reconcile(deriveCheckNames(), typo).phantom, ["CI"]);
+});
+
+test("an external declaration goes stale if a workflow starts producing that name", () => {
+	// Declaring a name external says "nothing here emits this". If a job later
+	// does, the declaration is describing something untrue and is shadowing a
+	// real derived check — report it rather than let it sit.
+	const manifest = readManifest();
+	const realName = deriveCheckNames()[0].name;
+	const shadowed = {
+		...manifest,
+		external: { ...(manifest.external ?? {}), [realName]: "stale entry" },
+	};
+	assert.deepEqual(reconcile(deriveCheckNames(), shadowed).staleExternal, [
+		realName,
+	]);
+});
+
+test("every external check carries a written reason", () => {
+	// Same bar as not_required, and for the same purpose: the exemption has to
+	// justify itself in the manifest, or `external` becomes a silent allowlist.
+	const manifest = readManifest();
+	const thin = Object.entries(manifest.external ?? {})
+		.filter(([, reason]) => typeof reason !== "string" || reason.trim().length < 40)
+		.map(([name]) => name);
+	assert.deepEqual(
+		thin,
+		[],
+		`these external entries need a real explanation of where they come from: ${thin.join(", ")}`,
+	);
+});
+
 test("every not_required check carries a written reason", () => {
 	// The reason is the load-bearing part. `Analyze (actions)` looks like an
 	// oversight to anyone who has not been told it is a decision, and "fixing"

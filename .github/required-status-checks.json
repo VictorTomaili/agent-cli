@@ -14,6 +14,12 @@
     "test (windows-latest, 24)"
   ],
 
+  "$comment_external": "Check runs that are REAL but are not produced by a job in .github/workflows, so the deriver cannot see them. Without this section any such context reads as a phantom, and the guard written to keep main mergeable would itself refuse a legitimate configuration. Entries need a written reason, so a typo is still caught as a phantom rather than waved through by being added here. If a workflow job ever starts producing one of these names, the entry is reported as stale rather than silently shadowing the real job.",
+
+  "external": {
+    "CodeQL": "GitHub's code-scanning gate, surfaced as a check run rather than emitted by codeql.yml. This is the SECOND merge gate on this repository and the one that is easy to miss: the `main` ruleset carries a `code_scanning` rule (alerts_threshold errors_and_warnings, security_alerts_threshold medium_or_higher) which is not a status check and appears in no required-contexts list. It is not currently required as a context, and it does not need to be — the ruleset rule gates on its own. Recorded here so the manifest represents both mechanisms instead of describing the alert gate as absent. Observed directly: on PR #14, `Analyze (javascript-typescript)` reported SUCCESS while three high alerts were open and this gate held the merge."
+  },
+
   "not_required": {
     "Analyze (actions)": "CodeQL's `actions` pack lints the workflow files themselves, and it runs on every PR — its findings still reach the Security tab. It is deliberately not a required context: scripts/codeql/severity-policy.json names `Analyze (javascript-typescript)` as the single blocking code-scanning context, and the `main` ruleset's code_scanning rule already gates merges on alert severity across both packs. Requiring this second context would give one policy two enforcement points that can disagree. Not an oversight — do not 'fix' it by adding it.",
 

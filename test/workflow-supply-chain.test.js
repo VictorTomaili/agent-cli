@@ -269,6 +269,56 @@ test("every not_required check carries a written reason", () => {
 	);
 });
 
+test("every inline lgtm comment names a rule the severity policy knows about", () => {
+	// severity-policy.json asks for a "periodic review of `git grep 'lgtm['` to
+	// ensure suppressions are still valid". This is that review, run every time.
+	//
+	// It matters more than it looks, because these comments do NOT suppress
+	// anything — GitHub Code Scanning does not honour LGTM.com's syntax, and the
+	// policy's false_positive_handling entry now says so. What they are is the
+	// in-code record of why an alert was dismissed in the Security tab. A record
+	// naming a rule the policy has never heard of is either a typo or a
+	// suppression nobody classified, and both are worth catching: the comment is
+	// the only thing at the call site explaining why the alert is acceptable.
+	const policy = JSON.parse(
+		fs.readFileSync(
+			path.join(ROOT, "scripts", "codeql", "severity-policy.json"),
+			"utf8",
+		),
+	);
+	const known = new Set(
+		[...(policy.block_on_pr ?? []), ...(policy.advisory_only ?? [])].filter(
+			(entry) => !entry.startsWith("$"),
+		),
+	);
+
+	const LGTM = /lgtm\s*\[\s*([a-z0-9/-]+)\s*\]/gi;
+	const unknown = [];
+	const walk = (dir) => {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				walk(full);
+			} else if (/\.(js|mjs)$/.test(entry.name)) {
+				const text = fs.readFileSync(full, "utf8");
+				for (const m of text.matchAll(LGTM)) {
+					if (!known.has(m[1])) {
+						unknown.push(`${path.relative(ROOT, full)}: ${m[1]}`);
+					}
+				}
+			}
+		}
+	};
+	for (const dir of ["src", "scripts", "test"]) walk(path.join(ROOT, dir));
+
+	assert.deepEqual(
+		unknown,
+		[],
+		`these lgtm comments name rules severity-policy.json does not classify:\n  ${unknown.join("\n  ")}`,
+	);
+});
+
 test("the CodeQL context the severity policy names is actually required", () => {
 	// scripts/codeql/severity-policy.json declares which CodeQL context
 	// enforces the block/advisory split. If that context is not in the required

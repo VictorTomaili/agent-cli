@@ -144,8 +144,22 @@ function readStore(scope, cwd) {
 	try {
 		const parsed = JSON.parse(readFileNoFollow(p, { maxBytes: MAX_STORE_READ_BYTES }));
 		if (parsed && typeof parsed === "object" && parsed.secrets) return parsed;
-	} catch {
-		/* missing, refused, corrupt, or oversized → treat as an empty store */
+	} catch (err) {
+		// A store we are NOT PERMITTED to read is the one failure that must not
+		// read as empty: setSecret() would then write a fresh store straight over
+		// it and silently destroy every secret in it. Fail loudly instead, the
+		// same way loadKey() refuses to replace a key it could not read.
+		//
+		// Only EACCES/EPERM. Everything else stays in the empty-store set on
+		// purpose: ENOENT is a first run, a SyntaxError or the maxBytes cap is a
+		// corrupt store worth replacing, and ESYMLINKREFUSED is the SEC-3 attack
+		// — all three MUST keep reading as empty so the write path goes on to
+		// replace the file rather than aborting on it.
+		if (err?.code === "EACCES" || err?.code === "EPERM")
+			throw new Error(
+				`secrets store at ${p} exists but could not be read — refusing to replace it (check permissions)`,
+				{ cause: err },
+			);
 	}
 	return { version: 1, secrets: {} };
 }

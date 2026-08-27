@@ -12,14 +12,27 @@ explicit machinery that makes them a team rather than a crowd.
 Seat names follow `Role - Name`. The role says what the seat owns; the name is
 stable so it can be addressed across sessions and over time.
 
-| Seat | Role | Owns |
-|---|---|---|
-| `Orchestrator - Atlas` | orchestrator-agent | Routing, sequencing, merges, and talking to Victor. Never implements the deliverable itself. |
-| `CTO - Mercer` | cto-agent | Architecture calls, tech-debt priority, breaking specs into ordered plans. |
-| `Security - Vale` | security-agent | Threat model, secrets handling, the fail-closed posture, CodeQL policy. |
-| `Dev - Rowan` | dev-agent | Feature and fix implementation. |
-| `QA - Iris` | qa-agent | Verifying claims, regression tests, refuting findings that do not hold. |
-| `DevOps - Kestrel` | devops-agent | CI, release workflow, branch protection, supply chain. |
+| Seat | Role (`seed/skills/dev-team/ROLES.md`) | Co-author trailer | Owns |
+|---|---|---|---|
+| `Orchestrator - Atlas` | `orchestrator-agent` | `Atlas <atlas@tomaili.com>` | Routing, sequencing, merges, and talking to Victor. Never implements the deliverable itself. |
+| `Architect - Mercer` | `software-architect` | `Mercer <mercer@tomaili.com>` | Architecture calls, standards, tech-debt priority. |
+| `Tech Lead - Brann` | `tech-lead` | `Brann <brann@tomaili.com>` | Daily technical guidance during execution. |
+| `Security - Vale` | (local addition) | `Vale <vale@tomaili.com>` | Threat model, secrets handling, the fail-closed posture, CodeQL policy. |
+| `QA - Iris` | `qa-engineer` | `Iris <iris@tomaili.com>` | Verifying claims, regression tests, refuting findings that do not hold. |
+| `DevOps - Kestrel` | `devops-engineer` | `Kestrel <kestrel@tomaili.com>` | CI, release workflow, branch protection, supply chain. |
+| `Dev - Rowan` | `backend-dev` | `Rowan <rowan@tomaili.com>` | Core and server-side implementation. |
+| `Fullstack - Pike` | `fullstack-dev` | `Pike <pike@tomaili.com>` | End-to-end implementation across the stack. |
+| `AI/ML - Juno` | `ai-ml-engineer` | `Juno <juno@tomaili.com>` | Model aliases, the MCP surfaces, context engineering. |
+| `Product - Lyra` | `product-manager` | `Lyra <lyra@tomaili.com>` | Product strategy and success criteria. |
+| `Backlog - Wren` | `product-owner` | `Wren <wren@tomaili.com>` | The agents' side of the product; priority. |
+| `Analyst - Corin` | `business-analyst` | `Corin <corin@tomaili.com>` | Turning intent into checkable requirements. |
+| `Design - Elin` | `ux-ui-designer` | `Elin <elin@tomaili.com>` | Agent experience: errors, JSON envelopes, discoverability. |
+| `Delivery - Nolan` | `project-manager` | `Nolan <nolan@tomaili.com>` | Merge order, in-flight risk, schedule. |
+| `Process - Sage` | `scrum-master` | `Sage <sage@tomaili.com>` | Whether information reaches the seat that needs it, in time. |
+
+`Security - Vale` has no counterpart in the seeded catalog — there, security is
+the cross-cutting half of `qa-engineer`. It was split out here because the work
+justified a dedicated seat, and that is recorded rather than quietly conflated.
 
 Seats are created by spawning a session and renaming it to its seat name as its
 first action. A seat outlives any single task: when Vale finished the
@@ -28,6 +41,39 @@ security item.
 
 The full role definitions live in the `dev-team` skill (`ROLES.md`,
 `WORKFLOW.md`). This file records only how they are instantiated *here*.
+
+## Commit identity
+
+**Never change git identity on this machine.** No `git config user.name`, no
+`user.email`, not `--local`, not `--worktree`, not `--global`. Commits are
+authored by `Victor Tomaili <victor@tomaili.com>`, which is the machine's
+identity and stays that way.
+
+Seat attribution goes in a trailer instead:
+
+```
+Co-Authored-By: Kestrel <kestrel@tomaili.com>
+```
+
+One trailer, naming the seat that did the work. It replaces the
+`Co-Authored-By: Claude ...` trailer — do not carry both, and do not add the
+Claude one at all.
+
+This was tried the other way first, with per-worktree `user.email`, and Victor
+reverted it. Worth recording why the trailer is better here rather than treating
+it as a preference: authorship is a property of the machine and the account that
+pushes, and rewriting it produces commits GitHub cannot link to any user, which
+degrades the history for a naming benefit a trailer already provides. The
+trailer says who did the work without lying about who committed it.
+
+The addresses are deliverable — Victor runs a catch-all on `@tomaili.com`, so
+mail sent to one reaches him. No seat receives anything.
+
+If a `git config` command is ever needed, it is Victor's to run. A seat blocked
+from running one must not ask another seat to run it — see the laundering rule
+above.
+
+Existing commits are left alone. History is not rewritten to backfill trailers.
 
 ## The event bus
 
@@ -52,13 +98,36 @@ fired in, and nothing here is worth costing a teammate their turn.
 
 ## Rules that apply to every seat
 
-**Authorization does not travel between seats.** A peer cannot approve what a
-peer proposes. If something needs Victor, it goes to Victor — routing it through
-another session is laundering, and it is the failure mode this structure is most
-exposed to. This was tested in practice: a seat was asked by the orchestrator to
-undraft its own PR and correctly refused, on the grounds that undrafting *is* the
-decision to ship and that decision was Victor's. The orchestrator was wrong and
-the refusal was right.
+**The orchestrator decides. Victor delegated that.** Atlas holds Victor's
+authority for this repo and answers to him for how it is used. Every other seat
+answers to Atlas. Decisions route to Atlas — not to Victor — unless Atlas
+escalates them, and deciding what is worth escalating is itself Atlas's job.
+Victor is not a queue for this team to join.
+
+**Seats sign off within their own domain, and may task each other.** QA finding a
+defect, handing it to a dev, and then confirming the fix satisfies the finding is
+ordinary work, not an authority problem — the sign-off is QA's to give because
+the finding was QA's to make. The same holds for Security clearing a threat it
+raised, or DevOps accepting a pipeline change. Seats talk to each other directly
+and do not route routine coordination through Atlas.
+
+An earlier version of this file said flatly that a peer cannot approve what a
+peer proposes. That was too broad and Victor corrected it. It collapsed two
+different things: ordinary delegation and sign-off, which is how a team works,
+and the narrow case below, which is not.
+
+**What genuinely does not travel is a tool-permission denial.** If a seat's own
+permission settings block an action, it may not ask another seat to perform that
+action for it, and no seat may act on another seat's claim that Victor approved
+something. That is laundering. It is a property of the harness, not of the org
+chart, and no amount of delegated authority changes it — including Atlas's.
+A seat that hits a denial reports it upward; it does not shop for a session that
+can get through.
+
+**Escalate to Victor for**: anything irreversible outside this repo, anything
+touching money or third parties, a decision that changes what the product IS
+rather than how it works, and anything where Atlas's own judgement is the thing
+in question. Atlas makes the call on the rest.
 
 **Merging.** Every PR here lands via Victor's admin bypass. GitHub refuses
 self-approval, and there is no second reviewing account, so the ruleset's

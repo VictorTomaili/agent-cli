@@ -86,6 +86,24 @@ function plantSymlink(target, linkPath) {
 	}
 }
 
+/**
+ * Plant `linkPath` as a DIRECTORY link to `target` — the SEC-5 fixture. Typed
+ * "junction" because on Windows that needs no privilege at all, which is what
+ * makes SEC-5 cheaper to exploit than the file symlinks above; POSIX ignores the
+ * type hint and plants an ordinary directory symlink. Same refusal contract as
+ * plantSymlink: returns the error when the OS declines, so the caller skips
+ * rather than reporting a false pass.
+ */
+function plantDirLink(target, linkPath) {
+	try {
+		symlinkSync(target, linkPath, "junction");
+		return null;
+	} catch (err) {
+		if (["EPERM", "EACCES", "ENOSYS"].includes(err?.code)) return err;
+		throw err;
+	}
+}
+
 const SKIP_REASON = (err) =>
 	`symlink creation is not permitted here (${err.code}) — cannot plant the ` +
 	`attack fixture; enable Developer Mode / run elevated to exercise this guard`;
@@ -495,5 +513,84 @@ test("SEC-3c: a store that cannot be read must raise, not silently read as empty
 		secrets.getSecret("KEEP_ME", { scope: "project", cwd }),
 		"the secret that must survive",
 		"SEC-3c: the original secret must still decrypt once access is restored",
+	);
+});
+
+// -----------------------------------------------------------------------------
+// SEC-5: a redirected project BASE must refuse, never resolve to the global store
+// -----------------------------------------------------------------------------
+
+// SEC-3/SEC-4 and their -b variants all guard the FINAL path component: the store
+// file, the key file. Move the link one level UP — make `.agents` itself the
+// symlink — and every one of those guards is bypassed, because the final
+// component is then a genuine regular file (the real global store) reached
+// through a redirected directory. readFileNoFollow sees nothing wrong, the key
+// resolves through the same redirect, and the secrets decrypt.
+//
+// This is the worse half of the family. SEC-3 was data LOSS; this is DISCLOSURE:
+// `secret env -p` inside a hostile checkout prints the machine's global secrets
+// in plaintext. And on Windows a junction needs no privilege at all, so unlike
+// the symlink fixtures above this one cannot be dismissed as hard to plant.
+test("SEC-5: a project .agents redirected at the global brain must refuse, not disclose", (t) => {
+	const SECRET = "global-value-that-must-never-leak";
+	secrets.setSecret("SEC5_GLOBAL", SECRET, { scope: "global" });
+	assert.equal(
+		secrets.getSecret("SEC5_GLOBAL", { scope: "global" }),
+		SECRET,
+		"fixture: the global secret must be readable in global scope",
+	);
+
+	const repo = mkdtempSync(path.join(tmpdir(), "agent-sec5-hostile-"));
+	// "junction" so this exercises the no-privilege Windows path; POSIX ignores
+	// the type hint and plants an ordinary directory symlink.
+	const refused = plantDirLink(secrets.AGENTS_DIR, path.join(repo, ".agents"));
+	if (refused) {
+		t.skip(SKIP_REASON(refused));
+		return;
+	}
+
+	const project = { scope: "project", cwd: repo };
+	const redirected = /refusing to use project scope/;
+
+	// The disclosure path: this is what printed the global secrets in plaintext.
+	assert.throws(
+		() => secrets.secretEnv(project),
+		redirected,
+		"SEC-5: `secret env -p` must refuse, never decrypt the global store",
+	);
+	assert.throws(
+		() => secrets.listSecretNames(project),
+		redirected,
+		"SEC-5: listing project secrets must refuse, never enumerate the global store",
+	);
+	assert.throws(
+		() => secrets.getSecret("SEC5_GLOBAL", project),
+		redirected,
+		"SEC-5: reading a project secret must refuse, never reach the global one",
+	);
+	// The write path: a redirected base would otherwise mutate the global store.
+	assert.throws(
+		() => secrets.setSecret("PLANTED", "x", project),
+		redirected,
+		"SEC-5: writing a project secret must refuse, never write to the global store",
+	);
+
+	// Carry a stable code, not just a message, so callers can branch on it.
+	try {
+		secrets.secretEnv(project);
+		assert.fail("SEC-5: expected a refusal");
+	} catch (err) {
+		assert.equal(err.code, "EPROJECTBASEREDIRECTED", "SEC-5: refusal must carry its code");
+	}
+
+	// The global store must be untouched and still correct after all of that.
+	assert.equal(
+		secrets.getSecret("SEC5_GLOBAL", { scope: "global" }),
+		SECRET,
+		"SEC-5: the global secret must survive the attack unchanged",
+	);
+	assert.ok(
+		!secrets.listSecretNames({ scope: "global" }).includes("PLANTED"),
+		"SEC-5: the refused project write must not have landed in the global store",
 	);
 });

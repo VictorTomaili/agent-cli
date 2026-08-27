@@ -61,7 +61,7 @@ test("removeJob deletes by name", () => {
 test("installGitHooks writes agent-managed hooks; removeGitHooks cleans them", () => {
 	const repo = mkdtempSync(path.join(tmpdir(), "agent-gitrepo-"));
 	mkdirSync(path.join(repo, ".git", "hooks"), { recursive: true });
-	const installed = auto.installGitHooks({ cwd: repo });
+	const { installed } = auto.installGitHooks({ cwd: repo });
 	assert.deepEqual(installed, ["post-merge", "post-checkout"]);
 	for (const h of installed) {
 		const p = path.join(repo, ".git", "hooks", h);
@@ -97,4 +97,62 @@ test("watch fingerprint detects a changed file", async () => {
 	// no change → no events
 	const same = auto.diffFingerprints(after, auto.fingerprintAll(targets));
 	assert.equal(same.length, 0);
+});
+
+// `hooks install` writes over .git/hooks/post-merge and post-checkout, and git
+// hooks are untracked — a clobbered husky/git-lfs hook is unrecoverable. The
+// remove path already refuses to touch a hook without the marker, and
+// pointer.js backs native content up before a forced overwrite; install has to
+// hold the same line.
+test("installGitHooks refuses to clobber a foreign hook and reports it", () => {
+	const repo = mkdtempSync(path.join(tmpdir(), "agent-gitforeign-"));
+	mkdirSync(path.join(repo, ".git", "hooks"), { recursive: true });
+	const pm = path.join(repo, ".git", "hooks", "post-merge");
+	const husky = '#!/bin/sh\n. "$(dirname -- "$0")/_/husky.sh"\nnpx lint-staged\n';
+	writeFileSync(pm, husky);
+
+	const res = auto.installGitHooks({ cwd: repo });
+	assert.equal(readFileSync(pm, "utf8"), husky, "foreign hook must survive untouched");
+	assert.deepEqual(res.installed, ["post-checkout"]);
+	assert.deepEqual(res.skipped, ["post-merge"]);
+	// The free slot is still installed — one foreign hook must not block the rest.
+	assert.ok(
+		readFileSync(path.join(repo, ".git", "hooks", "post-checkout"), "utf8")
+			.includes("Managed by agent-cli"),
+	);
+});
+
+test("installGitHooks --force replaces a foreign hook but backs it up first", () => {
+	const repo = mkdtempSync(path.join(tmpdir(), "agent-gitforce-"));
+	mkdirSync(path.join(repo, ".git", "hooks"), { recursive: true });
+	const pm = path.join(repo, ".git", "hooks", "post-merge");
+	const husky = '#!/bin/sh\nnpx lint-staged\n';
+	writeFileSync(pm, husky);
+
+	const res = auto.installGitHooks({ cwd: repo, force: true });
+	assert.deepEqual(res.installed, ["post-merge", "post-checkout"]);
+	assert.deepEqual(res.skipped, []);
+	assert.ok(readFileSync(pm, "utf8").includes("Managed by agent-cli"));
+	const backup = res.backups["post-merge"];
+	assert.ok(backup, "a forced overwrite must record where the original went");
+	assert.equal(readFileSync(backup, "utf8"), husky, "backup must hold the original bytes");
+});
+
+test("installGitHooks re-installs over its own hook without a backup", () => {
+	const repo = mkdtempSync(path.join(tmpdir(), "agent-gitreinstall-"));
+	mkdirSync(path.join(repo, ".git", "hooks"), { recursive: true });
+	assert.deepEqual(auto.installGitHooks({ cwd: repo }).installed, [
+		"post-merge",
+		"post-checkout",
+	]);
+	// Idempotent: our own marker is not "foreign", so a second run is a no-op
+	// upgrade rather than a refusal, and leaves no backup litter behind.
+	const second = auto.installGitHooks({ cwd: repo, withAutomation: true });
+	assert.deepEqual(second.installed, ["post-merge", "post-checkout"]);
+	assert.deepEqual(second.skipped, []);
+	assert.deepEqual(second.backups, {});
+	assert.ok(
+		readFileSync(path.join(repo, ".git", "hooks", "post-merge"), "utf8")
+			.includes("automation run --event post-merge"),
+	);
 });
